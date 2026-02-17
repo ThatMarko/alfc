@@ -1,6 +1,6 @@
 # Aorus Laptop Fan Control (alfc) - Linux Guide
 
-Linux pros - feel free to contribute either to the following guide or automating the 
+Linux pros - feel free to contribute either to the following guide or automating the
 workflow! 🙂 (See notes in the Wishlist section though.)
 
 ## IMPORTANT
@@ -13,18 +13,11 @@ As for how to figure out whether the addresses are the same on your machine – 
 
 ## Prerequisites
 
-### Install Node.js 18
-
-Needs to be runnable by root.
-
-- Ubuntu/Debian https://github.com/nodesource/distributions#installation-instructions
-- Arch https://wiki.archlinux.org/title/Node.js#Installation
-
 ### Install `acpi_call`
 
 This enables issuing fan control commands.
 
-If you have secure boot enabled, you need to do [this](https://gist.github.com/s-h-a-d-o-w/53c2215e955c3326c6ec8f812a0d2f27) first. 
+If you have secure boot enabled, you need to do [this](https://gist.github.com/s-h-a-d-o-w/53c2215e955c3326c6ec8f812a0d2f27) first.
 
 Download or clone https://github.com/nix-community/acpi_call (the `acpi_callback` version in your package manager might not be compatible or break [as it gets updates](https://github.com/s-h-a-d-o-w/alfc/issues/1)!) and run:
 
@@ -51,13 +44,18 @@ If it doesn't, I'm afraid you'll have to do research yourself.
 
 ## Installation
 
-- Grab the latest alfc release
-- Extract it to wherever you want the tool to live 
-- Run `install.sh`.
+- Grab the latest alfc Linux release
+- Extract it to wherever you want the tool to live
+- Run `sudo ./install.sh`.
 
   A service for alfc will be created and started.
 
 - Go to `http://localhost:5522` to configure things.
+
+### Run without installing a service
+
+- Run `sudo ./run.sh`.
+- Stop it with `Ctrl+C`.
 
 ### Installation troubleshooting
 
@@ -68,8 +66,12 @@ sudo systemctl enable alfc
 sudo systemctl start alfc
 ```
 
+### Uninstall
+
+- Run `sudo ./uninstall.sh`.
+
 ## Wishlist
 
 - Somehow include `acpi_call` in the installation process. But there are two problems:
-    1. People who have secure boot enabled need that whole separate step of signing the module.
-    2. How the module can be loaded on startup might vary from distro to distro.
+  1. People who have secure boot enabled need that whole separate step of signing the module.
+  2. How the module can be loaded on startup might vary from distro to distro.
