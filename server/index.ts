@@ -125,9 +125,8 @@ const exitWithError = () => {
 
   setServer(server);
 
-  const shutdown = async (signal: string) => {
+  const shutdown = (signal: string) => {
     console.log(`Received ${signal}, shutting down...`);
-    await restoreAutoFanControl();
     server.stop();
     process.exit(0);
   };

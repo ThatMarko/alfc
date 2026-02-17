@@ -18,9 +18,9 @@ export function setFixedFan(percent: number) {
   const speed = fanPercentToSpeed(percent);
 
   // SetFixedFanSpeed
-  setCall("0x6b", "SetFixedFanSpeed", { Data: speed });
+  setCall("0x6b", "SetFixedFanSpeed", { Data: speed }).catch(() => {});
   // SetGPUFanDuty
-  setCall("0x47", "SetGPUFanDuty", { Data: speed });
+  setCall("0x47", "SetGPUFanDuty", { Data: speed }).catch(() => {});
 }
 
 // Inverse of initFanControl() — must be updated if initFanControl changes.
@@ -36,10 +36,10 @@ async function getCallInt(methodId: string, methodName: string) {
 }
 
 function initFanControl() {
-  setCall("0x58", "SetSuperQuiet", { Data: 0 });
-  setCall("0x71", "SetAutoFanStatus", { Data: 0 });
-  setCall("0x67", "SetStepFanStatus", { Data: 0 });
-  setCall("0x6a", "SetFixedFanStatus", { Data: 1 });
+  setCall("0x58", "SetSuperQuiet", { Data: 0 }).catch(() => {});
+  setCall("0x71", "SetAutoFanStatus", { Data: 0 }).catch(() => {});
+  setCall("0x67", "SetStepFanStatus", { Data: 0 }).catch(() => {});
+  setCall("0x6a", "SetFixedFanStatus", { Data: 1 }).catch(() => {});
 }
 
 function resetFanSpeed() {

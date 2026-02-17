@@ -10,7 +10,7 @@ import {
 
 vi.mock("../native/index.js", () => ({
   getCall: vi.fn(),
-  setCall: vi.fn(),
+  setCall: vi.fn().mockResolvedValue(undefined),
 }));
 const mockedGetCall = vi.mocked(getCall);
 const mockedSetCall = vi.mocked(setCall);

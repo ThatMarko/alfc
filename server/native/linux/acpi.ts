@@ -37,7 +37,7 @@ export function wmiInit() {
 // TODO: Convert to a number instead of returning a hex string. For Windows as well, obviously
 export async function getCall(methodId: string, _: string, args?: Args) {
   if (!(await isAcpiAvailable())) {
-    return "0";
+    return "";
   }
 
   const command = `\\_SB.PCI0.AMW0.WMBC 0 ${methodId} ${argstoHexString(args)}`;
@@ -47,7 +47,7 @@ export async function getCall(methodId: string, _: string, args?: Args) {
     return result.replace("\0", "");
   } catch (error) {
     console.error(`[ACPI] getCall failed for ${methodId}:`, error);
-    return "0";
+    return "";
   }
 }
 
@@ -61,5 +61,6 @@ export async function setCall(methodId: string, _: string, args: Args) {
     await Bun.write(ACPI_CALL_PATH, command);
   } catch (error) {
     console.error(`[ACPI] setCall failed for ${methodId}:`, error);
+    throw error;
   }
 }

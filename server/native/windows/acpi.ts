@@ -37,8 +37,11 @@ export async function wmiInit() {
       return;
     } catch (e) {
       attempt++;
+      if (attempt >= 3) {
+        console.error(`WMI init attempt ${attempt} failed. No more retries.`);
+        throw e;
+      }
       console.log(`WMI init attempt ${attempt} failed. Retrying in 2s...`);
-      if (attempt >= 3) throw e;
       await Bun.sleep(2000);
     }
   }
