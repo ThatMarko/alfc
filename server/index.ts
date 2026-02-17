@@ -1,11 +1,11 @@
-import path from "path";
-import { initNativeServices } from "./native/index.js";
-import { isDev } from "./utils/consts.js";
-import { websocketHandlers, setServer } from "./websocket/index.js";
+import path from "node:path";
+import { initNativeServices } from "./native/index";
+import { isDev } from "./utils/consts";
+import { websocketHandlers, setServer } from "./websocket/index";
 import {
   restoreAutoFanControl,
   startFanControlShutdown,
-} from "./fan-control/index.js";
+} from "./fan-control/index";
 
 const PORT = 5522;
 

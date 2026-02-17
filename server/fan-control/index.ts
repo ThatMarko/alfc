@@ -1,7 +1,7 @@
-import type { FanTable } from "../../common/types.js";
-import { getCall, setCall } from "../native/index.js";
-import { state } from "../state/index.js";
-import { publishActivity } from "../websocket/index.js";
+import type { FanTable } from "../../common/types";
+import { getCall, setCall } from "../native/index";
+import { state } from "../state/index";
+import { publishActivity } from "../websocket/index";
 
 export const WAIT_RAMP_DOWN_CYCLES = 10;
 export const WAIT_RAMP_UP_CYCLES = 3;

@@ -3,28 +3,25 @@ import type {
   MessageToClient,
   MessageToServer,
   State,
-} from "../../common/types.js";
-import {
-  MessageToClientKind,
-  MessageToServerKind,
-} from "../../common/types.js";
-import { fanControl, setFixedFan } from "../fan-control/index.js";
-import { getCall, setCall, tune } from "../native/index.js";
-import { persistState, state } from "../state/index.js";
-import { websocketHandlers } from "./index.js";
+} from "../../common/types";
+import { MessageToClientKind, MessageToServerKind } from "../../common/types";
+import { fanControl, setFixedFan } from "../fan-control/index";
+import { getCall, setCall, tune } from "../native/index";
+import { persistState, state } from "../state/index";
+import { websocketHandlers } from "./index";
 
-vi.mock("../native/index.js", () => ({
+vi.mock("../native/index", () => ({
   getCall: vi.fn(),
   setCall: vi.fn().mockResolvedValue(undefined),
   tune: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../fan-control/index.js", () => ({
+vi.mock("../fan-control/index", () => ({
   setFixedFan: vi.fn(),
   fanControl: vi.fn(),
 }));
 
-vi.mock("../state/index.js", () => ({
+vi.mock("../state/index", () => ({
   state: {
     protocolVersion: "1.0",
     cpuFanTable: [

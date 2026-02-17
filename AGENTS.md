@@ -42,7 +42,7 @@ alfc/
 
 - **Monorepo**: Bun workspaces (`frontend`, `server`)
 - **Bun 1.3+** required
-- **ESM imports**: Use `.js` extension even for `.ts` files
+- **ESM imports**: Extensionless relative imports (Bun `moduleResolution: "bundler"` convention). Use `node:` prefix for Node built-in modules.
 - **No explicit `any`**: ESLint allows but prefer avoiding
 - **Underscore prefix**: Unused vars must use `_` prefix
 

@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { rename, writeFile } from "node:fs/promises";
 import stringifyCompact from "json-stringify-pretty-compact";
-import path from "path";
-import { isDev } from "../utils/consts.js";
-import type { State } from "../../common/types.js";
+import path from "node:path";
+import { isDev } from "../utils/consts";
+import type { State } from "../../common/types";
 
 type PersistedState = Omit<
   State,

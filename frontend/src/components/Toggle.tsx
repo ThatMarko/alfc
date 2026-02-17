@@ -1,7 +1,7 @@
 import styled from "@emotion/styled";
 import React from "react";
-import { theme } from "../utils/consts.js";
-import { ToggleState } from "../utils/enums.js";
+import { theme } from "../utils/consts";
+import { ToggleState } from "../utils/enums";
 
 const CONTAINER_HEIGHT = 24;
 const CONTAINER_PADDING = 2;

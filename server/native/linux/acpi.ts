@@ -1,4 +1,4 @@
-import type { Args } from "../../../common/types.js";
+import type { Args } from "../../../common/types";
 
 const ACPI_CALL_PATH = "/proc/acpi/call";
 

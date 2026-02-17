@@ -1,14 +1,14 @@
-import { getCall, setCall } from "../native/index.js";
-import { state } from "../state/index.js";
+import { getCall, setCall } from "../native/index";
+import { state } from "../state/index";
 import {
   fanControl,
   fanPercentToSpeed,
   CYCLE_DURATION,
   WAIT_RAMP_UP_CYCLES,
   WAIT_RAMP_DOWN_CYCLES,
-} from "./index.js";
+} from "./index";
 
-vi.mock("../native/index.js", () => ({
+vi.mock("../native/index", () => ({
   getCall: vi.fn(),
   setCall: vi.fn().mockResolvedValue(undefined),
 }));

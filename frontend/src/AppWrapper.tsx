@@ -1,5 +1,5 @@
-import App from "./App.js";
-import { useWebSocket } from "./utils/useWebSocket.js";
+import App from "./App";
+import { useWebSocket } from "./utils/useWebSocket";
 import styled from "@emotion/styled";
 import { ErrorBoundary } from "react-error-boundary";
 

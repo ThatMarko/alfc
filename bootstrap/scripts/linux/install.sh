@@ -31,9 +31,6 @@ detect_init() {
 
 install_systemd() {
   local service_file="/etc/systemd/system/${SERVICE_NAME}.service"
-  local escaped_root escaped_binary
-  escaped_root="$(systemd-escape --path "${ROOT_DIR}")"
-  escaped_binary="$(systemd-escape --path "${BINARY_PATH}")"
 
   cat >"${service_file}" <<EOF
 [Unit]
@@ -42,8 +39,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=${escaped_root}
-ExecStart=${escaped_binary}
+WorkingDirectory=${ROOT_DIR}
+ExecStart=${BINARY_PATH}
 Environment=NODE_ENV=production
 Restart=always
 RestartSec=5

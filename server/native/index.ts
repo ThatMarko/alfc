@@ -1,6 +1,6 @@
-import type { Args } from "../../common/types.js";
-import { fanControl } from "../fan-control/index.js";
-import { state } from "../state/index.js";
+import type { Args } from "../../common/types";
+import { fanControl } from "../fan-control/index";
+import { state } from "../state/index";
 
 type ACPIModule = {
   getCall: (

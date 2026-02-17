@@ -4,13 +4,13 @@ import {
   MessageToClientKind,
   type MessageToServer,
   MessageToServerKind,
-} from "../../common/types.js";
-import { getCall, setCall, tune } from "../native/index.js";
-import { persistState, state } from "../state/index.js";
+} from "../../common/types";
+import { getCall, setCall, tune } from "../native/index";
+import { persistState, state } from "../state/index";
 import {
   setFixedFan,
   fanControl as autoFanControl,
-} from "../fan-control/index.js";
+} from "../fan-control/index";
 
 let server: Server<unknown> | null = null;
 

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Toggle } from "../components/Toggle.js";
-import { useWebSocket } from "../utils/useWebSocket.js";
-import { errorToast } from "../utils/misc.js";
-import { getMethods, setMethods } from "../data/mof.js";
-import { ToggleState } from "../utils/enums.js";
+import { Toggle } from "../components/Toggle";
+import { useWebSocket } from "../utils/useWebSocket";
+import { errorToast } from "../utils/misc";
+import { getMethods, setMethods } from "../data/mof";
+import { ToggleState } from "../utils/enums";
 
 export function Toggles() {
   const [gpuBoost, setGPUBoost] = useState(ToggleState.Unknown);

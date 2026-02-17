@@ -1,7 +1,7 @@
 import { CString, dlopen, FFIType, ptr } from "bun:ffi";
-import path from "path";
-import type { Args } from "../../../common/types.js";
-import { isDev } from "../../utils/consts.js";
+import path from "node:path";
+import type { Args } from "../../../common/types";
+import { isDev } from "../../utils/consts";
 
 const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
 const dllPath = path.join(baseDir, "WmiAPI.dll");

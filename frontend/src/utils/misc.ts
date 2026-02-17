@@ -1,5 +1,5 @@
 import { toast, type ToastContent } from "react-toastify";
-import { theme } from "./consts.js";
+import { theme } from "./consts";
 
 export function successToast(content: ToastContent) {
   toast.success(content, {

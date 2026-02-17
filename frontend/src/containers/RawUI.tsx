@@ -1,8 +1,8 @@
 import styled from "@emotion/styled";
 import React, { useEffect, useRef, useState } from "react";
-import { getMethods, setMethods } from "../data/mof.js";
-import { theme } from "../utils/consts.js";
-import { useWebSocket } from "../utils/useWebSocket.js";
+import { getMethods, setMethods } from "../data/mof";
+import { theme } from "../utils/consts";
+import { useWebSocket } from "../utils/useWebSocket";
 
 enum Kind {
   Get = "get",
@@ -99,7 +99,6 @@ export function RawUI() {
                 min={0}
                 max={255}
                 onChange={(event) => {
-                  event.persist();
                   setArgs((prev) => {
                     return {
                       ...prev,

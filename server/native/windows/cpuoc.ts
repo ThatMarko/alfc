@@ -1,6 +1,6 @@
 import { CString, dlopen, FFIType } from "bun:ffi";
-import path from "path";
-import { isDev } from "../../utils/consts.js";
+import path from "node:path";
+import { isDev } from "../../utils/consts";
 
 const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
 const dllPath = path.join(baseDir, "CPUOC.dll");

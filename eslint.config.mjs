@@ -21,9 +21,7 @@ const gitignorePathServer = path.resolve(
 );
 
 export default tseslint.config(
-  {
-    ignores: ["mockData.ts"],
-  },
+  {},
   includeIgnoreFile(gitignorePath),
   includeIgnoreFile(gitignorePathFrontend),
   includeIgnoreFile(gitignorePathServer),
@@ -39,12 +37,7 @@ export default tseslint.config(
       },
       parserOptions: {
         projectService: {
-          allowDefaultProject: [
-            "*.mjs",
-            "*.js",
-            "bootstrap/index.js",
-            "frontend/config-overrides.js",
-          ],
+          allowDefaultProject: ["*.mjs", "*.js"],
         },
         tsconfigRootDir: import.meta.dirname,
       },
