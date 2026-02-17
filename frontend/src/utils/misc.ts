@@ -1,4 +1,4 @@
-import { toast, ToastContent } from "react-toastify";
+import { toast, type ToastContent } from "react-toastify";
 import { theme } from "./consts.js";
 
 export function successToast(content: ToastContent) {

@@ -1,12 +1,12 @@
 import useReactWebSocket, { ReadyState } from "react-use-websocket";
-import { MessageToClient } from "../../../common/types.js";
+import type { MessageToClient } from "../../../common/types.js";
 
 const emptyObject = {};
 const shouldReconnect = (_: CloseEvent) => true;
 
 export function useWebSocket() {
   const { lastJsonMessage, sendJsonMessage, readyState } =
-    useReactWebSocket<MessageToClient | null>("ws://localhost:5523", {
+    useReactWebSocket<MessageToClient | null>("ws://localhost:5522/ws", {
       heartbeat: true,
       retryOnError: true,
       reconnectAttempts: Number.MAX_SAFE_INTEGER,

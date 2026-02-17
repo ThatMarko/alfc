@@ -1,5 +1,5 @@
-import { ReactNode, useState } from "react";
-import { Tooltip, TooltipProps } from "reactstrap";
+import { type ReactNode, useState } from "react";
+import { Tooltip, type TooltipProps } from "reactstrap";
 import styled from "@emotion/styled";
 
 const StyledContent = styled.div<{

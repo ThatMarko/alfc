@@ -6,8 +6,7 @@ import {
   faThermometerHalf,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { cloneDeep } from "lodash";
-import { FanTableItems } from "./FanTable.js";
+import type { FanTableItems } from "./FanTable.js";
 
 type Props = {
   onChange: (nextCurvePoints: FanTableItems) => void;
@@ -37,7 +36,7 @@ export function FanTableEditor({ onChange, value }: Props) {
             maxLength={3}
             size={4}
             onChange={(event) => {
-              const nextValue = cloneDeep(value);
+              const nextValue = structuredClone(value);
               nextValue[idx] = [event.target.value, tableItem[1]];
               onChange(nextValue);
             }}
@@ -53,7 +52,7 @@ export function FanTableEditor({ onChange, value }: Props) {
             maxLength={3}
             size={4}
             onChange={(event) => {
-              const nextValue = cloneDeep(value);
+              const nextValue = structuredClone(value);
               nextValue[idx] = [tableItem[0], event.target.value];
               onChange(nextValue);
             }}
@@ -64,7 +63,7 @@ export function FanTableEditor({ onChange, value }: Props) {
           <StyledButton
             type="button"
             onClick={() => {
-              const nextValue = cloneDeep(value);
+              const nextValue = structuredClone(value);
               let temperature = parseInt(tableItem[0], 10) - 1;
               let percentage = parseInt(tableItem[1], 10) - 1;
               if (temperature < 40) {
@@ -96,7 +95,7 @@ export function FanTableEditor({ onChange, value }: Props) {
                 : {}
             }
             onClick={() => {
-              const nextValue = cloneDeep(value);
+              const nextValue = structuredClone(value);
               nextValue.splice(idx, 1);
               onChange(nextValue);
             }}
