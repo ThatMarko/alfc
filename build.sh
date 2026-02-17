@@ -1,25 +1,19 @@
-#!/bin/bash
-set -ex
+#!/usr/bin/env bash
+set -euo pipefail
 
 rm -rf dist
 
-pnpm build
+bun run build
 
-cp -r bootstrap/dist .
-cp bootstrap/scripts/linux/* dist
+mkdir -p dist
 
-cp -r server/dist dist/fancontrol
-# TODO: Somehow include the acpi-call unit? I'm not sure whether that make sense.
-
-cp -r frontend/build dist/fancontrol/frontend
-
-cp alfc.config.json dist
-cp package.json dist
+cp server/dist/alfc dist/
+cp -r frontend/build dist/frontend
+cp bootstrap/scripts/linux/* dist/
+cp alfc.config.json dist/
+cp package.json dist/
 
 cd dist
-mkdir alfc
-shopt -s extglob
-mv !(alfc) ./alfc
-tar -czf alfc.tar.gz alfc
+tar -czf alfc.tar.gz --transform 's,^,alfc/,' *
 
 cd ..

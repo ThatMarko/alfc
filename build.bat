@@ -1,35 +1,44 @@
 @echo off
-call pnpm rimraf dist || exit /b
 
-call pnpm build || exit /b
+@REM Build NativeAOT DLLs (requires .NET 8 SDK + C++ build tools)
+echo Building NativeAOT DLLs...
+call bun run --cwd server build:wmiapi || exit /b
+call bun run --cwd server build:cpuoc || exit /b
 
-xcopy /I /E bootstrap\dist dist || exit /b
-copy bootstrap\scripts\*.* dist || exit /b
+@REM Build frontend + server
+echo Building frontend and server...
+if exist dist rmdir /s /q dist
+call bun run build || exit /b
 
-xcopy /I /E server\dist dist\fancontrol || exit /b
-copy server\native\windows\*.dll dist\fancontrol || exit /b
+@REM Assemble release directory
+echo Assembling release...
+mkdir dist\alfc || exit /b
 
-xcopy /I /E frontend\build dist\fancontrol\frontend || exit /b
+@REM Server binary
+copy server\dist\alfc.exe dist\alfc\ || exit /b
 
-@REM Remove excess versions of native dependencies
-cd dist\fancontrol\native\win32 || exit /b
-rmdir /S /Q arm64 || exit /b
-rmdir /S /Q ia32 || exit /b
-cd x64 || exit /b
-move 22 ..\ || exit /b
-for /d %%i in (*) do rd /s /q "%%i" || exit /b
-move ..\22 . || exit /b
-cd ..\..\..\..\..\ || exit /b
+@REM NativeAOT DLLs
+copy server\native\windows\WmiAPI.dll dist\alfc\ || exit /b
+copy server\native\windows\CPUOC.dll dist\alfc\ || exit /b
+copy server\native\windows\IntelOverclockingSDK.dll dist\alfc\ || exit /b
 
-@REM Add default config and package.json
-copy alfc.config.json dist || exit /b
-copy package.json dist || exit /b
+@REM Frontend
+xcopy /I /E frontend\build dist\alfc\frontend || exit /b
 
+@REM WinSW service wrapper
+copy bootstrap\scripts\alfc-service.exe dist\alfc\ || exit /b
+copy bootstrap\scripts\alfc-service.xml dist\alfc\ || exit /b
+
+@REM Scripts and config
+copy bootstrap\scripts\install.bat dist\alfc\ || exit /b
+copy bootstrap\scripts\uninstall.bat dist\alfc\ || exit /b
+copy bootstrap\scripts\run.bat dist\alfc\ || exit /b
+copy alfc.config.json dist\alfc\ || exit /b
+
+@REM Create release archive
+echo Creating release archive...
 cd dist || exit /b
-powershell Compress-Archive * alfc-without-node.zip || exit /b
-move alfc-without-node.zip ..\alfc-without-node.zip || exit /b
-curl -L --output node.exe https://nodejs.org/dist/v22.11.0/win-x64/node.exe || exit /b
-powershell Compress-Archive * alfc.zip || exit /b
-move ..\alfc-without-node.zip alfc-without-node.zip || exit /b
-
+powershell Compress-Archive alfc alfc.zip || exit /b
 cd .. || exit /b
+
+echo Build complete: dist\alfc.zip
