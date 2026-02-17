@@ -3,7 +3,7 @@
     "Id": "org.kde.alfc",
     "Name": "Aorus Laptop Fan Control",
     "Description": "Control your Aorus laptop fans",
-    "Version": "1.2.6",
+    "Version": "2.0.0",
     "Website": "https://github.com/ThatMarko/alfc",
     "License": "MIT",
     "Authors": [

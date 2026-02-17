@@ -3,7 +3,7 @@
 ## How to create a release
 
 1. Update the version in `package.json` and `plasmoid/package/metadata.json`
-2. Commit: `git commit -am "chore: bump version to X.Y.Z"`
+2. Commit: `git commit -am "chore: release vX.Y.Z"`
 3. Tag: `git tag vX.Y.Z`
 4. Push: `git push origin master --tags`
 

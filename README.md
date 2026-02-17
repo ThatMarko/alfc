@@ -1,5 +1,7 @@
 # Aorus Laptop Fan Control (alfc)
 
+> Modern fork of [s-h-a-d-o-w/alfc](https://github.com/s-h-a-d-o-w/alfc) — rewritten on [Bun](https://bun.sh) with native bindings (`bun:ffi` + .NET NativeAOT), a KDE Plasma 6 widget, and cross-platform service management. Original work by [Andreas Opferkuch](https://github.com/s-h-a-d-o-w).
+
 **Please note that if you're using Windows 10 _and_ a CPU other than the i7-10875H, you would have to look up and set the PL1 and PL2 values in order not to possibly limit the performance of your CPU** - e.g. [tech powerup database](https://www.techpowerup.com/cpu-specs/core-i7-10875h.c2277). (`alfc` will attempt to set those levels whenever it starts or you change them, using Intel XTU on Windows 10 and `constraint_0_power_limit_uw` and `constraint_1_power_limit_uw` on Linux. Windows 11 forbids using Intel XTU, at least for this. As far as I'm aware, there's no danger to setting those values too high, since CPUs won't consume more than a certain maximum, regardless of these values. On the other hand, throttling due to low values is possible!)
 
 ## Other tools for Aorus laptops
@@ -81,7 +83,9 @@ If you want to keep using the color profiles:
 
 ## Development notes
 
-`sudo bun run start` - Frontend is available at port 3000.
+Requires [Bun](https://bun.sh) 1.3.9+.
+
+`sudo bun run start` — Frontend at `:3000`, server at `:5522`.
 
 In the direction frontend -> server, arguments are not provided as hex strings, since
 WMI uses named arguments and it is easier to strip this info and convert to a
@@ -91,15 +95,8 @@ hex string for Linux.
 
 Contributions welcome, as always. 🙂
 
-- It would be nice to be able to move to ESM at some point. Unfortunately, dependencies with native aspects don't play well. At least not out of the box and it's not worthwhile to invest a lot of time into workarounds.
 - Refactor styles so there aren't as many inline ones.
 - Prettier status UI.
-- Using RGB lighting to highlight caps/num lock. There's something [here](https://gitlab.com/wtwrp/aeroctl/-/tree/master/Samples/AeroCtl.Rgb.LockKeys) for the Gigabyte Aero that could potentially be reused. (This should actually probably be a seperate little tool, like the Gigabyte-Aorus-Battery-Manager)
-- Make it possible to supply decent service Name and Description, especially on Windows, where it
-  sticks out like a sore thumb. (Requires modifying `os-service`, since it currently uses the name one can supply also as the file name for Linux services, so spaces might be problematic.)
-- ~~Make charge stop work. Based on `SmartManager.dll`, it's quite simple:
-  `cwmi.CallMethod("ROOT\\WMI", "GB_WMIACPI_Set", "SetChargeStop", array);`
-  Yet, `GetChargeStop` shows that the value set with `SetChargeStop` doesn't stick.
-  Does that feature even work? I don't have the Control Center installed any more and don't
-  want to install it again...
-  On Linux, this might be possible [like so](https://askubuntu.com/a/1211506).~~ (See [Gigabyte-Aorus-Battery-Manager](https://github.com/lxmoonlily/Gigabyte-Aorus-Battery-Manager). Leaving this for docs regarding how to do it on Linux.)
+- Using RGB lighting to highlight caps/num lock. There's something [here](https://gitlab.com/wtwrp/aeroctl/-/tree/master/Samples/AeroCtl.Rgb.LockKeys) for the Gigabyte Aero that could potentially be reused. (This should actually probably be a separate tool, like the Gigabyte-Aorus-Battery-Manager.)
+- Publish plasmoid to [KDE Store](https://store.kde.org) for discoverability in KDE Discover.
+- Create an [AUR](https://aur.archlinux.org) package for Arch Linux users.

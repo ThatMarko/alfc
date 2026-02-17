@@ -38,9 +38,13 @@ At least on Mint, I never needed the following but...
 
 ### Run `acpi_call` on startup
 
-If your distro uses systemd, you can use [this really simple method](https://wiki.archlinux.org/title/Kernel_module#Automatic_module_loading_with_systemd). Just put `acpi_call` into `/etc/modules-load.d/acpi_call.conf`.
+**systemd** (Arch, Fedora, Ubuntu, openSUSE, etc.):
 
-If it doesn't, I'm afraid you'll have to do research yourself.
+Put `acpi_call` into `/etc/modules-load.d/acpi_call.conf`. See the [Arch wiki](https://wiki.archlinux.org/title/Kernel_module#Automatic_module_loading_with_systemd) for details.
+
+**OpenRC** (Alpine, Artix, Gentoo, etc.):
+
+Add `acpi_call` to `/etc/modules` (one module name per line). On Gentoo, use `/etc/conf.d/modules` instead.
 
 ## Installation
 
@@ -48,7 +52,7 @@ If it doesn't, I'm afraid you'll have to do research yourself.
 - Extract it to wherever you want the tool to live
 - Run `sudo ./install.sh`.
 
-  A service for alfc will be created and started.
+  The installer auto-detects your init system (systemd or OpenRC) and creates the appropriate service.
 
 - Go to `http://localhost:5522` to configure things.
 
@@ -59,11 +63,18 @@ If it doesn't, I'm afraid you'll have to do research yourself.
 
 ### Installation troubleshooting
 
-If you get an error like: `bin/sh: no command service`, try running the following:
+**systemd**: If you get an error like `bin/sh: no command service`, try:
 
 ```
 sudo systemctl enable alfc
 sudo systemctl start alfc
+```
+
+**OpenRC**: If the service doesn't start, try:
+
+```
+sudo rc-update add alfc default
+sudo rc-service alfc start
 ```
 
 ### Uninstall
