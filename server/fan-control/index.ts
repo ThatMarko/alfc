@@ -1,10 +1,7 @@
-import {
-  MessageToClientKind,
-  FanTable,
-  FanControlActivity,
-} from "../../common/types.js";
-import { getCall, setCall } from "../native";
+import type { FanTable } from "../../common/types.js";
+import { getCall, setCall } from "../native/index.js";
 import { state } from "../state/index.js";
+import { publishActivity } from "../websocket/index.js";
 
 export const WAIT_RAMP_DOWN_CYCLES = 10;
 export const WAIT_RAMP_UP_CYCLES = 3;
@@ -26,6 +23,12 @@ export function setFixedFan(percent: number) {
   setCall("0x47", "SetGPUFanDuty", { Data: speed });
 }
 
+// Inverse of initFanControl() — must be updated if initFanControl changes.
+export function restoreAutoFanControl() {
+  setCall("0x6a", "SetFixedFanStatus", { Data: 0 });
+  setCall("0x71", "SetAutoFanStatus", { Data: 1 });
+}
+
 async function getCallInt(methodId: string, methodName: string) {
   // On rare occassions, the call returns `null`.
   const result = parseInt(await getCall(methodId, methodName), 16);
@@ -42,31 +45,6 @@ function initFanControl() {
 function resetFanSpeed() {
   setFixedFan(state.cpuFanTable[0][1]);
   return state.cpuFanTable[0][1];
-}
-
-function sendActivity(data: FanControlActivity) {
-  if (!state.activitySockets || state.activitySockets.size === 0) {
-    return;
-  }
-
-  for (const socket of state.activitySockets) {
-    try {
-      if (socket.readyState !== socket.OPEN) {
-        console.warn("Activity socket not in OPEN state:", socket.readyState);
-        socket.close();
-        state.activitySockets.delete(socket);
-        continue;
-      }
-
-      socket.send(
-        JSON.stringify({ kind: MessageToClientKind.FanControlActivity, data }),
-      );
-    } catch (err) {
-      console.error("Failed to send activity:", err);
-      socket.close();
-      state.activitySockets.delete(socket);
-    }
-  }
 }
 
 export function fanControl() {
@@ -143,9 +121,6 @@ export function fanControl() {
         const currGPUTemp1 = await getCallInt("0xe2", "getGpuTemp1");
         const currGPUTemp2 = await getCallInt("0xe3", "getGpuTemp2");
         const currGPUTemp = Math.max(currGPUTemp1, currGPUTemp2);
-        // console.log(
-        //   `CPU and GPU1/GPU2 temperatures: ${currCPUTemp} ${currGPUTemp1}/${currGPUTemp2}`,
-        // );
 
         CPUTemps.push(currCPUTemp);
         GPUTemps.push(currGPUTemp);
@@ -194,7 +169,6 @@ export function fanControl() {
             : appliedPercentage,
           target,
         );
-        // console.log(`Ramping up to ${fanPercentToSpeed(gradientTarget)}`);
         setFixedFan(gradientTarget);
 
         currRampDownCycle = 1;
@@ -208,7 +182,6 @@ export function fanControl() {
       // ramp down.
       if (currRampDownCycle === WAIT_RAMP_DOWN_CYCLES) {
         gradientTarget = getGradientTarget(appliedPercentage, target);
-        // console.log(`Ramping down to ${fanPercentToSpeed(gradientTarget)}`);
         setFixedFan(gradientTarget);
 
         currRampDownCycle = 1;
@@ -224,7 +197,7 @@ export function fanControl() {
       currRampUpCycle = 1;
     }
 
-    sendActivity({
+    publishActivity({
       appliedSpeed: appliedPercentage === -1 ? null : appliedPercentage,
       avgCPUTemp,
       avgGPUTemp,

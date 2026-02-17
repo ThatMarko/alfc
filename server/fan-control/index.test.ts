@@ -1,4 +1,4 @@
-import { getCall, setCall } from "../native";
+import { getCall, setCall } from "../native/index.js";
 import { state } from "../state/index.js";
 import {
   fanControl,
@@ -8,7 +8,7 @@ import {
   WAIT_RAMP_DOWN_CYCLES,
 } from "./index.js";
 
-vi.mock("../native", () => ({
+vi.mock("../native/index.js", () => ({
   getCall: vi.fn(),
   setCall: vi.fn(),
 }));
@@ -44,12 +44,7 @@ async function waitUntilFanPercent(fanPercent: number) {
       );
       return advancedTime / CYCLE_DURATION;
     } catch (_) {
-      // console.log(
-      //   `Last call: ${
-      //     mockedSetCall.mock.calls[mockedSetCall.mock.calls.length - 1][2]
-      //       .Data
-      //   } (Expected: ${fanPercentToSpeed(fanPercent)})`,
-      // );
+      void 0;
     }
 
     await vi.advanceTimersByTimeAsync(10);

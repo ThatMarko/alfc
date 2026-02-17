@@ -1,5 +1,3 @@
-import type WebSocket from "ws";
-
 export type FanTable = [number, number][];
 
 export type State = {
@@ -13,7 +11,6 @@ export type State = {
   pl1: number;
   pl2: number;
 
-  activitySockets?: Set<WebSocket>;
   isCpuTuningAvailable?: boolean;
 };
 
@@ -49,7 +46,7 @@ export type MessageToClient = Pick<MessageToServer, "methodName" | "methodId"> &
   (
     | {
         kind: MessageToClientKind.State;
-        data: Omit<State, "activitySockets">;
+        data: State;
       }
     | {
         kind: MessageToClientKind.Success;
