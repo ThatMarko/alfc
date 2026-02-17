@@ -1,0 +1,20 @@
+{
+  "KPlugin": {
+    "Id": "org.kde.alfc",
+    "Name": "Aorus Laptop Fan Control",
+    "Description": "Control your Aorus laptop fans",
+    "Version": "1.2.6",
+    "Website": "https://github.com/lzmoonlily/alfc",
+    "License": "MIT",
+    "Authors": [
+      {
+        "Name": "Andreas Opferkuch",
+        "Email": "andreas.opferkuch@gmail.com"
+      }
+    ],
+    "Category": "System Information",
+    "Icon": "preferences-system-windows"
+  },
+  "KPackageStructure": "Plasma/Applet",
+  "X-Plasma-API-Minimum-Version": "6.0"
+}
