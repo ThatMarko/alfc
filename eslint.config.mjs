@@ -7,13 +7,18 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
 import { includeIgnoreFile } from "@eslint/compat";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const gitignorePath = path.resolve(__dirname, ".gitignore");
-const gitignorePathFrontend = path.resolve(__dirname, "frontend", ".gitignore");
-const gitignorePathServer = path.resolve(__dirname, "server", ".gitignore");
+const gitignorePath = path.resolve(import.meta.dirname, ".gitignore");
+const gitignorePathFrontend = path.resolve(
+  import.meta.dirname,
+  "frontend",
+  ".gitignore",
+);
+const gitignorePathServer = path.resolve(
+  import.meta.dirname,
+  "server",
+  ".gitignore",
+);
 
 export default tseslint.config(
   {
