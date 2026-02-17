@@ -4,8 +4,13 @@ import type { Args } from "../../../common/types.js";
 import { isDev } from "../../utils/consts.js";
 
 const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
+const dllPath = path.join(baseDir, "WmiAPI.dll");
 
-const lib = dlopen(path.join(baseDir, "WmiAPI.dll"), {
+if (!(await Bun.file(dllPath).exists())) {
+  throw new Error(`WmiAPI.dll not found at ${dllPath}`);
+}
+
+const lib = dlopen(dllPath, {
   wmi_init: { args: [], returns: FFIType.i32 },
   wmi_get: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr },
   wmi_set: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
@@ -21,12 +26,22 @@ function getLastError(): string {
   return error.toString();
 }
 
-export function wmiInit() {
-  const result = lib.symbols.wmi_init();
-  if (result !== 0) {
-    throw new Error(`WMI init failed: ${getLastError()}`);
+export async function wmiInit() {
+  let attempt = 0;
+  while (attempt < 3) {
+    try {
+      const result = lib.symbols.wmi_init();
+      if (result !== 0) {
+        throw new Error(`WMI init failed: ${getLastError()}`);
+      }
+      return;
+    } catch (e) {
+      attempt++;
+      console.log(`WMI init attempt ${attempt} failed. Retrying in 2s...`);
+      if (attempt >= 3) throw e;
+      await Bun.sleep(2000);
+    }
   }
-  return Promise.resolve();
 }
 
 export function setCall(_: string, methodName: string, args: Args) {

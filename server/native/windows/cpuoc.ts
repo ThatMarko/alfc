@@ -3,15 +3,25 @@ import path from "path";
 import { isDev } from "../../utils/consts.js";
 
 const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
+const dllPath = path.join(baseDir, "CPUOC.dll");
 
-const lib = dlopen(path.join(baseDir, "CPUOC.dll"), {
-  cpuoc_init: { args: [], returns: FFIType.i32 },
-  cpuoc_tune: { args: [FFIType.f64, FFIType.f64], returns: FFIType.i32 },
-  cpuoc_get_last_error: { args: [], returns: FFIType.ptr },
-  cpuoc_free_string: { args: [FFIType.ptr], returns: FFIType.void },
-});
+export const isCpuocAvailable = await Bun.file(dllPath).exists();
+
+if (!isCpuocAvailable) {
+  console.warn("[CPUOC] CPUOC.dll not found. CPU tuning will be disabled.");
+}
+
+const lib = isCpuocAvailable
+  ? dlopen(dllPath, {
+      cpuoc_init: { args: [], returns: FFIType.i32 },
+      cpuoc_tune: { args: [FFIType.f64, FFIType.f64], returns: FFIType.i32 },
+      cpuoc_get_last_error: { args: [], returns: FFIType.ptr },
+      cpuoc_free_string: { args: [FFIType.ptr], returns: FFIType.void },
+    })
+  : null;
 
 function getLastError(): string {
+  if (!lib) return "CPUOC not available";
   const errorPtr = lib.symbols.cpuoc_get_last_error();
   if (!errorPtr) return "Unknown error";
   const error = new CString(errorPtr);
@@ -20,6 +30,7 @@ function getLastError(): string {
 }
 
 export function tuneInit() {
+  if (!lib) return Promise.resolve();
   const result = lib.symbols.cpuoc_init();
   if (result !== 0) {
     throw new Error(`CPUOC init failed: ${getLastError()}`);
@@ -28,6 +39,7 @@ export function tuneInit() {
 }
 
 export function tune(pl1: number, pl2: number) {
+  if (!lib) return Promise.resolve();
   const result = lib.symbols.cpuoc_tune(pl1, pl2);
   if (result !== 0) {
     throw new Error(`CPUOC tune failed: ${getLastError()}`);
