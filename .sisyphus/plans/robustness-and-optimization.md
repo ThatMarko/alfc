@@ -422,7 +422,7 @@ Wave FINAL (Verification):
 
 ---
 
-- [ ] 5. Graceful degradation in native/index.ts
+- [x] 5. Graceful degradation in native/index.ts
 
   **What to do**:
   - Add `state.isFanControlAvailable` flag to state (if not exists)
@@ -490,7 +490,7 @@ Wave FINAL (Verification):
 
 ---
 
-- [ ] 6. Async restoreAutoFanControl
+- [x] 6. Async restoreAutoFanControl
 
   **What to do**:
   - Make `restoreAutoFanControl()` async (return Promise)
@@ -555,7 +555,7 @@ Wave FINAL (Verification):
 
 ---
 
-- [ ] 7. WebSocket config (idleTimeout: 30)
+- [x] 7. WebSocket config (idleTimeout: 30)
 
   **What to do**:
   - Add `idleTimeout: 30` to websocket config in `Bun.serve()`

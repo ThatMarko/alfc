@@ -112,7 +112,11 @@ const exitWithError = () => {
       return new Response("Nothing to see here.");
     },
 
-    websocket: websocketHandlers,
+    websocket: {
+      ...websocketHandlers,
+      idleTimeout: 30,
+      backpressureLimit: 1024 * 1024,
+    },
   });
 
   setServer(server);

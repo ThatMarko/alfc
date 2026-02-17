@@ -51,16 +51,36 @@ async function logWithFlush(message: string) {
 
 async function initNativeServices() {
   if (!isLinux) {
-    await logWithFlush(
-      "Initializing WMI... (If stuck here, there might be a temporary problem with WMI that requires a reboot.)",
-    );
-    await promiseWithTimeout(wmiInit());
-    await logWithFlush("Initializing CPU tuning...");
-    await promiseWithTimeout(tuneInit());
+    try {
+      await logWithFlush(
+        "Initializing WMI... (If stuck here, there might be a temporary problem with WMI that requires a reboot.)",
+      );
+      await promiseWithTimeout(wmiInit());
+      state.isFanControlAvailable = true;
+    } catch (e) {
+      console.warn(
+        "[Native] WMI initialization failed. Fan control may be unavailable.",
+        e,
+      );
+      state.isFanControlAvailable = false;
+    }
+
+    try {
+      await logWithFlush("Initializing CPU tuning...");
+      await promiseWithTimeout(tuneInit());
+    } catch (e) {
+      console.warn("[Native] CPU tuning initialization failed.", e);
+    }
   }
 
-  console.log("Starting fan control monitoring...");
-  fanControl();
+  if (state.isFanControlAvailable !== false) {
+    console.log("Starting fan control monitoring...");
+    fanControl();
+  } else {
+    console.warn(
+      "Skipping fan control startup due to WMI initialization failure.",
+    );
+  }
 
   try {
     console.log("Trying to set initial CPU tuning...");
@@ -72,8 +92,12 @@ async function initNativeServices() {
     state.isCpuTuningAvailable = false;
   }
 
-  console.log("Setting GPU boost...");
-  setCall("129", "SetAIBoostStatus", { Data: state.gpuBoost ? 1 : 0 });
+  try {
+    console.log("Setting GPU boost...");
+    await setCall("129", "SetAIBoostStatus", { Data: state.gpuBoost ? 1 : 0 });
+  } catch (e) {
+    console.warn("Failed to set GPU boost:", e);
+  }
 
   console.log("Fan control is up and running, current config was applied.");
 }

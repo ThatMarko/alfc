@@ -24,9 +24,9 @@ export function setFixedFan(percent: number) {
 }
 
 // Inverse of initFanControl() — must be updated if initFanControl changes.
-export function restoreAutoFanControl() {
-  setCall("0x6a", "SetFixedFanStatus", { Data: 0 });
-  setCall("0x71", "SetAutoFanStatus", { Data: 1 });
+export async function restoreAutoFanControl() {
+  await setCall("0x6a", "SetFixedFanStatus", { Data: 0 });
+  await setCall("0x71", "SetAutoFanStatus", { Data: 1 });
 }
 
 async function getCallInt(methodId: string, methodName: string) {

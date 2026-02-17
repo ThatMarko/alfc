@@ -12,6 +12,7 @@ export type State = {
   pl2: number;
 
   isCpuTuningAvailable?: boolean;
+  isFanControlAvailable?: boolean;
 };
 
 export type Args = {

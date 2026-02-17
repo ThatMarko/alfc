@@ -19,6 +19,7 @@ export async function persistState() {
 
   const persistable = { ...state };
   delete persistable.isCpuTuningAvailable;
+  delete persistable.isFanControlAvailable;
 
   try {
     await Bun.write(CONFIG_FILE, stringifyCompact(persistable));
