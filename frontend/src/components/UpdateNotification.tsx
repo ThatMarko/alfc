@@ -23,7 +23,7 @@ export function UpdateNotification() {
 
   return newVersionAvailable ? (
     <StyledLink
-      href="https://github.com/s-h-a-d-o-w/alfc/releases/latest"
+      href="https://github.com/ThatMarko/alfc/releases/latest"
       target="_blank"
       rel="noopener noreferrer"
     >

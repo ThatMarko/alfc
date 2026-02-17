@@ -104,8 +104,8 @@ async function collectAverageTemps(runId: number) {
   }
 
   return {
-    avgCPUTemp: CPUTemps.reduce((sum, temp) => sum + temp) / CPUTemps.length,
-    avgGPUTemp: GPUTemps.reduce((sum, temp) => sum + temp) / GPUTemps.length,
+    avgCPUTemp: CPUTemps.reduce((sum, temp) => sum + temp, 0) / CPUTemps.length,
+    avgGPUTemp: GPUTemps.reduce((sum, temp) => sum + temp, 0) / GPUTemps.length,
   };
 }
 

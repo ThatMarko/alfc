@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import packageJson from "../../../package.json";
 
 const GITHUB_API_URL =
-  "https://api.github.com/repos/s-h-a-d-o-w/alfc/releases/latest";
+  "https://api.github.com/repos/ThatMarko/alfc/releases/latest";
 const CHECK_INTERVAL = 1000 * 60 * 60 * 12; // 12 hours
 
 export function useVersionCheck() {
