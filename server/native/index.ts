@@ -95,8 +95,10 @@ async function initNativeServices() {
   try {
     console.log("Setting GPU boost...");
     await setCall("129", "SetAIBoostStatus", { Data: state.gpuBoost ? 1 : 0 });
+    state.isGpuBoostAvailable = true;
   } catch (e) {
     console.warn("Failed to set GPU boost:", e);
+    state.isGpuBoostAvailable = false;
   }
 
   console.log("Fan control is up and running, current config was applied.");

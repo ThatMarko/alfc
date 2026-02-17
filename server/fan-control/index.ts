@@ -8,6 +8,33 @@ export const WAIT_RAMP_UP_CYCLES = 3;
 export const CYCLE_DURATION = 1000;
 const TEMP_POLL_INTERVAL = 200;
 
+let autoFanInterval: ReturnType<typeof setInterval> | null = null;
+let reinitInterval: ReturnType<typeof setInterval> | null = null;
+let fanControlRunId = 0;
+let isFanControlShuttingDown = false;
+
+export function cleanupFanControlIntervals() {
+  if (autoFanInterval) {
+    clearInterval(autoFanInterval);
+    autoFanInterval = null;
+  }
+
+  if (reinitInterval) {
+    clearInterval(reinitInterval);
+    reinitInterval = null;
+  }
+}
+
+export function startFanControlShutdown() {
+  if (isFanControlShuttingDown) {
+    return;
+  }
+
+  isFanControlShuttingDown = true;
+  fanControlRunId++;
+  cleanupFanControlIntervals();
+}
+
 export function fanPercentToSpeed(percent: number) {
   return Math.ceil((percent / 100.0) * 229);
 }
@@ -15,6 +42,10 @@ export function fanPercentToSpeed(percent: number) {
 // Both CPU and GPU fan are set to the same speed
 // due to the shared heat pipes.
 export function setFixedFan(percent: number) {
+  if (isFanControlShuttingDown) {
+    return;
+  }
+
   const speed = fanPercentToSpeed(percent);
 
   // SetFixedFanSpeed
@@ -47,7 +78,45 @@ function resetFanSpeed() {
   return state.cpuFanTable[0][1];
 }
 
+async function collectAverageTemps(runId: number) {
+  const CPUTemps: number[] = [];
+  const GPUTemps: number[] = [];
+  const samplesPerCycle = Math.round(
+    (CYCLE_DURATION - TEMP_POLL_INTERVAL) / TEMP_POLL_INTERVAL,
+  );
+
+  while (CPUTemps.length < samplesPerCycle) {
+    if (isFanControlShuttingDown || runId !== fanControlRunId) {
+      return null;
+    }
+
+    const currCPUTemp = await getCallInt("0xe1", "getCpuTemp");
+    const currGPUTemp1 = await getCallInt("0xe2", "getGpuTemp1");
+    const currGPUTemp2 = await getCallInt("0xe3", "getGpuTemp2");
+    const currGPUTemp = Math.max(currGPUTemp1, currGPUTemp2);
+
+    CPUTemps.push(currCPUTemp);
+    GPUTemps.push(currGPUTemp);
+
+    if (CPUTemps.length < samplesPerCycle) {
+      await new Promise((resolve) => setTimeout(resolve, TEMP_POLL_INTERVAL));
+    }
+  }
+
+  return {
+    avgCPUTemp: CPUTemps.reduce((sum, temp) => sum + temp) / CPUTemps.length,
+    avgGPUTemp: GPUTemps.reduce((sum, temp) => sum + temp) / GPUTemps.length,
+  };
+}
+
 export function fanControl() {
+  if (isFanControlShuttingDown) {
+    return;
+  }
+
+  cleanupFanControlIntervals();
+  const runId = ++fanControlRunId;
+
   initFanControl();
   resetFanSpeed();
 
@@ -56,7 +125,16 @@ export function fanControl() {
   // might cause it.
   // So - enforcing every ~5 minutes that our fixed fan settings
   // are used should prevent that.
-  const reinitInterval = setInterval(initFanControl, 1000 * 60 * 5);
+  reinitInterval = setInterval(
+    () => {
+      if (isFanControlShuttingDown || runId !== fanControlRunId) {
+        return;
+      }
+
+      initFanControl();
+    },
+    1000 * 60 * 5,
+  );
 
   // Find highest entry that isn't larger than provided temp,
   // assuming that fan table entries in profiles are ascending.
@@ -100,47 +178,26 @@ export function fanControl() {
   let currRampUpCycle = 1;
   let prevCPUFanTable = state.cpuFanTable;
   let prevGPUFanTable = state.gpuFanTable;
-  const autoFanInterval = setInterval(async () => {
+  autoFanInterval = setInterval(async () => {
+    if (isFanControlShuttingDown || runId !== fanControlRunId) {
+      cleanupFanControlIntervals();
+      return;
+    }
+
     // Interrupt if switching to fixed fan speed
     if (state.doFixedSpeed) {
-      clearInterval(autoFanInterval);
-      clearInterval(reinitInterval);
+      cleanupFanControlIntervals();
       setFixedFan(state.fixedPercentage);
       return;
     }
 
     // Collect average temperature throughout CYCLE_DURATION
-    const { avgCPUTemp, avgGPUTemp } = await new Promise<{
-      avgCPUTemp: number;
-      avgGPUTemp: number;
-    }>((resolve) => {
-      const CPUTemps: number[] = [];
-      const GPUTemps: number[] = [];
-      const pushTemps = async () => {
-        const currCPUTemp = await getCallInt("0xe1", "getCpuTemp");
-        const currGPUTemp1 = await getCallInt("0xe2", "getGpuTemp1");
-        const currGPUTemp2 = await getCallInt("0xe3", "getGpuTemp2");
-        const currGPUTemp = Math.max(currGPUTemp1, currGPUTemp2);
+    const averages = await collectAverageTemps(runId);
+    if (!averages || isFanControlShuttingDown || runId !== fanControlRunId) {
+      return;
+    }
 
-        CPUTemps.push(currCPUTemp);
-        GPUTemps.push(currGPUTemp);
-
-        if (
-          CPUTemps.length ===
-          Math.round((CYCLE_DURATION - TEMP_POLL_INTERVAL) / TEMP_POLL_INTERVAL)
-        ) {
-          resolve({
-            avgCPUTemp:
-              CPUTemps.reduce((sum, temp) => sum + temp) / CPUTemps.length,
-            avgGPUTemp:
-              GPUTemps.reduce((sum, temp) => sum + temp) / GPUTemps.length,
-          });
-        } else {
-          setTimeout(pushTemps, TEMP_POLL_INTERVAL);
-        }
-      };
-      pushTemps();
-    });
+    const { avgCPUTemp, avgGPUTemp } = averages;
 
     const highestMatchCPU = findHighestMatch(avgCPUTemp, state.cpuFanTable);
     const highestMatchGPU = findHighestMatch(avgGPUTemp, state.gpuFanTable);

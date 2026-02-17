@@ -1,0 +1,105 @@
+# ALFC WebSocket Protocol
+
+**Protocol version:** `1.0`
+
+## Versioning policy
+
+- **Additive changes** (new message kinds, new optional fields, new fields in server-push state) → **minor bump** (e.g. `1.1`).
+- **Breaking changes** (removals/renames/shape changes) → **major bump** (e.g. `2.0`) with a **deprecation period** where the previous major is still accepted.
+- Clients should treat `protocolVersion` as the authoritative version of the server contract.
+
+## Connection lifecycle & client expectations
+
+- **Endpoint:** `ws://localhost:5522/ws`
+- **Initial state push:** on `open`, the server immediately sends a `state` message containing the full `State` object, including `protocolVersion: "1.0"`.
+- **Keepalive:** server has a ~30s idle timeout. Clients must send a plain-text `"ping"` at least every 30s; server responds with `"pong"`.
+- **Reconnect:** clients should auto-reconnect and expect the initial state push on every new connection.
+- **Activity stream:** to receive `fancontrolactivity` updates, the client must send `registeractivitysocket` once per connection.
+
+## Message envelope
+
+### Client → Server
+
+All JSON messages follow this envelope:
+
+```json
+{
+  "kind": "<MessageToServerKind>",
+  "methodId": "<client-generated id>",
+  "methodName": "<method name>",
+  "data": "<kind-specific payload>"
+}
+```
+
+- `methodId` and `methodName` are required for all client requests.
+- For `get`/`set`, `methodName` is the native method name and is passed through to the platform layer.
+- For other kinds, `methodName` is echoed back in responses but is not used by the server logic.
+
+### Server → Client
+
+Response messages include `methodId` and `methodName` from the request. Server-initiated push messages (`state`, `fancontrolactivity`) are sent without those fields in the current implementation.
+
+## Client → Server message kinds
+
+| Kind                     | Required fields                          | `data` shape                       | Response kind        | State mutation                                                                               | Notes                                                                        |
+| ------------------------ | ---------------------------------------- | ---------------------------------- | -------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `registeractivitysocket` | `kind`, `methodId`, `methodName`         | _none_                             | _none_               | none                                                                                         | Subscribes this socket to the activity pub/sub channel.                      |
+| `fixedpercentage`        | `kind`, `methodId`, `methodName`, `data` | `number`                           | `success` or `error` | `state.fixedPercentage` set; persists; calls `setFixedFan`                                   | Missing `data` triggers `error`.                                             |
+| `dofixedspeed`           | `kind`, `methodId`, `methodName`, `data` | `boolean`                          | `success` or `error` | `state.doFixedSpeed` set; persists; if `false` then `autoFanControl()`                       | Missing `data` triggers `error`.                                             |
+| `fantable`               | `kind`, `methodId`, `methodName`, `data` | `{ cpu: FanTable, gpu: FanTable }` | `success` or `error` | `state.cpuFanTable`, `state.gpuFanTable` set; persists                                       | Missing `data` triggers `error`.                                             |
+| `tune`                   | `kind`, `methodId`, `methodName`, `data` | `{ pl1: number, pl2: number }`     | `success` or `error` | `state.pl1`, `state.pl2` set; persists; `tune()` invoked                                     | Missing `data` triggers `error`.                                             |
+| `get`                    | `kind`, `methodId`, `methodName`         | `Args` (optional)                  | `success` or `error` | none                                                                                         | Calls `getCall(methodId, methodName, data)`; `success.data` contains result. |
+| `set`                    | `kind`, `methodId`, `methodName`, `data` | `Args`                             | `success` or `error` | If `methodName === "SetAIBoostStatus"`, sets `state.gpuBoost = data.Data === 1` and persists | Missing `data` triggers `error`.                                             |
+
+If an unknown `kind` is received, or required `data` is missing, the server responds with:
+
+```json
+{
+  "kind": "error",
+  "data": "Either unknown message kind or missing payload data."
+}
+```
+
+## Server → Client message kinds
+
+| Kind                 | Required fields                          | `data` shape         | Trigger                                       | State mutation | Notes                                                                    |
+| -------------------- | ---------------------------------------- | -------------------- | --------------------------------------------- | -------------- | ------------------------------------------------------------------------ |
+| `state`              | `kind`, `data`                           | `State`              | Sent immediately on `open`                    | none           | Includes `protocolVersion: "1.0"`.                                       |
+| `success`            | `kind`, `methodId`, `methodName`         | `unknown` (optional) | Successful completion of a client request     | none           | `data` is only present for `get` responses.                              |
+| `error`              | `kind`, `methodId`, `methodName`, `data` | `string`             | Failed/invalid client request or thrown error | none           | `data` is either the fixed error string or `error.stack`.                |
+| `fancontrolactivity` | `kind`, `data`                           | `FanControlActivity` | Published when fan control updates            | none           | Only delivered to sockets that subscribed with `registeractivitysocket`. |
+
+## Data shapes
+
+```ts
+type FanTable = [number, number][];
+
+type Args = { [key: string]: number };
+
+type FanControlActivity = {
+  appliedSpeed: number | null;
+  avgCPUTemp: number;
+  avgGPUTemp: number;
+  target: number;
+};
+
+type State = {
+  protocolVersion: "1.0";
+  cpuFanTable: FanTable;
+  gpuFanTable: FanTable;
+  doFixedSpeed: boolean;
+  fixedPercentage: number;
+  gpuBoost: boolean;
+  pl1: number;
+  pl2: number;
+  isCpuTuningAvailable?: boolean;
+  isFanControlAvailable?: boolean;
+};
+```
+
+## Security
+
+- The websocket upgrade path enforces an Origin allowlist for browser clients: only `http://` or `https://` origins on `localhost`, `127.0.0.1`, or `[::1]` (with optional ports) are accepted.
+- Missing `Origin` is accepted to keep compatibility with non-browser local clients (for example, QML).
+- Disallowed origins are rejected with HTTP `403` before websocket upgrade.
+- This is a localhost browser guardrail, not authentication: any local process that can connect directly to `localhost:5522` can still use the protocol.

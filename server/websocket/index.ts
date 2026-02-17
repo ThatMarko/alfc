@@ -14,6 +14,22 @@ import {
 
 let server: Server<unknown> | null = null;
 
+type MessageMetadata = Partial<
+  Pick<MessageToServer, "methodId" | "methodName">
+>;
+
+const validMessageToServerKinds = new Set<string>(
+  Object.values(MessageToServerKind),
+);
+
+const requiredDataKinds = new Set<MessageToServerKind>([
+  MessageToServerKind.FixedPercentage,
+  MessageToServerKind.DoFixedSpeed,
+  MessageToServerKind.FanTable,
+  MessageToServerKind.Tune,
+  MessageToServerKind.Set,
+]);
+
 export function setServer(s: Server<unknown>) {
   server = s;
 }
@@ -27,7 +43,12 @@ export function publishActivity(data: FanControlActivity) {
 }
 
 function sendState(ws: ServerWebSocket<unknown>) {
-  ws.send(JSON.stringify({ kind: MessageToClientKind.State, data: state }));
+  ws.send(
+    JSON.stringify({
+      kind: MessageToClientKind.State,
+      data: { ...state, protocolVersion: "1.0" },
+    }),
+  );
 }
 
 function sendSuccess(ws: ServerWebSocket<unknown>, payload: any, data?: any) {
@@ -36,6 +57,39 @@ function sendSuccess(ws: ServerWebSocket<unknown>, payload: any, data?: any) {
       ...payload,
       kind: MessageToClientKind.Success,
       ...(data && { data }),
+    }),
+  );
+}
+
+function getMessageMetadata(payload: unknown): MessageMetadata {
+  if (!payload || typeof payload !== "object") {
+    return {};
+  }
+
+  const maybePayload = payload as Record<string, unknown>;
+  const metadata: MessageMetadata = {};
+
+  if (typeof maybePayload.methodId === "string") {
+    metadata.methodId = maybePayload.methodId;
+  }
+
+  if (typeof maybePayload.methodName === "string") {
+    metadata.methodName = maybePayload.methodName;
+  }
+
+  return metadata;
+}
+
+function sendError(
+  ws: ServerWebSocket<unknown>,
+  payload: unknown,
+  errorMessage: string,
+) {
+  ws.send(
+    JSON.stringify({
+      ...getMessageMetadata(payload),
+      kind: MessageToClientKind.Error,
+      data: errorMessage,
     }),
   );
 }
@@ -52,7 +106,40 @@ async function handleMessage(
     return;
   }
 
-  const payload: MessageToServer = JSON.parse(messageString);
+  let parsedPayload: unknown;
+
+  try {
+    parsedPayload = JSON.parse(messageString);
+  } catch (_error) {
+    sendError(ws, null, "INVALID_JSON: Failed to parse message");
+    return;
+  }
+
+  const maybePayload =
+    parsedPayload && typeof parsedPayload === "object"
+      ? (parsedPayload as Partial<MessageToServer>)
+      : null;
+  const payloadKind = maybePayload?.kind;
+
+  if (
+    !maybePayload ||
+    typeof payloadKind !== "string" ||
+    !validMessageToServerKinds.has(payloadKind)
+  ) {
+    sendError(ws, parsedPayload, `UNKNOWN_KIND: ${String(payloadKind)}`);
+    return;
+  }
+
+  const payload = maybePayload as MessageToServer;
+
+  if (
+    requiredDataKinds.has(payload.kind) &&
+    (payload.data === undefined || payload.data === null)
+  ) {
+    sendError(ws, payload, `MISSING_DATA: ${payload.kind}`);
+    return;
+  }
+
   try {
     switch (payload.kind) {
       case MessageToServerKind.RegisterActivitySocket:
@@ -107,23 +194,9 @@ async function handleMessage(
         break;
     }
 
-    ws.send(
-      JSON.stringify({
-        ...payload,
-        kind: MessageToClientKind.Error,
-        data: "Either unknown message kind or missing payload data.",
-      }),
-    );
-  } catch (error) {
-    if (error instanceof Error) {
-      ws.send(
-        JSON.stringify({
-          ...payload,
-          kind: MessageToClientKind.Error,
-          data: error.stack,
-        }),
-      );
-    }
+    sendError(ws, payload, `MISSING_DATA: ${payload.kind}`);
+  } catch (_error) {
+    sendError(ws, payload, "INTERNAL_ERROR: An unexpected error occurred");
   }
 }
 

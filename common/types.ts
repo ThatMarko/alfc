@@ -1,6 +1,7 @@
 export type FanTable = [number, number][];
 
 export type State = {
+  readonly protocolVersion: "1.0";
   cpuFanTable: FanTable;
   gpuFanTable: FanTable;
 
@@ -12,6 +13,7 @@ export type State = {
   pl2: number;
 
   isCpuTuningAvailable?: boolean;
+  isGpuBoostAvailable?: boolean;
   isFanControlAvailable?: boolean;
 };
 

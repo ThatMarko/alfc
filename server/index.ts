@@ -2,9 +2,45 @@ import path from "path";
 import { initNativeServices } from "./native/index.js";
 import { isDev } from "./utils/consts.js";
 import { websocketHandlers, setServer } from "./websocket/index.js";
-import { restoreAutoFanControl } from "./fan-control/index.js";
+import {
+  restoreAutoFanControl,
+  startFanControlShutdown,
+} from "./fan-control/index.js";
 
 const PORT = 5522;
+
+const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+function isAllowedWebSocketOrigin(origin: string | null): boolean {
+  if (origin === null) {
+    return true;
+  }
+
+  let parsedOrigin: URL;
+  try {
+    parsedOrigin = new URL(origin);
+  } catch (_) {
+    return false;
+  }
+
+  const isHttp =
+    parsedOrigin.protocol === "http:" || parsedOrigin.protocol === "https:";
+
+  if (!isHttp) {
+    return false;
+  }
+
+  const hasUnexpectedSuffix =
+    parsedOrigin.pathname !== "/" ||
+    parsedOrigin.search !== "" ||
+    parsedOrigin.hash !== "";
+
+  if (hasUnexpectedSuffix) {
+    return false;
+  }
+
+  return LOCALHOST_HOSTNAMES.has(parsedOrigin.hostname);
+}
 
 function isElevated(): boolean {
   if (process.platform === "win32") {
@@ -47,17 +83,24 @@ const exitWithError = () => {
   await initNativeServices();
 
   let isShuttingDown = false;
+  let hasRestoredAutoFanControl = false;
   const originalProcessExit = process.exit;
   process.exit = ((code?: number) => {
     if (isShuttingDown) {
-      originalProcessExit(code ?? 1);
+      console.log("Shutdown already in progress, ignoring duplicate exit.");
       return;
     }
+
     isShuttingDown = true;
+    startFanControlShutdown();
 
     (async () => {
       try {
-        await restoreAutoFanControl();
+        if (!hasRestoredAutoFanControl) {
+          hasRestoredAutoFanControl = true;
+          await restoreAutoFanControl();
+        }
+
         if (code !== 0) {
           console.error("Exiting with code " + code);
           console.error(new Error().stack);
@@ -88,6 +131,14 @@ const exitWithError = () => {
       const url = new URL(req.url);
 
       if (url.pathname === "/ws") {
+        const origin = req.headers.get("origin");
+        if (!isAllowedWebSocketOrigin(origin)) {
+          console.warn(
+            `Rejected WebSocket upgrade due to disallowed Origin: ${origin}`,
+          );
+          return new Response("Forbidden", { status: 403 });
+        }
+
         const upgraded = server.upgrade(req, { data: undefined });
         if (upgraded) return undefined;
         return new Response("WebSocket upgrade failed", { status: 400 });
