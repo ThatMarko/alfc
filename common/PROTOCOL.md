@@ -51,14 +51,16 @@ Response messages include `methodId` and `methodName` from the request. Server-i
 | `get`                    | `kind`, `methodId`, `methodName`         | `Args` (optional)                  | `success` or `error` | none                                                                                         | Calls `getCall(methodId, methodName, data)`; `success.data` contains result. |
 | `set`                    | `kind`, `methodId`, `methodName`, `data` | `Args`                             | `success` or `error` | If `methodName === "SetAIBoostStatus"`, sets `state.gpuBoost = data.Data === 1` and persists | Missing `data` triggers `error`.                                             |
 
-If an unknown `kind` is received, or required `data` is missing, the server responds with:
+If an unknown `kind` is received, or required `data` is missing, the server responds with a structured error code:
 
 ```json
-{
-  "kind": "error",
-  "data": "Either unknown message kind or missing payload data."
-}
+{ "kind": "error", "data": "INVALID_JSON: Failed to parse message" }
+{ "kind": "error", "methodId": "...", "methodName": "...", "data": "UNKNOWN_KIND: <received kind>" }
+{ "kind": "error", "methodId": "...", "methodName": "...", "data": "MISSING_DATA: <expected kind>" }
+{ "kind": "error", "methodId": "...", "methodName": "...", "data": "INTERNAL_ERROR: An unexpected error occurred" }
 ```
+
+When `methodId` and `methodName` are present in the original request, they are echoed back in the error response.
 
 ## Server → Client message kinds
 
@@ -66,7 +68,7 @@ If an unknown `kind` is received, or required `data` is missing, the server resp
 | -------------------- | ---------------------------------------- | -------------------- | --------------------------------------------- | -------------- | ------------------------------------------------------------------------ |
 | `state`              | `kind`, `data`                           | `State`              | Sent immediately on `open`                    | none           | Includes `protocolVersion: "1.0"`.                                       |
 | `success`            | `kind`, `methodId`, `methodName`         | `unknown` (optional) | Successful completion of a client request     | none           | `data` is only present for `get` responses.                              |
-| `error`              | `kind`, `methodId`, `methodName`, `data` | `string`             | Failed/invalid client request or thrown error | none           | `data` is either the fixed error string or `error.stack`.                |
+| `error`              | `kind`, `methodId`, `methodName`, `data` | `string`             | Failed/invalid client request or thrown error | none           | `data` is a structured error code string (e.g. `INVALID_JSON: ...`).     |
 | `fancontrolactivity` | `kind`, `data`                           | `FanControlActivity` | Published when fan control updates            | none           | Only delivered to sockets that subscribed with `registeractivitysocket`. |
 
 ## Data shapes
@@ -93,6 +95,7 @@ type State = {
   pl1: number;
   pl2: number;
   isCpuTuningAvailable?: boolean;
+  isGpuBoostAvailable?: boolean;
   isFanControlAvailable?: boolean;
 };
 ```

@@ -37,7 +37,9 @@ Item {
                 
                 // Register for activity updates
                 socket.sendTextMessage(JSON.stringify({
-                    kind: "registeractivitysocket"
+                    kind: "registeractivitysocket",
+                    methodId: "register-activity",
+                    methodName: "RegisterActivitySocket"
                 }));
 
                 // Start keepalive
@@ -80,9 +82,7 @@ Item {
         repeat: false
         onTriggered: {
             console.info("BackendConnection: Attempting reconnect...");
-            if (interval < 5000) {
-                interval *= 2;
-            }
+            interval = Math.min(interval * 2, 5000);
             socket.active = false;
             socket.active = true;
         }
