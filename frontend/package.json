@@ -28,7 +28,6 @@
     "@fortawesome/free-solid-svg-icons": "^6.7.2",
     "@fortawesome/react-fontawesome": "^0.2.2",
     "bootstrap": "^5.3.3",
-    "lodash": "^4.17.21",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-error-boundary": "^5.0.0",
@@ -38,12 +37,10 @@
   },
   "devDependencies": {
     "@emotion/babel-plugin": "^11.13.5",
-    "@types/lodash": "^4.17.15",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@types/react-fontawesome": "^1.6.8",
     "@vitejs/plugin-react": "^4.3.4",
-    "cross-env": "^7.0.3",
     "vite": "^6.1.0"
   }
 }

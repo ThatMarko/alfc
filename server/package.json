@@ -3,33 +3,19 @@
   "version": "1.0.0",
   "license": "MIT",
   "scripts": {
-    "build": "rimraf dist && tsx build.ts",
-    "build:cpuoc": "csc /reference:native\\windows\\IntelOverclockingSDK.dll /t:library /out:native\\windows\\CPUOC.dll native\\windows\\CPUOC.cs",
-    "build:wmiapi": "csc /t:library /out:native\\windows\\WmiAPI.dll native\\windows\\WmiAPI.cs",
-    "start": "nodemon --ext ts,dll",
-    "start:prod": "cross-env NODE_ENV=production node dist/index.js",
-    "debug:acpi": "tsx native\\windows\\acpi.ts",
-    "debug:oc": "pnpm build:cpuoc && tsx native\\windows\\cpuoc.ts",
+    "build": "bun build.ts",
+    "build:cpuoc": "dotnet publish native/windows/cpuoc-dotnet -c Release -o native/windows",
+    "build:wmiapi": "dotnet publish native/windows/wmiapi -c Release -o native/windows",
+    "start": "bun --watch index.ts",
+    "start:prod": "NODE_ENV=production ./dist/alfc",
+    "debug:acpi": "bun native\\windows\\acpi.ts",
+    "debug:oc": "bun run build:cpuoc && bun native\\windows\\cpuoc.ts",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "edge-js": "^23.1.4",
-    "express": "^4.21.2",
-    "is-elevated": "^4.0.0",
-    "json-stringify-pretty-compact": "^4.0.0",
-    "lodash": "^4.17.21",
-    "ws": "^8.18.0"
+    "json-stringify-pretty-compact": "^4.0.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
-    "@types/lodash": "^4.17.15",
-    "@types/node": "^22.13.1",
-    "@types/ws": "^8.5.14",
-    "@vercel/ncc": "^0.38.3",
-    "cross-env": "^7.0.3",
-    "kill-port": "^2.0.1",
-    "nodemon": "^3.1.9",
-    "rimraf": "^6.0.1",
-    "tsx": "^4.19.2"
+    "@types/node": "^22.13.1"
   }
 }
