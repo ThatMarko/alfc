@@ -1,0 +1,183 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install
+
+      - name: Run checks
+        run: bun run all-checks
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble Linux release
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          RELEASE_DIR="alfc-${VERSION}-linux-x64"
+          mkdir -p "${RELEASE_DIR}"
+
+          # Server binary
+          cp server/dist/alfc "${RELEASE_DIR}/"
+
+          # Frontend
+          cp -r frontend/build "${RELEASE_DIR}/frontend"
+
+          # Default config
+          cp alfc.config.json "${RELEASE_DIR}/"
+
+          # Service scripts
+          cp bootstrap/scripts/linux/install.sh "${RELEASE_DIR}/"
+          cp bootstrap/scripts/linux/uninstall.sh "${RELEASE_DIR}/"
+          cp bootstrap/scripts/linux/run.sh "${RELEASE_DIR}/"
+
+          # Plasmoid
+          cp -r plasmoid "${RELEASE_DIR}/plasmoid"
+          # Remove dev artifacts from plasmoid copy
+          rm -rf "${RELEASE_DIR}/plasmoid/DEPENDENCIES.md"
+
+          # License and docs
+          cp LICENSE "${RELEASE_DIR}/"
+          cp README.md "${RELEASE_DIR}/"
+          cp LINUX.md "${RELEASE_DIR}/"
+
+          # Create archive
+          tar -czf "${RELEASE_DIR}.tar.gz" "${RELEASE_DIR}"
+
+          # Also create standalone .plasmoid for KDE Store
+          cd plasmoid/package
+          zip -r "../../org.kde.alfc.plasmoid" .
+          cd ../..
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: |
+            alfc-*-linux-x64.tar.gz
+            org.kde.alfc.plasmoid
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - run: bun install
+
+      - name: Build frontend and server
+        run: bun run build
+
+      - name: Build WmiAPI NativeAOT DLL
+        run: dotnet publish server/native/windows/wmiapi -c Release -o server/native/windows
+
+      - name: Download WinSW
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe" -OutFile "WinSW-x64.exe"
+
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble Windows release
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          RELEASE_DIR="alfc-${VERSION}-windows-x64"
+          mkdir -p "${RELEASE_DIR}"
+
+          # Server binary
+          cp server/dist/alfc.exe "${RELEASE_DIR}/"
+
+          # WMI DLL (our code, MIT deps — safe to distribute)
+          cp server/native/windows/WmiAPI.dll "${RELEASE_DIR}/"
+
+          # NOTE: CPUOC.dll and IntelOverclockingSDK.dll are NOT included.
+          # CPU tuning requires users to build CPUOC.dll themselves.
+          # See docs for details.
+
+          # Frontend
+          cp -r frontend/build "${RELEASE_DIR}/frontend"
+
+          # Default config
+          cp alfc.config.json "${RELEASE_DIR}/"
+
+          # Service scripts
+          cp bootstrap/scripts/install.bat "${RELEASE_DIR}/"
+          cp bootstrap/scripts/uninstall.bat "${RELEASE_DIR}/"
+          cp bootstrap/scripts/run.bat "${RELEASE_DIR}/"
+
+          # WinSW service wrapper (MIT licensed)
+          cp WinSW-x64.exe "${RELEASE_DIR}/alfc-service.exe"
+          cp bootstrap/scripts/alfc-service.xml "${RELEASE_DIR}/"
+
+          # License and docs
+          cp LICENSE "${RELEASE_DIR}/"
+          cp README.md "${RELEASE_DIR}/"
+
+      - name: Create zip
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          7z a "alfc-${VERSION}-windows-x64.zip" "alfc-${VERSION}-windows-x64"
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: alfc-*-windows-x64.zip
+
+  publish:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Get version and changelog
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "ALFC ${{ steps.meta.outputs.version }}"
+          draft: true
+          generate_release_notes: true
+          files: |
+            artifacts/linux-release/alfc-*-linux-x64.tar.gz
+            artifacts/linux-release/org.kde.alfc.plasmoid
+            artifacts/windows-release/alfc-*-windows-x64.zip
