@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <RootNamespace>WmiAPI</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Trimming configuration for System.Management COM interop -->
+    <TrimMode>partial</TrimMode>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Preserve System.Management types that use COM/reflection.
+       If NativeAOT fails at runtime due to COM issues, the fallback is to
+       switch to Microsoft.Management.Infrastructure (CIM API) or use
+       a helper process approach (Approach B). -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="System.Management" />
+  </ItemGroup>
+</Project>

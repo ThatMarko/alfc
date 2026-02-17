@@ -1,40 +1,49 @@
-import { promisify } from "util";
-import { createEdgeFunc } from "./edge.js";
+import { CString, dlopen, FFIType } from "bun:ffi";
+import path from "path";
+import { isDev } from "../../utils/consts.js";
 
-type DotNetArg = {
-  pl1: number;
-  pl2: number;
-};
+const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
 
-const initEdgeFunc = promisify(createEdgeFunc("CPUOC.dll", "Init"));
-const tuneEdgeFunc = promisify(
-  createEdgeFunc<DotNetArg, number[]>("CPUOC.dll", "Tune"),
-);
+const lib = dlopen(path.join(baseDir, "CPUOC.dll"), {
+  cpuoc_init: { args: [], returns: FFIType.i32 },
+  cpuoc_tune: { args: [FFIType.f64, FFIType.f64], returns: FFIType.i32 },
+  cpuoc_get_last_error: { args: [], returns: FFIType.ptr },
+  cpuoc_free_string: { args: [FFIType.ptr], returns: FFIType.void },
+});
 
-export async function tuneInit() {
-  await initEdgeFunc(null);
+function getLastError(): string {
+  const errorPtr = lib.symbols.cpuoc_get_last_error();
+  if (!errorPtr) return "Unknown error";
+  const error = new CString(errorPtr);
+  lib.symbols.cpuoc_free_string(errorPtr);
+  return error.toString();
 }
 
-export async function tune(pl1: number, pl2: number) {
-  await tuneEdgeFunc({
-    pl1,
-    pl2,
-  });
+export function tuneInit() {
+  const result = lib.symbols.cpuoc_init();
+  if (result !== 0) {
+    throw new Error(`CPUOC init failed: ${getLastError()}`);
+  }
+  return Promise.resolve();
 }
 
-if (require.main === module) {
-  (async () => {
-    const path = await import("path");
-    const { pl1, pl2 } = await import(
-      path.join(__dirname, "../../../alfc.config.json")
-    );
-    console.log("pl1 " + pl1);
-    console.log("pl2 " + pl2);
+export function tune(pl1: number, pl2: number) {
+  const result = lib.symbols.cpuoc_tune(pl1, pl2);
+  if (result !== 0) {
+    throw new Error(`CPUOC tune failed: ${getLastError()}`);
+  }
+  return Promise.resolve();
+}
 
-    await tuneInit();
-    await tuneEdgeFunc({
-      pl1,
-      pl2,
-    });
-  })();
+if (import.meta.main) {
+  const configPath = path.join(
+    import.meta.dirname,
+    "../../../alfc.config.json",
+  );
+  const { pl1, pl2 } = await import(configPath);
+  console.log("pl1 " + pl1);
+  console.log("pl2 " + pl2);
+
+  await tuneInit();
+  await tune(pl1, pl2);
 }

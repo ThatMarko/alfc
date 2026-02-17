@@ -1,32 +1,45 @@
-import { promisify } from "util";
-import { Args } from "../../../common/types.js";
-import { createEdgeFunc } from "./edge.js";
+import { CString, dlopen, FFIType, ptr } from "bun:ffi";
+import path from "path";
+import type { Args } from "../../../common/types.js";
+import { isDev } from "../../utils/consts.js";
 
-type DotNetArg = {
-  methodName: string;
-  args: { [key: string]: number } | null;
-};
+const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
 
-const initEdgeFunc = promisify(createEdgeFunc("WmiAPI.dll", "InitWmi"));
-const wmiGetEdgeFunc = promisify(
-  createEdgeFunc<DotNetArg, number[]>("WmiAPI.dll", "WmiGet"),
-);
-const wmiSetEdgeFunc = promisify(
-  createEdgeFunc<DotNetArg, null>("WmiAPI.dll", "WmiSet"),
-);
+const lib = dlopen(path.join(baseDir, "WmiAPI.dll"), {
+  wmi_init: { args: [], returns: FFIType.i32 },
+  wmi_get: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr },
+  wmi_set: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
+  free_string: { args: [FFIType.ptr], returns: FFIType.void },
+  get_last_error: { args: [], returns: FFIType.ptr },
+});
 
-export async function wmiInit() {
-  await initEdgeFunc(null);
+function getLastError(): string {
+  const errorPtr = lib.symbols.get_last_error();
+  if (!errorPtr) return "Unknown error";
+  const error = new CString(errorPtr);
+  lib.symbols.free_string(errorPtr);
+  return error.toString();
 }
 
-export async function setCall(_: string, methodName: string, args: Args) {
-  await wmiSetEdgeFunc({
-    methodName,
-    args,
-  });
+export function wmiInit() {
+  const result = lib.symbols.wmi_init();
+  if (result !== 0) {
+    throw new Error(`WMI init failed: ${getLastError()}`);
+  }
+  return Promise.resolve();
 }
 
-// NON-PURE
+export function setCall(_: string, methodName: string, args: Args) {
+  const nameBuf = Buffer.from(methodName + "\0", "utf-8");
+  const argsBuf = Buffer.from(JSON.stringify(args) + "\0", "utf-8");
+
+  const result = lib.symbols.wmi_set(ptr(nameBuf), ptr(argsBuf));
+  if (result !== 0) {
+    throw new Error(`WMI set '${methodName}' failed: ${getLastError()}`);
+  }
+  return Promise.resolve();
+}
+
 // uint16 values are already little-endian, just need to split them up
 function splitWords(numbers: number[]) {
   for (let i = 0; i < numbers.length; i++) {
@@ -38,24 +51,34 @@ function splitWords(numbers: number[]) {
   }
 }
 
-export async function getCall(_: string, methodName: string, args?: Args) {
+export function getCall(_: string, methodName: string, args?: Args) {
+  const nameBuf = Buffer.from(methodName + "\0", "utf-8");
+  const argsBuf = args
+    ? Buffer.from(JSON.stringify(args) + "\0", "utf-8")
+    : null;
+
+  const resultPtr = lib.symbols.wmi_get(
+    ptr(nameBuf),
+    argsBuf ? ptr(argsBuf) : null,
+  );
+  if (!resultPtr) {
+    throw new Error(`WMI get '${methodName}' failed: ${getLastError()}`);
+  }
+
+  const resultJson = new CString(resultPtr);
+  lib.symbols.free_string(resultPtr);
+
   // TODO: Convert to a number instead of returning a hex string. For Linux as well, obviously
-  const result = (
-    await wmiGetEdgeFunc({
-      methodName,
-      args: args || null,
-    })
-  ).reverse(); // Little-endian order for multiple return values
+  const result: number[] = JSON.parse(resultJson.toString()).reverse();
   splitWords(result);
 
-  // Leading 0 has to be stripped to make output consistent with Linux
   const hexString = Buffer.from(result).toString("hex");
-  return "0x" + (hexString[0] === "0" ? hexString.substr(1) : hexString);
+  return Promise.resolve(
+    "0x" + (hexString[0] === "0" ? hexString.substring(1) : hexString),
+  );
 }
 
-if (require.main === module) {
-  (async () => {
-    await wmiInit();
-    console.log("RPM1", await getCall("doesntmatter", "getRpm1"));
-  })();
+if (import.meta.main) {
+  await wmiInit();
+  console.log("RPM1", await getCall("doesntmatter", "getRpm1"));
 }

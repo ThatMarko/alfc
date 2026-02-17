@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <RootNamespace>CPUOC</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Trimming configuration -->
+    <TrimMode>partial</TrimMode>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Intel Overclocking SDK - prebuilt .NET assembly.
+         NativeAOT will statically link this. If the SDK uses reflection
+         internally, AOT compilation may fail - in that case, fall back
+         to Approach B (helper process). -->
+    <Reference Include="IntelOverclockingSDK">
+      <HintPath>..\IntelOverclockingSDK.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Preserve Intel SDK types in case they use reflection -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="IntelOverclockingSDK" />
+  </ItemGroup>
+</Project>
