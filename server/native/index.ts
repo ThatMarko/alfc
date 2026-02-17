@@ -1,19 +1,34 @@
-import os from "os";
-// Reference elision makes this work on Linux too. Awesome stuff:
-// http://ideasintosoftware.com/typescript-conditional-imports/
-import * as ACPI from "./windows/acpi.js";
-import * as CPUOC from "./windows/cpuoc.js";
+import type { Args } from "../../common/types.js";
 import { fanControl } from "../fan-control/index.js";
 import { state } from "../state/index.js";
 
-const isLinux = os.platform() === "linux";
+type ACPIModule = {
+  getCall: (
+    methodId: string,
+    methodName: string,
+    args?: Args,
+  ) => Promise<string>;
+  setCall: (methodId: string, methodName: string, args: Args) => Promise<void>;
+  wmiInit: () => Promise<void>;
+};
 
-const { getCall, wmiInit, setCall }: typeof ACPI = isLinux
-  ? require("./linux/acpi")
-  : require("./windows/acpi");
-const { tuneInit, tune: tuneNative }: typeof CPUOC = isLinux
-  ? require("./linux/cpuoc")
-  : require("./windows/cpuoc");
+type CPUOCModule = {
+  tuneInit: () => Promise<void>;
+  tune: (pl1: number, pl2: number) => Promise<void>;
+};
+
+const isLinux = process.platform === "linux";
+
+const acpiModule: ACPIModule = await (isLinux
+  ? import("./linux/acpi.js")
+  : import("./windows/acpi.js"));
+
+const cpuocModule: CPUOCModule = await (isLinux
+  ? import("./linux/cpuoc.js")
+  : import("./windows/cpuoc.js"));
+
+const { getCall, wmiInit, setCall } = acpiModule;
+const { tuneInit, tune: tuneNative } = cpuocModule;
 
 function tune() {
   return tuneNative(state.pl1, state.pl2);
@@ -28,7 +43,7 @@ function promiseWithTimeout<T>(promise: Promise<T>, timeout = 1000 * 5) {
   ]);
 }
 
-// When these services are experiencing problems, it might lead to freezing that prevents logs from being written, so we give winston an opportunity to do that.
+// When these services are experiencing problems, it might lead to freezing that prevents logs from being written.
 async function logWithFlush(message: string) {
   console.log(message);
   await new Promise((resolve) => setTimeout(resolve));

@@ -1,12 +1,22 @@
-import express from "express";
-import os from "os";
 import path from "path";
 import { initNativeServices } from "./native/index.js";
 import { isDev } from "./utils/consts.js";
-import { startWebSocketServer } from "./websocket/index.js";
-import { setFixedFan } from "./fan-control/index.js";
+import { websocketHandlers, setServer } from "./websocket/index.js";
+import { restoreAutoFanControl } from "./fan-control/index.js";
 
-// This is necessary because with just logging to the console before exiting, not everything actually ended up in the log file.
+const PORT = 5522;
+
+function isElevated(): boolean {
+  if (process.platform === "win32") {
+    const result = Bun.spawnSync(["net", "session"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    return result.exitCode === 0;
+  }
+  return process.getuid?.() === 0;
+}
+
 const exitWithError = () => {
   try {
     const message =
@@ -16,14 +26,12 @@ const exitWithError = () => {
 
     process.stdout.write(message);
 
-    // Check if we need to drain
     if (process.stdout.writableNeedDrain) {
       process.stdout.once("drain", () => process.exit(1));
     } else {
       process.exit(1);
     }
   } catch (_) {
-    // Ensure we exit even if write fails
     process.exit(1);
   }
 };
@@ -31,29 +39,23 @@ const exitWithError = () => {
 (async () => {
   console.log("Checking permissions...");
 
-  const { default: isElevated } = await import("is-elevated");
-  if (!(await isElevated())) {
+  if (!isElevated()) {
     exitWithError();
-  }
-
-  // Declaring WMI as a dependency is apparently not enough.
-  // So we need to wait for things to settle...
-  // TODO: Offer a method through the .NET library that makes it
-  // possible to just try and create a WMI instance and returns whether
-  // it was able to.
-  if (os.platform() === "win32") {
-    console.log("Waiting for other services... (Windows only)");
-    await new Promise((resolve) => setTimeout(resolve, 1000 * 15));
   }
 
   console.log("Initializing fan control...");
   await initNativeServices();
 
-  // Set fans to maximum speed on exit to prevent overheating
+  let isShuttingDown = false;
   const originalProcessExit = process.exit;
   process.exit = ((code?: number) => {
+    if (isShuttingDown) {
+      originalProcessExit(code ?? 1);
+      return;
+    }
+    isShuttingDown = true;
     try {
-      setFixedFan(100);
+      restoreAutoFanControl();
       if (code !== 0) {
         console.error("Exiting with code " + code);
         console.error(new Error().stack);
@@ -61,26 +63,81 @@ const exitWithError = () => {
         console.log("Exiting normally.");
       }
     } catch (err) {
-      console.error("Failed to set fan speed on exit:", err);
+      console.error("Failed to restore fan control on exit:", err);
     }
     originalProcessExit(code ?? 1);
   }) as (code?: number) => never;
 
-  console.log("Starting websocket server...");
-  await startWebSocketServer();
+  const runtimeRoot = isDev
+    ? import.meta.dirname
+    : path.dirname(process.execPath);
 
-  const app = express();
-  const port = 5522;
+  const frontendDir = path.join(runtimeRoot, "frontend");
 
-  if (!isDev) {
-    app.use(express.static(path.join(__dirname, "./frontend")));
-  } else {
-    app.get("/", (_, res) => {
-      res.send("Nothing to see here.");
-    });
-  }
+  console.log("Starting server...");
 
-  app.listen(port, "localhost", () => {
-    console.log(`Start finished - UI available @ http://localhost:${port}`);
+  const server = Bun.serve({
+    port: PORT,
+    hostname: "localhost",
+
+    async fetch(req, server) {
+      const url = new URL(req.url);
+
+      if (url.pathname === "/ws") {
+        const upgraded = server.upgrade(req, { data: undefined });
+        if (upgraded) return undefined;
+        return new Response("WebSocket upgrade failed", { status: 400 });
+      }
+
+      if (!isDev) {
+        let pathname = url.pathname;
+        if (pathname === "/") {
+          pathname = "/index.html";
+        }
+
+        const filePath = path.join(frontendDir, pathname);
+
+        if (!filePath.startsWith(frontendDir)) {
+          return new Response("Forbidden", { status: 403 });
+        }
+
+        const file = Bun.file(filePath);
+        if (await file.exists()) {
+          return new Response(file);
+        }
+
+        return new Response("Not Found", { status: 404 });
+      }
+
+      return new Response("Nothing to see here.");
+    },
+
+    websocket: websocketHandlers,
   });
+
+  setServer(server);
+
+  const shutdown = (signal: string) => {
+    console.log(`Received ${signal}, shutting down...`);
+    server.stop();
+    process.exit(0);
+  };
+
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGHUP", () => shutdown("SIGHUP"));
+
+  process.on("uncaughtException", (err) => {
+    console.error("Uncaught exception:", err);
+    server.stop();
+    process.exit(1);
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    console.error("Unhandled rejection:", reason);
+    server.stop();
+    process.exit(1);
+  });
+
+  console.log(`Start finished - UI available @ http://localhost:${PORT}`);
 })();

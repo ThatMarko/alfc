@@ -1,8 +1,8 @@
-import type WebSocket from "ws";
-import { WebSocketServer } from "ws";
+import type { Server, ServerWebSocket } from "bun";
 import {
+  type FanControlActivity,
   MessageToClientKind,
-  MessageToServer,
+  type MessageToServer,
   MessageToServerKind,
 } from "../../common/types.js";
 import { getCall, setCall, tune } from "../native/index.js";
@@ -11,26 +11,27 @@ import {
   setFixedFan,
   fanControl as autoFanControl,
 } from "../fan-control/index.js";
-import { cloneDeep } from "lodash";
 
-export const WEBSOCKET_PORT = 5523;
+let server: Server<unknown> | null = null;
 
-function sendState(socket: WebSocket) {
-  const stateCopy = cloneDeep(state);
-  delete stateCopy.activitySockets;
-  socket.send(
-    JSON.stringify({ kind: MessageToClientKind.State, data: stateCopy }),
+export function setServer(s: Server<unknown>) {
+  server = s;
+}
+
+export function publishActivity(data: FanControlActivity) {
+  if (!server) return;
+  server.publish(
+    "activity",
+    JSON.stringify({ kind: MessageToClientKind.FanControlActivity, data }),
   );
 }
 
-/**
- *
- * @param socket
- * @param payload A copy of the request payload
- * @param data Additional data in case of raw operations
- */
-function sendSuccess(socket: WebSocket, payload: any, data?: any) {
-  socket.send(
+function sendState(ws: ServerWebSocket<unknown>) {
+  ws.send(JSON.stringify({ kind: MessageToClientKind.State, data: state }));
+}
+
+function sendSuccess(ws: ServerWebSocket<unknown>, payload: any, data?: any) {
+  ws.send(
     JSON.stringify({
       ...payload,
       kind: MessageToClientKind.Success,
@@ -39,112 +40,101 @@ function sendSuccess(socket: WebSocket, payload: any, data?: any) {
   );
 }
 
-export function startWebSocketServer() {
-  return new Promise<void>((resolve) => {
-    const wss = new WebSocketServer({ port: WEBSOCKET_PORT });
+async function handleMessage(
+  ws: ServerWebSocket<unknown>,
+  message: string | Buffer,
+) {
+  const messageString =
+    typeof message === "string" ? message : message.toString();
 
-    // Initialize activitySockets Set if it doesn't exist
-    if (!state.activitySockets) {
-      state.activitySockets = new Set();
+  if (messageString === "ping") {
+    ws.send("pong");
+    return;
+  }
+
+  const payload: MessageToServer = JSON.parse(messageString);
+  try {
+    switch (payload.kind) {
+      case MessageToServerKind.RegisterActivitySocket:
+        ws.subscribe("activity");
+        return;
+      case MessageToServerKind.FixedPercentage:
+        state.fixedPercentage = payload.data;
+        setFixedFan(state.fixedPercentage);
+        persistState();
+        return sendSuccess(ws, payload);
+      case MessageToServerKind.DoFixedSpeed:
+        state.doFixedSpeed = payload.data;
+        if (!state.doFixedSpeed) {
+          autoFanControl();
+        }
+        persistState();
+        return sendSuccess(ws, payload);
+      case MessageToServerKind.FanTable:
+        if (payload.data) {
+          state.cpuFanTable = payload.data.cpu;
+          state.gpuFanTable = payload.data.gpu;
+          persistState();
+          return sendSuccess(ws, payload);
+        }
+        break;
+      case MessageToServerKind.Tune:
+        if (payload.data) {
+          state.pl1 = payload.data.pl1;
+          state.pl2 = payload.data.pl2;
+          persistState();
+          await tune();
+          return sendSuccess(ws, payload);
+        }
+        break;
+      case MessageToServerKind.Get: {
+        const result = await getCall(
+          payload.methodId,
+          payload.methodName,
+          payload.data,
+        );
+        return sendSuccess(ws, payload, result);
+      }
+      case MessageToServerKind.Set:
+        if (payload.data) {
+          await setCall(payload.methodId, payload.methodName, payload.data);
+          if (payload.methodName === "SetAIBoostStatus") {
+            state.gpuBoost = payload.data.Data === 1;
+            persistState();
+          }
+          return sendSuccess(ws, payload);
+        }
+        break;
     }
 
-    wss.on("connection", (socket) => {
-      sendState(socket);
-
-      socket.on("close", () => {
-        state.activitySockets?.delete(socket);
-      });
-
-      socket.on("message", async (message) => {
-        const messageString =
-          typeof message === "string" ? message : message.toString();
-
-        if (messageString === "ping") {
-          socket.send("pong");
-          return;
-        }
-
-        const payload: MessageToServer = JSON.parse(messageString);
-        try {
-          switch (payload.kind) {
-            case MessageToServerKind.RegisterActivitySocket:
-              state.activitySockets?.add(socket);
-              return;
-            case MessageToServerKind.FixedPercentage:
-              state.fixedPercentage = payload.data;
-              setFixedFan(state.fixedPercentage);
-              persistState();
-              return sendSuccess(socket, payload);
-            case MessageToServerKind.DoFixedSpeed:
-              state.doFixedSpeed = payload.data;
-              if (!state.doFixedSpeed) {
-                autoFanControl();
-              }
-              persistState();
-              return sendSuccess(socket, payload);
-            case MessageToServerKind.FanTable:
-              if (payload.data) {
-                state.cpuFanTable = payload.data.cpu;
-                state.gpuFanTable = payload.data.gpu;
-                persistState();
-                return sendSuccess(socket, payload);
-              }
-              break;
-            case MessageToServerKind.Tune:
-              if (payload.data) {
-                state.pl1 = payload.data.pl1;
-                state.pl2 = payload.data.pl2;
-                persistState();
-                await tune();
-                return sendSuccess(socket, payload);
-              }
-              break;
-            case MessageToServerKind.Get: {
-              const result = await getCall(
-                payload.methodId,
-                payload.methodName,
-                payload.data,
-              );
-              return sendSuccess(socket, payload, result);
-            }
-            case MessageToServerKind.Set:
-              if (payload.data) {
-                await setCall(
-                  payload.methodId,
-                  payload.methodName,
-                  payload.data,
-                );
-                if (payload.methodName === "SetAIBoostStatus") {
-                  state.gpuBoost = payload.data.Data === 1;
-                  persistState();
-                }
-                return sendSuccess(socket, payload);
-              }
-              break;
-          }
-
-          socket.send(
-            JSON.stringify({
-              ...payload,
-              kind: MessageToClientKind.Error,
-              data: "Either unknown message kind or missing payload data.",
-            }),
-          );
-        } catch (error) {
-          if (error instanceof Error) {
-            socket.send(
-              JSON.stringify({
-                ...payload,
-                kind: MessageToClientKind.Error,
-                data: error.stack,
-              }),
-            );
-          }
-        }
-      });
-    });
-    wss.on("listening", () => {
-      resolve();
-    });
-  });
+    ws.send(
+      JSON.stringify({
+        ...payload,
+        kind: MessageToClientKind.Error,
+        data: "Either unknown message kind or missing payload data.",
+      }),
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      ws.send(
+        JSON.stringify({
+          ...payload,
+          kind: MessageToClientKind.Error,
+          data: error.stack,
+        }),
+      );
+    }
+  }
 }
+
+export const websocketHandlers = {
+  open(ws: ServerWebSocket<unknown>) {
+    sendState(ws);
+  },
+
+  message(ws: ServerWebSocket<unknown>, message: string | Buffer) {
+    handleMessage(ws, message);
+  },
+
+  close(_ws: ServerWebSocket<unknown>) {},
+};
