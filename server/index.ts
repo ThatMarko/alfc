@@ -73,13 +73,13 @@ const exitWithError = () => {
 };
 
 (async () => {
-  console.log("Checking permissions...");
+  console.log("[Server] Checking permissions...");
 
   if (!isElevated()) {
     exitWithError();
   }
 
-  console.log("Initializing fan control...");
+  console.log("[Server] Initializing fan control...");
   await initNativeServices();
 
   let isShuttingDown = false;
@@ -87,7 +87,9 @@ const exitWithError = () => {
   const originalProcessExit = process.exit;
   process.exit = ((code?: number) => {
     if (isShuttingDown) {
-      console.log("Shutdown already in progress, ignoring duplicate exit.");
+      console.log(
+        "[Server] Shutdown already in progress, ignoring duplicate exit.",
+      );
       return;
     }
 
@@ -102,13 +104,13 @@ const exitWithError = () => {
         }
 
         if (code !== 0) {
-          console.error("Exiting with code " + code);
+          console.error("[Server] Exiting with code " + code);
           console.error(new Error().stack);
         } else {
-          console.log("Exiting normally.");
+          console.log("[Server] Exiting normally.");
         }
       } catch (err) {
-        console.error("Failed to restore fan control on exit:", err);
+        console.error("[Server] Failed to restore fan control on exit:", err);
       } finally {
         originalProcessExit(code ?? 1);
       }
@@ -121,7 +123,7 @@ const exitWithError = () => {
 
   const frontendDir = path.join(runtimeRoot, "frontend");
 
-  console.log("Starting server...");
+  console.log("[Server] Starting server...");
 
   const server = Bun.serve({
     port: PORT,
@@ -133,9 +135,7 @@ const exitWithError = () => {
       if (url.pathname === "/ws") {
         const origin = req.headers.get("origin");
         if (!isAllowedWebSocketOrigin(origin)) {
-          console.warn(
-            `Rejected WebSocket upgrade due to disallowed Origin: ${origin}`,
-          );
+          console.warn(`[WebSocket] Origin rejected: ${origin}`);
           return new Response("Forbidden", { status: 403 });
         }
 
@@ -177,7 +177,7 @@ const exitWithError = () => {
   setServer(server);
 
   const shutdown = (signal: string) => {
-    console.log(`Received ${signal}, shutting down...`);
+    console.log(`[Server] Received ${signal}, shutting down...`);
     server.stop();
     process.exit(0);
   };
@@ -187,16 +187,18 @@ const exitWithError = () => {
   process.on("SIGHUP", () => shutdown("SIGHUP"));
 
   process.on("uncaughtException", (err) => {
-    console.error("Uncaught exception:", err);
+    console.error("[Server] Uncaught exception:", err);
     server.stop();
     process.exit(1);
   });
 
   process.on("unhandledRejection", (reason) => {
-    console.error("Unhandled rejection:", reason);
+    console.error("[Server] Unhandled rejection:", reason);
     server.stop();
     process.exit(1);
   });
 
-  console.log(`Start finished - UI available @ http://localhost:${PORT}`);
+  console.log(
+    `[Server] Start finished - UI available @ http://localhost:${PORT}`,
+  );
 })();

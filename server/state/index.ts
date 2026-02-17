@@ -85,13 +85,9 @@ function loadPersistedState(): PersistedState {
       return parsed;
     }
 
-    console.warn(
-      "Persisted config has invalid shape. Falling back to defaults.",
-    );
+    console.warn("[State] Corrupt config detected, using defaults.");
   } catch (error) {
-    console.warn(
-      "Failed to load persisted config. Falling back to defaults: " + error,
-    );
+    console.warn("[State] Failed to load config, using defaults: " + error);
   }
 
   return DEFAULT_PERSISTED_STATE;
@@ -128,6 +124,6 @@ export async function persistState() {
     });
     await rename(TMP_CONFIG_FILE, CONFIG_FILE);
   } catch (error) {
-    console.error("Error trying to persist state: " + error);
+    console.error("[State] Error trying to persist config: " + error);
   }
 }

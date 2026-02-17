@@ -53,7 +53,7 @@ async function initNativeServices() {
   if (!isLinux) {
     try {
       await logWithFlush(
-        "Initializing WMI... (If stuck here, there might be a temporary problem with WMI that requires a reboot.)",
+        "[Native] Initializing WMI... (If stuck here, there might be a temporary problem with WMI that requires a reboot.)",
       );
       await promiseWithTimeout(wmiInit());
       state.isFanControlAvailable = true;
@@ -66,7 +66,7 @@ async function initNativeServices() {
     }
 
     try {
-      await logWithFlush("Initializing CPU tuning...");
+      await logWithFlush("[Native] Initializing CPU tuning...");
       await promiseWithTimeout(tuneInit());
     } catch (e) {
       console.warn("[Native] CPU tuning initialization failed.", e);
@@ -74,34 +74,36 @@ async function initNativeServices() {
   }
 
   if (state.isFanControlAvailable !== false) {
-    console.log("Starting fan control monitoring...");
+    console.log("[FanControl] Starting fan control monitoring...");
     fanControl();
   } else {
     console.warn(
-      "Skipping fan control startup due to WMI initialization failure.",
+      "[FanControl] Skipping startup due to WMI initialization failure.",
     );
   }
 
   try {
-    console.log("Trying to set initial CPU tuning...");
+    console.log("[Native] Trying to set initial CPU tuning...");
     await tune();
-    console.log("Success.");
+    console.log("[Native] CPU tuning initialized successfully.");
     state.isCpuTuningAvailable = true;
   } catch (_) {
-    console.log("!! CPU tuning is not available !!");
+    console.warn("[Native] CPU tuning is not available.");
     state.isCpuTuningAvailable = false;
   }
 
   try {
-    console.log("Setting GPU boost...");
+    console.log("[Native] Setting GPU boost...");
     await setCall("129", "SetAIBoostStatus", { Data: state.gpuBoost ? 1 : 0 });
     state.isGpuBoostAvailable = true;
   } catch (e) {
-    console.warn("Failed to set GPU boost:", e);
+    console.warn("[Native] Failed to set GPU boost:", e);
     state.isGpuBoostAvailable = false;
   }
 
-  console.log("Fan control is up and running, current config was applied.");
+  console.log(
+    "[Server] Fan control is up and running, current config was applied.",
+  );
 }
 
 export { getCall, initNativeServices, setCall, tune };

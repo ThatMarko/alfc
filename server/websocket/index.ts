@@ -111,6 +111,7 @@ async function handleMessage(
   try {
     parsedPayload = JSON.parse(messageString);
   } catch (_error) {
+    console.warn("[WebSocket] Invalid message: malformed JSON");
     sendError(ws, null, "INVALID_JSON: Failed to parse message");
     return;
   }
@@ -126,6 +127,9 @@ async function handleMessage(
     typeof payloadKind !== "string" ||
     !validMessageToServerKinds.has(payloadKind)
   ) {
+    console.warn(
+      `[WebSocket] Invalid message: unknown kind "${String(payloadKind)}"`,
+    );
     sendError(ws, parsedPayload, `UNKNOWN_KIND: ${String(payloadKind)}`);
     return;
   }
@@ -136,6 +140,9 @@ async function handleMessage(
     requiredDataKinds.has(payload.kind) &&
     (payload.data === undefined || payload.data === null)
   ) {
+    console.warn(
+      `[WebSocket] Invalid message: missing data for "${payload.kind}"`,
+    );
     sendError(ws, payload, `MISSING_DATA: ${payload.kind}`);
     return;
   }
@@ -202,6 +209,7 @@ async function handleMessage(
 
 export const websocketHandlers = {
   open(ws: ServerWebSocket<unknown>) {
+    console.log("[WebSocket] Client connected");
     sendState(ws);
   },
 
@@ -209,5 +217,7 @@ export const websocketHandlers = {
     handleMessage(ws, message);
   },
 
-  close(_ws: ServerWebSocket<unknown>) {},
+  close(_ws: ServerWebSocket<unknown>) {
+    console.log("[WebSocket] Client disconnected");
+  },
 };
