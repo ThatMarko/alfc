@@ -55,4 +55,4 @@ To enable CPU tuning:
 
 ### Not viable
 
-- **Flatpak** — ALFC requires root access to `/proc/acpi/call` and runs as a systemd service. Flatpak's sandbox fundamentally blocks both. All comparable hardware control tools (CoreCtrl, nbfc-linux, TLP) avoid Flatpak for the same reasons.
+- **Flatpak** — ALFC requires root access to `/proc/acpi/call` and runs as a system service (systemd/OpenRC). Flatpak's sandbox fundamentally blocks both. All comparable hardware control tools (CoreCtrl, nbfc-linux, TLP) avoid Flatpak for the same reasons.

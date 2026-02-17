@@ -1,6 +1,6 @@
 {
   "name": "server",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "license": "MIT",
   "scripts": {
     "build": "bun build.ts",
@@ -8,8 +8,8 @@
     "build:wmiapi": "dotnet publish native/windows/wmiapi -c Release -o native/windows",
     "start": "bun --watch index.ts",
     "start:prod": "NODE_ENV=production ./dist/alfc",
-    "debug:acpi": "bun native\\windows\\acpi.ts",
-    "debug:oc": "bun run build:cpuoc && bun native\\windows\\cpuoc.ts",
+    "debug:acpi": "bun native/windows/acpi.ts",
+    "debug:oc": "bun run build:cpuoc && bun native/windows/cpuoc.ts",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

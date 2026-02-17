@@ -7,7 +7,7 @@
 | Client                     | Min Protocol | Max Protocol | Status       | Notes                             |
 | -------------------------- | ------------ | ------------ | ------------ | --------------------------------- |
 | React Web UI               | 1.0          | 1.x          | Stable       | Ships with server, always matches |
-| KDE Plasma 6 Plasmoid v1.x | 1.0          | 1.x          | Experimental | Separate install, may lag behind  |
+| KDE Plasma 6 Plasmoid v2.x | 1.0          | 1.x          | Experimental | Separate install, may lag behind  |
 
 ### Protocol Evolution Rules
 

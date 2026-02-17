@@ -13,8 +13,8 @@ server/
 ├── state/         # Config file read/write
 ├── utils/         # Constants (isDev, etc.)
 ├── websocket/     # Client message handling
-├── build.ts       # Bun compile config (Linux executable)
-└── index.ts       # Entry point (Express + WebSocket)
+├── build.ts       # Bun compile config (cross-platform executable)
+└── index.ts       # Entry point (Bun.serve + WebSocket)
 ```
 
 ## WHERE TO LOOK
@@ -22,7 +22,8 @@ server/
 | Task               | Location                                       |
 | ------------------ | ---------------------------------------------- |
 | Fan calculation    | `fan-control/index.ts`                         |
-| Tests (vitest)     | `fan-control/index.test.ts`                    |
+| Fan control tests  | `fan-control/index.test.ts`                    |
+| WS contract tests  | `websocket/index.test.ts`                      |
 | ACPI calls         | `native/index.ts` → delegates to linux/windows |
 | Config persistence | `state/index.ts`                               |
 | WS message types   | `../common/types.ts`                           |

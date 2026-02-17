@@ -11,7 +11,7 @@ Bootstrap is now scripts-only (no TypeScript). WinSW for Windows, shell scripts 
 | -------------------- | ------------------------------------------- |
 | Service registration | WinSW (Windows) / systemd or OpenRC (Linux) |
 | Sudo elevation       | Self-elevating batch scripts / sudo         |
-| Platform scripts     | `scripts/linux/` and `scripts/windows/`     |
+| Platform scripts     | `scripts/linux/` and `scripts/*.bat`        |
 | WinSW config         | `scripts/alfc-service.xml`                  |
 
 ## CONVENTIONS
@@ -24,4 +24,4 @@ Bootstrap is now scripts-only (no TypeScript). WinSW for Windows, shell scripts 
 - Windows: Logs to `service.log` via WinSW
 - Linux (systemd): Logs go to systemd journal
 - Linux (OpenRC): Logs go to stdout (use `rc-service alfc start` to see output)
-- After install, auto-opens browser to `localhost:5522`
+- Windows install.bat auto-opens browser to `localhost:5522`

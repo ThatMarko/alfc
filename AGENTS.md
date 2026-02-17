@@ -1,21 +1,22 @@
 # ALFC - Aorus Laptop Fan Control
 
-**Generated:** 2026-02-13
-**Commit:** 11e834f
+**Generated:** 2026-02-17
+**Commit:** 3cb92b7
 **Branch:** master
 
 ## OVERVIEW
 
-Cross-platform fan control utility for Aorus laptops. Web UI (React) + Bun backend for Linux with platform-specific native bindings.
+Cross-platform fan control utility for Aorus laptops. Web UI (React) + Bun backend with platform-specific native bindings. KDE Plasma 6 widget for Linux desktop integration.
 
 ## STRUCTURE
 
 ```
 alfc/
 ├── bootstrap/       # Service management (install/uninstall/run)
-├── common/          # Shared TypeScript types
+├── common/          # Shared TypeScript types + protocol docs
 ├── frontend/        # React web UI (Vite)
-├── server/          # Node.js backend
+├── plasmoid/        # KDE Plasma 6 widget (QML)
+├── server/          # Bun backend
 │   ├── fan-control/ # Core fan logic
 │   ├── native/      # Platform-specific (linux/windows)
 │   │   ├── wmiapi/  # Windows WMI NativeAOT
@@ -33,7 +34,8 @@ alfc/
 | ACPI/WMI calls    | `server/native/{linux,windows}/acpi.ts` | Platform abstraction (Linux: /proc/acpi, Windows: bun:ffi + NativeAOT) |
 | Frontend state    | `frontend/src/utils/useWebSocket.ts`    | WebSocket hook for real-time updates                                   |
 | Shared types      | `common/types.ts`                       | `State`, `MessageToServer`, `MessageToClient`                          |
-| Service lifecycle | `bootstrap/scripts/linux/*.sh`          | Linux uses systemd service scripts                                     |
+| Service lifecycle | `bootstrap/scripts/linux/*.sh`          | Linux: auto-detects systemd or OpenRC                                  |
+| KDE Plasma widget | `plasmoid/package/contents/ui/`         | QML-based Plasma 6 widget with WebSocket client                        |
 | Config schema     | `alfc.config.json`                      | Fan tables, PL1/PL2 limits                                             |
 
 ## CONVENTIONS
@@ -54,7 +56,7 @@ alfc/
 
 - Frontend -> Server args: NOT hex strings (WMI uses named args)
 - Fan speeds unified: Both fans get highest target (shared heat pipes)
-- Windows 15s startup delay: Waits for WMI service availability
+- Windows WMI init: 3 retries with 2s delay between attempts
 
 ## COMMANDS
 
@@ -81,10 +83,11 @@ sudo ./uninstall.sh       # Remove service
 ## NOTES
 
 - Exit handler sets fans to 100% to prevent overheating
-- Linux release is a Bun-compiled executable with systemd scripts
+- Linux release is a Bun-compiled executable with systemd/OpenRC service scripts
 - Windows release is a Bun-compiled executable with WinSW service wrapper
-- Windows logging: WinSW to `service.log` (systemd handles Linux)
+- Windows logging: WinSW to `service.log` (systemd journal / OpenRC stdout for Linux)
 - Windows native: `bun:ffi` loads NativeAOT DLLs (replaces `edge-js`)
 - Bootstrap: Scripts-only (no TypeScript), WinSW replaces `os-service`
 - Windows build requires .NET 8 SDK
 - CI: GitHub Actions on master, runs `bun run all-checks`
+- Release: GitHub Actions on `v*` tag, builds Linux + Windows + plasmoid

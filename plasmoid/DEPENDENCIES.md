@@ -42,4 +42,4 @@ If `org.kde.plasma.components` is missing:
 | ------------ | ---------------------------- | ------------ | -------------- |
 | `qt6-charts` | Future: graphical fan curves | `qt6-charts` | `qt6-qtcharts` |
 
-Charts module is NOT required for v1. The fan table uses numeric editing only.
+Charts module is NOT required for v2. The fan table uses numeric editing only.

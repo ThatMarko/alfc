@@ -10,7 +10,8 @@ Platform-specific ACPI/WMI hardware interface. Abstracts fan speed reading/writi
 native/
 ├── index.ts       # Platform detection, exports unified interface
 ├── linux/         # acpi_call kernel module interface
-│   └── acpi.ts    # Reads/writes via /proc/acpi/call
+│   ├── acpi.ts    # Reads/writes via /proc/acpi/call
+│   └── cpuoc.ts   # CPU power limits via sysfs (intel-rapl)
 └── windows/
     ├── acpi.ts    # WMI via bun:ffi + NativeAOT
     ├── cpuoc.ts   # Intel XTU integration
