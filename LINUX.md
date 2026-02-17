@@ -70,6 +70,52 @@ sudo systemctl start alfc
 
 - Run `sudo ./uninstall.sh`.
 
+## KDE Plasma 6 Widget (Optional)
+
+If you're running KDE Plasma 6, you can install the native Plasma widget for system tray fan control.
+
+### Prerequisites
+
+- KDE Plasma 6 desktop environment
+- QtWebSockets QML module (see `plasmoid/DEPENDENCIES.md` for distro-specific package names)
+- The ALFC backend service must be running (`sudo ./install.sh` or `sudo ./run.sh`)
+
+### Install
+
+```bash
+./plasmoid/install.sh
+```
+
+Or manually:
+
+```bash
+kpackagetool6 --type Plasma/Applet --install plasmoid/package
+```
+
+After installing, right-click your panel → Add Widgets → search for "Aorus".
+
+### Upgrade
+
+```bash
+./plasmoid/install.sh
+```
+
+The script detects an existing install and upgrades automatically.
+
+### Uninstall
+
+```bash
+./plasmoid/uninstall.sh
+```
+
+### Testing / Development
+
+```bash
+plasmoidviewer -a plasmoid/package
+# or
+plasmawindowed org.kde.alfc
+```
+
 ## Wishlist
 
 - Somehow include `acpi_call` in the installation process. But there are two problems:
