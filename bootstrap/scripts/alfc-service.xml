@@ -1,0 +1,20 @@
+<service>
+  <id>alfc</id>
+  <name>Aorus Laptop Fan Control</name>
+  <description>Cross-platform fan control utility for Aorus laptops</description>
+
+  <executable>%BASE%\alfc.exe</executable>
+
+  <delayedAutoStart>true</delayedAutoStart>
+
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="20 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+
+  <env name="NODE_ENV" value="production"/>
+</service>
