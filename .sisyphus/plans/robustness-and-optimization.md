@@ -678,7 +678,7 @@ Wave FINAL (Verification):
 
 ---
 
-- [ ] 9. Final verification
+- [x] 9. Final verification
 
   **What to do**:
   - Run `bun run all-checks` (lint + type-check + test + build)
