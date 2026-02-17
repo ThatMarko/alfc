@@ -54,18 +54,22 @@ const exitWithError = () => {
       return;
     }
     isShuttingDown = true;
-    try {
-      restoreAutoFanControl();
-      if (code !== 0) {
-        console.error("Exiting with code " + code);
-        console.error(new Error().stack);
-      } else {
-        console.log("Exiting normally.");
+
+    (async () => {
+      try {
+        await restoreAutoFanControl();
+        if (code !== 0) {
+          console.error("Exiting with code " + code);
+          console.error(new Error().stack);
+        } else {
+          console.log("Exiting normally.");
+        }
+      } catch (err) {
+        console.error("Failed to restore fan control on exit:", err);
+      } finally {
+        originalProcessExit(code ?? 1);
       }
-    } catch (err) {
-      console.error("Failed to restore fan control on exit:", err);
-    }
-    originalProcessExit(code ?? 1);
+    })();
   }) as (code?: number) => never;
 
   const runtimeRoot = isDev
@@ -121,8 +125,9 @@ const exitWithError = () => {
 
   setServer(server);
 
-  const shutdown = (signal: string) => {
+  const shutdown = async (signal: string) => {
     console.log(`Received ${signal}, shutting down...`);
+    await restoreAutoFanControl();
     server.stop();
     process.exit(0);
   };

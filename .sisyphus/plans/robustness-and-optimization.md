@@ -612,7 +612,7 @@ Wave FINAL (Verification):
 
 ---
 
-- [ ] 8. Async-safe shutdown handler
+- [x] 8. Async-safe shutdown handler
 
   **What to do**:
   - Make shutdown handler async-aware
