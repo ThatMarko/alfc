@@ -8,6 +8,7 @@ import org.kde.kirigami as Kirigami
 PlasmaExtras.Representation {
     id: fullRoot
     required property var backend
+    required property string webUiUrl
 
     // ── Helper Properties (reduce repetitive null-guard chains) ────
     readonly property bool connected: backend && backend.isConnected
@@ -37,7 +38,7 @@ PlasmaExtras.Representation {
                 PlasmaComponents.ToolTip.text: i18n("Open Web UI")
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
                 PlasmaComponents.ToolTip.visible: hovered
-                onClicked: Qt.openUrlExternally("http://localhost:5522")
+                onClicked: Qt.openUrlExternally(fullRoot.webUiUrl)
             }
         }
     }

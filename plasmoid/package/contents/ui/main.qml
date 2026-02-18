@@ -12,6 +12,17 @@ PlasmoidItem {
     readonly property bool onDesktop: Plasmoid.location === PlasmaCore.Types.Floating
     readonly property bool inPanel: !inTray && !onDesktop
 
+    // ── Derived Web UI URL ─────────────────────────────────────────
+    // Derives HTTP URL from the configured WebSocket URL
+    // e.g. "ws://localhost:5522/ws" → "http://localhost:5522"
+    readonly property string webUiUrl: {
+        var wsUrl = Plasmoid.configuration.serverUrl || "ws://localhost:5522/ws"
+        // Strip the /ws path suffix
+        var base = wsUrl.replace(/\/ws\/?$/, "")
+        // Replace protocol: wss:// → https://, ws:// → http://
+        return base.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://")
+    }
+
     // ── Temperature Threshold for Attention ────────────────────────
     readonly property int warningTemp: 90
     readonly property bool hasData: backendConnection.isConnected
@@ -96,7 +107,7 @@ PlasmoidItem {
         PlasmaCore.Action {
             text: i18n("Open Web UI")
             icon.name: "internet-web-browser"
-            onTriggered: Qt.openUrlExternally("http://localhost:5522")
+            onTriggered: Qt.openUrlExternally(root.webUiUrl)
         }
     ]
 
@@ -114,5 +125,6 @@ PlasmoidItem {
 
     fullRepresentation: FullRepresentation {
         backend: backendConnection
+        webUiUrl: root.webUiUrl
     }
 }
