@@ -19,13 +19,13 @@ function mockTemperatures(cpu: number, gpu: number) {
   mockedGetCall.mockImplementation((methodId: string) => {
     switch (methodId) {
       case "0xe1":
-        return Promise.resolve(cpu.toString(16));
+        return Promise.resolve(cpu);
       case "0xe2":
-        return Promise.resolve(gpu.toString(16));
+        return Promise.resolve(gpu);
       case "0xe3":
-        return Promise.resolve(gpu.toString(16));
+        return Promise.resolve(gpu);
       default:
-        return Promise.resolve("0x0");
+        return Promise.resolve(0);
     }
   });
 }
@@ -242,7 +242,7 @@ describe("fan-control", () => {
   it("should use highest fan speed when readings are invalid", async () => {
     fanControl();
 
-    mockedGetCall.mockResolvedValue("null");
+    mockedGetCall.mockResolvedValue(NaN);
     await waitUntilFanPercent(
       state.gpuFanTable[state.gpuFanTable.length - 1][1],
     );

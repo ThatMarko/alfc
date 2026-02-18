@@ -49,9 +49,13 @@ export function setFixedFan(percent: number) {
   const speed = fanPercentToSpeed(percent);
 
   // SetFixedFanSpeed
-  setCall("0x6b", "SetFixedFanSpeed", { Data: speed }).catch(() => {});
+  setCall("0x6b", "SetFixedFanSpeed", { Data: speed }).catch((e) =>
+    console.warn("[FanControl] SetFixedFanSpeed failed:", e),
+  );
   // SetGPUFanDuty
-  setCall("0x47", "SetGPUFanDuty", { Data: speed }).catch(() => {});
+  setCall("0x47", "SetGPUFanDuty", { Data: speed }).catch((e) =>
+    console.warn("[FanControl] SetGPUFanDuty failed:", e),
+  );
 }
 
 // Inverse of initFanControl() — must be updated if initFanControl changes.
@@ -61,16 +65,23 @@ export async function restoreAutoFanControl() {
 }
 
 async function getCallInt(methodId: string, methodName: string) {
-  // On rare occassions, the call returns `null`.
-  const result = parseInt(await getCall(methodId, methodName), 16);
-  return isNaN(result) ? 200 : result; // Force highest speed when temperature reading fails
+  const result = await getCall(methodId, methodName);
+  return isNaN(result) ? 200 : result;
 }
 
 function initFanControl() {
-  setCall("0x58", "SetSuperQuiet", { Data: 0 }).catch(() => {});
-  setCall("0x71", "SetAutoFanStatus", { Data: 0 }).catch(() => {});
-  setCall("0x67", "SetStepFanStatus", { Data: 0 }).catch(() => {});
-  setCall("0x6a", "SetFixedFanStatus", { Data: 1 }).catch(() => {});
+  setCall("0x58", "SetSuperQuiet", { Data: 0 }).catch((e) =>
+    console.warn("[FanControl] SetSuperQuiet failed:", e),
+  );
+  setCall("0x71", "SetAutoFanStatus", { Data: 0 }).catch((e) =>
+    console.warn("[FanControl] SetAutoFanStatus failed:", e),
+  );
+  setCall("0x67", "SetStepFanStatus", { Data: 0 }).catch((e) =>
+    console.warn("[FanControl] SetStepFanStatus failed:", e),
+  );
+  setCall("0x6a", "SetFixedFanStatus", { Data: 1 }).catch((e) =>
+    console.warn("[FanControl] SetFixedFanStatus failed:", e),
+  );
 }
 
 function resetFanSpeed() {
@@ -99,7 +110,7 @@ async function collectAverageTemps(runId: number) {
     GPUTemps.push(currGPUTemp);
 
     if (CPUTemps.length < samplesPerCycle) {
-      await new Promise((resolve) => setTimeout(resolve, TEMP_POLL_INTERVAL));
+      await Bun.sleep(TEMP_POLL_INTERVAL);
     }
   }
 
