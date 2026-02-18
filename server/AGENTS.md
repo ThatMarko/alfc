@@ -31,7 +31,7 @@ server/
 ## CONVENTIONS
 
 - **Entry requires elevation**: Exits with error if not root/admin
-- **Exit handler**: Always sets fans to 100% before exit
+- **Exit handler**: Restores BIOS automatic fan control (disables fixed mode, re-enables auto mode)
 - **Linux build output**: Bun-compiled executable (`dist/alfc`)
 - **Windows build output**: Bun-compiled executable (`dist/alfc.exe`)
 

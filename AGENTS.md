@@ -82,7 +82,7 @@ sudo ./uninstall.sh       # Remove service
 
 ## NOTES
 
-- Exit handler sets fans to 100% to prevent overheating
+- Exit handler restores BIOS automatic fan control (disables fixed mode, re-enables auto mode)
 - Linux release is a Bun-compiled executable with systemd/OpenRC service scripts
 - Windows release is a Bun-compiled executable with WinSW service wrapper
 - Windows logging: WinSW to `service.log` (systemd journal / OpenRC stdout for Linux)
