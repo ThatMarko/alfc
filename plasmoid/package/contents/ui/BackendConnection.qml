@@ -11,9 +11,12 @@ Item {
     property string lastError: ""
     property var latestState: ({})
     property var latestActivity: ({})
+    property real lastPongTime: 0
 
     onUrlChanged: {
         reconnectTimer.interval = 1000;
+        socket.active = false;
+        socket.active = true;
     }
 
     // Signal for other components to react to messages if needed
@@ -36,9 +39,10 @@ Item {
             if (socket.status === WebSocket.Open) {
                 console.info("BackendConnection: Connected");
                 root.lastError = "";
+                root.lastPongTime = Date.now();
                 reconnectTimer.stop();
                 reconnectTimer.interval = 1000;
-                
+
                 // Register for activity updates
                 socket.sendTextMessage(JSON.stringify({
                     kind: "registeractivitysocket",
@@ -62,6 +66,7 @@ Item {
 
         onTextMessageReceived: (message) => {
             if (message === "pong") {
+                root.lastPongTime = Date.now();
                 return;
             }
 
@@ -94,11 +99,26 @@ Item {
 
     Timer {
         id: keepaliveTimer
-        interval: 5000 // Send ping every 5 seconds
+        interval: 5000
         repeat: true
         onTriggered: {
             if (socket.status === WebSocket.Open) {
                 socket.sendTextMessage("ping");
+            }
+        }
+    }
+
+    Timer {
+        id: pongWatchdog
+        interval: 15000
+        repeat: true
+        running: keepaliveTimer.running
+        onTriggered: {
+            if (root.lastPongTime > 0 && (Date.now() - root.lastPongTime) > 15000) {
+                console.warn("BackendConnection: Pong timeout, forcing reconnect");
+                root.lastPongTime = 0;
+                socket.active = false;
+                socket.active = true;
             }
         }
     }

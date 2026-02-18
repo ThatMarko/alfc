@@ -6,11 +6,12 @@ import org.kde.kirigami as Kirigami
 
 ColumnLayout {
     id: root
-    property var backend
-    
+    required property var backend
+
     property bool loaded: false
     property string statusMessage: ""
     property bool isError: false
+    property bool isNeutral: false
 
     // Current view
     property int currentTab: 0 // 0: CPU, 1: GPU
@@ -40,8 +41,9 @@ ColumnLayout {
                 }
             }
             loaded = true
-            statusMessage = "Loaded from backend"
+            statusMessage = i18n("Loaded from backend")
             isError = false
+            isNeutral = true
         }
     }
 
@@ -69,10 +71,10 @@ ColumnLayout {
             lastTemp = parseInt(lastItem.temp)
             lastSpeed = parseInt(lastItem.speed)
         }
-        
+
         var newTemp = Math.min(110, lastTemp + 10)
         var newSpeed = Math.min(100, lastSpeed + 10)
-        
+
         model.append({ "temp": newTemp, "speed": newSpeed })
     }
 
@@ -86,31 +88,35 @@ ColumnLayout {
     function validateAndSave() {
         var cpuTable = []
         var lastTemp = -1
-        
+
         // Validate CPU
         for (var i = 0; i < cpuModel.count; i++) {
             var item = cpuModel.get(i)
             var t = parseInt(item.temp)
             var s = parseInt(item.speed)
-            
+
             if (isNaN(t) || isNaN(s)) {
-                statusMessage = "Invalid numbers in CPU table"
+                statusMessage = i18n("Invalid numbers in CPU table")
                 isError = true
+                isNeutral = false
                 return
             }
             if (t < 0 || t > 110) {
-                statusMessage = "CPU Temp out of range (0-110)"
+                statusMessage = i18n("CPU temp out of range (0–110)")
                 isError = true
+                isNeutral = false
                 return
             }
             if (s < 0 || s > 100) {
-                statusMessage = "CPU Speed out of range (0-100)"
+                statusMessage = i18n("CPU speed out of range (0–100)")
                 isError = true
+                isNeutral = false
                 return
             }
             if (i > 0 && t <= lastTemp) {
-                statusMessage = "CPU Temps must be ascending (Row " + (i+1) + ")"
+                statusMessage = i18n("CPU temps must be ascending (row %1)", i + 1)
                 isError = true
+                isNeutral = false
                 return
             }
             lastTemp = t
@@ -119,31 +125,35 @@ ColumnLayout {
 
         var gpuTable = []
         lastTemp = -1
-        
+
         // Validate GPU
         for (var j = 0; j < gpuModel.count; j++) {
             var itemG = gpuModel.get(j)
             var tg = parseInt(itemG.temp)
             var sg = parseInt(itemG.speed)
-            
+
             if (isNaN(tg) || isNaN(sg)) {
-                statusMessage = "Invalid numbers in GPU table"
+                statusMessage = i18n("Invalid numbers in GPU table")
                 isError = true
+                isNeutral = false
                 return
             }
             if (tg < 0 || tg > 110) {
-                statusMessage = "GPU Temp out of range (0-110)"
+                statusMessage = i18n("GPU temp out of range (0–110)")
                 isError = true
+                isNeutral = false
                 return
             }
             if (sg < 0 || sg > 100) {
-                statusMessage = "GPU Speed out of range (0-100)"
+                statusMessage = i18n("GPU speed out of range (0–100)")
                 isError = true
+                isNeutral = false
                 return
             }
             if (j > 0 && tg <= lastTemp) {
-                statusMessage = "GPU Temps must be ascending (Row " + (j+1) + ")"
+                statusMessage = i18n("GPU temps must be ascending (row %1)", j + 1)
                 isError = true
+                isNeutral = false
                 return
             }
             lastTemp = tg
@@ -161,11 +171,13 @@ ColumnLayout {
                     gpu: gpuTable
                 }
             })
-            statusMessage = "Configuration sent!"
+            statusMessage = i18n("Configuration sent!")
             isError = false
+            isNeutral = false
         } else {
-            statusMessage = "Backend not connected"
+            statusMessage = i18n("Backend not connected")
             isError = true
+            isNeutral = false
         }
     }
 
@@ -173,16 +185,16 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         spacing: 0
-        
+
         PlasmaComponents.Button {
-            text: "CPU Fan Curve"
+            text: i18n("CPU Fan Curve")
             checkable: true
             checked: currentTab === 0
             onClicked: currentTab = 0
             Layout.fillWidth: true
         }
         PlasmaComponents.Button {
-            text: "GPU Fan Curve"
+            text: i18n("GPU Fan Curve")
             checkable: true
             checked: currentTab === 1
             onClicked: currentTab = 1
@@ -194,17 +206,17 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         Layout.margins: Kirigami.Units.smallSpacing
-        PlasmaComponents.Label { 
-            text: "Temp (°C)" 
+        PlasmaComponents.Label {
+            text: i18n("Temp (°C)")
             Layout.preferredWidth: Kirigami.Units.gridUnit * 5
-            font.bold: true 
-            horizontalAlignment: Text.AlignHCenter 
+            font.bold: true
+            horizontalAlignment: Text.AlignHCenter
         }
-        PlasmaComponents.Label { 
-            text: "Speed (%)" 
+        PlasmaComponents.Label {
+            text: i18n("Speed (%)")
             Layout.preferredWidth: Kirigami.Units.gridUnit * 5
-            font.bold: true 
-            horizontalAlignment: Text.AlignHCenter 
+            font.bold: true
+            horizontalAlignment: Text.AlignHCenter
         }
         Item { Layout.fillWidth: true } // Spacer
     }
@@ -225,7 +237,7 @@ ColumnLayout {
                 delegate: RowLayout {
                     Layout.fillWidth: true
                     spacing: Kirigami.Units.largeSpacing
-                    
+
                     PlasmaComponents.TextField {
                         text: temp
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 5
@@ -237,7 +249,7 @@ ColumnLayout {
                             model.setProperty(index, "temp", parseInt(text))
                         }
                     }
-                    
+
                     PlasmaComponents.TextField {
                         text: speed
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 5
@@ -249,12 +261,12 @@ ColumnLayout {
                             model.setProperty(index, "speed", parseInt(text))
                         }
                     }
-                    
+
                     PlasmaComponents.Button {
                         icon.name: "list-remove"
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 2.5
                         onClicked: removeRow(currentTab === 0, index)
-                        PlasmaComponents.ToolTip.text: "Remove Row"
+                        PlasmaComponents.ToolTip.text: i18n("Remove Row")
                         PlasmaComponents.ToolTip.visible: hovered
                     }
 
@@ -263,7 +275,7 @@ ColumnLayout {
             }
 
             PlasmaComponents.Button {
-                text: "Add Row"
+                text: i18n("Add Row")
                 icon.name: "list-add"
                 Layout.alignment: Qt.AlignHCenter
                 onClicked: addRow(currentTab === 0)
@@ -274,22 +286,22 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         Layout.topMargin: Kirigami.Units.largeSpacing
-        
+
         PlasmaComponents.Button {
-            text: "Reload"
+            text: i18n("Reload")
             icon.name: "view-refresh"
             onClicked: loadFromBackend()
-            PlasmaComponents.ToolTip.text: "Reload from Backend"
+            PlasmaComponents.ToolTip.text: i18n("Reload from Backend")
             PlasmaComponents.ToolTip.visible: hovered
         }
-        
+
         Item { Layout.fillWidth: true }
-        
+
         PlasmaComponents.Button {
-            text: "Apply"
+            text: i18n("Apply")
             icon.name: "dialog-ok"
             onClicked: validateAndSave()
-            PlasmaComponents.ToolTip.text: "Apply Configuration"
+            PlasmaComponents.ToolTip.text: i18n("Apply Configuration")
             PlasmaComponents.ToolTip.visible: hovered
         }
     }
@@ -298,7 +310,7 @@ ColumnLayout {
         text: statusMessage
         color: isError
             ? Kirigami.Theme.negativeTextColor
-            : (statusMessage === "Loaded from backend"
+            : (isNeutral
                 ? Kirigami.Theme.neutralTextColor
                 : (statusMessage === ""
                     ? Kirigami.Theme.textColor

@@ -4,37 +4,56 @@ import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.plasmoid
 import org.kde.kirigami as Kirigami
 
-Item {
-    property var backend
+MouseArea {
+    id: compactRoot
 
-    Plasmoid.icon: backend && backend.isConnected ? "computer-laptop" : "network-disconnect"
+    required property var backend
+    property bool inTray: false
 
-    RowLayout {
+    // Accessibility for screen readers
+    Accessible.role: Accessible.Button
+    Accessible.name: i18n("Aorus Fan Control")
+
+    // System tray sets the size; in panel we need Layout hints
+    Layout.fillHeight: true
+    Layout.minimumWidth: inTray ? Kirigami.Units.iconSizes.medium : textLabel.implicitWidth + Kirigami.Units.smallSpacing * 2
+    Layout.preferredWidth: Layout.minimumWidth
+
+    hoverEnabled: true
+    onClicked: root.expanded = !root.expanded
+
+    // ── Icon Mode (System Tray) ────────────────────────────────────
+    Kirigami.Icon {
+        id: trayIcon
         anchors.fill: parent
-        spacing: Kirigami.Units.smallSpacing
+        visible: compactRoot.inTray
+        source: Plasmoid.icon
+        active: compactRoot.containsMouse
+    }
 
-        PlasmaComponents.Label {
-            Layout.fillWidth: true
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            text: {
-                if (!backend || !backend.isConnected) {
-                    return "ALFC: Disconnected";
-                }
-                if (!backend.latestActivity || Object.keys(backend.latestActivity).length === 0) {
-                    return "ALFC: No Data";
-                }
-                
-                var cpu = backend.latestActivity.avgCPUTemp;
-                var gpu = backend.latestActivity.avgGPUTemp;
-                var fan = backend.latestActivity.appliedSpeed;
-                
-                if (cpu === undefined || gpu === undefined) {
-                     return "ALFC: Waiting...";
-                }
+    // ── Text Mode (Panel) ──────────────────────────────────────────
+    PlasmaComponents.Label {
+        id: textLabel
+        anchors.fill: parent
+        visible: !compactRoot.inTray
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        text: {
+            if (!backend || !backend.isConnected)
+                return i18n("ALFC: --")
+            if (!backend.latestActivity || Object.keys(backend.latestActivity).length === 0)
+                return i18n("ALFC: ...")
 
-                return Math.round(cpu) + "°C / " + Math.round(gpu) + "°C | " + (fan !== null ? Math.round(fan) : "--") + "%";
-            }
+            var cpu = backend.latestActivity.avgCPUTemp
+            var gpu = backend.latestActivity.avgGPUTemp
+            var fan = backend.latestActivity.appliedSpeed
+
+            if (cpu === undefined || gpu === undefined)
+                return i18n("ALFC: ...")
+
+            return i18n("%1°C / %2°C | %3%",
+                Math.round(cpu), Math.round(gpu),
+                fan != null ? Math.round(fan) : "--")
         }
     }
 }
