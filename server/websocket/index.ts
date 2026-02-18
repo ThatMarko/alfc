@@ -51,12 +51,16 @@ function sendState(ws: ServerWebSocket<unknown>) {
   );
 }
 
-function sendSuccess(ws: ServerWebSocket<unknown>, payload: any, data?: any) {
+function sendSuccess(
+  ws: ServerWebSocket<unknown>,
+  payload: MessageToServer,
+  data?: unknown,
+) {
   ws.send(
     JSON.stringify({
       ...payload,
       kind: MessageToClientKind.Success,
-      ...(data && { data }),
+      ...(data !== undefined && { data }),
     }),
   );
 }
@@ -187,6 +191,9 @@ async function handleMessage(
           payload.methodName,
           payload.data,
         );
+        if (Number.isNaN(result)) {
+          return sendError(ws, payload, "ACPI_ERROR: Get call failed");
+        }
         return sendSuccess(ws, payload, result);
       }
       case MessageToServerKind.Set:

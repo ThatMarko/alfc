@@ -120,7 +120,7 @@ describe("websocket contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetStateToDefaults();
-    mockedGetCall.mockResolvedValue("0x0");
+    mockedGetCall.mockResolvedValue(0);
     mockedSetCall.mockResolvedValue(undefined);
     mockedTune.mockResolvedValue(undefined);
     mockedPersistState.mockResolvedValue(undefined);
@@ -282,7 +282,7 @@ describe("websocket contract", () => {
 
   it("handles get calls and forwards result in success payload", async () => {
     const ws = createSocket();
-    mockedGetCall.mockResolvedValueOnce("0x2a");
+    mockedGetCall.mockResolvedValueOnce(42);
 
     dispatchMessage(ws, {
       kind: MessageToServerKind.Get,
@@ -302,7 +302,7 @@ describe("websocket contract", () => {
       kind: MessageToClientKind.Success,
       methodId: "0x129",
       methodName: "GetSomething",
-      data: "0x2a",
+      data: 42,
     });
   });
 
