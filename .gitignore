@@ -1,6 +1,7 @@
 node_modules
 .eslintcache
 .idea
+.sisyphus
 build
 dist
 *.log

@@ -1,2 +1,0 @@
-server type-check: Exited with code 0
-frontend type-check: Exited with code 0

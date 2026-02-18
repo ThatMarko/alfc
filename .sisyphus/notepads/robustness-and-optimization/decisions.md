@@ -1,2 +1,0 @@
-- Used a lazy check for ACPI availability (`isAcpiAvailable`) to avoid checking on every call and to handle the case where the file might not exist initially.
-- Returned "0" as a graceful error value for `getCall` when ACPI is unavailable or fails, to prevent crashes while maintaining type compatibility (string return).
