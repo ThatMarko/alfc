@@ -7,7 +7,7 @@ type ACPIModule = {
     methodId: string,
     methodName: string,
     args?: Args,
-  ) => Promise<string>;
+  ) => Promise<number>;
   setCall: (methodId: string, methodName: string, args: Args) => Promise<void>;
   wmiInit: () => Promise<void>;
 };
@@ -20,12 +20,12 @@ type CPUOCModule = {
 const isLinux = process.platform === "linux";
 
 const acpiModule: ACPIModule = await (isLinux
-  ? import("./linux/acpi.js")
-  : import("./windows/acpi.js"));
+  ? import("./linux/acpi")
+  : import("./windows/acpi"));
 
 const cpuocModule: CPUOCModule = await (isLinux
-  ? import("./linux/cpuoc.js")
-  : import("./windows/cpuoc.js"));
+  ? import("./linux/cpuoc")
+  : import("./windows/cpuoc"));
 
 const { getCall, wmiInit, setCall } = acpiModule;
 const { tuneInit, tune: tuneNative } = cpuocModule;
@@ -35,18 +35,19 @@ function tune() {
 }
 
 function promiseWithTimeout<T>(promise: Promise<T>, timeout = 1000 * 5) {
+  let timer: ReturnType<typeof setTimeout>;
   return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Timeout")), timeout),
-    ),
+    promise.finally(() => clearTimeout(timer)),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Timeout")), timeout);
+    }),
   ]);
 }
 
 // When these services are experiencing problems, it might lead to freezing that prevents logs from being written.
 async function logWithFlush(message: string) {
   console.log(message);
-  await new Promise((resolve) => setTimeout(resolve));
+  await Bun.sleep(0);
 }
 
 async function initNativeServices() {

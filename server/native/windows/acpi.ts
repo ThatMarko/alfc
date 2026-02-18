@@ -86,14 +86,14 @@ export function getCall(_: string, methodName: string, args?: Args) {
   const resultJson = new CString(resultPtr);
   lib.symbols.free_string(resultPtr);
 
-  // TODO: Convert to a number instead of returning a hex string. For Linux as well, obviously
   const result: number[] = JSON.parse(resultJson.toString()).reverse();
   splitWords(result);
 
-  const hexString = Buffer.from(result).toString("hex");
-  return Promise.resolve(
-    "0x" + (hexString[0] === "0" ? hexString.substring(1) : hexString),
-  );
+  let value = 0;
+  for (const byte of result) {
+    value = value * 256 + byte;
+  }
+  return Promise.resolve(value);
 }
 
 if (import.meta.main) {

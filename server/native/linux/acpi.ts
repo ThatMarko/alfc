@@ -22,7 +22,7 @@ function argstoHexString(args?: Args) {
     return "0";
   }
 
-  // TODO: Test whether this order inversion works with GetFanIndexValue!
+  // Reversed to match WMI byte order convention
   return "0x" + Buffer.from(Object.values(args).reverse()).toString("hex");
 }
 
@@ -30,24 +30,19 @@ export function wmiInit() {
   return Promise.resolve();
 }
 
-// Read calls also always expect 3 arguments.
-// IF something really needs to be specified, it's packed into the 3rd argument, like with write.
-// Otherwise, it's simply not used.
-// @return Multiple values are returned in a single number, little endian!
-// TODO: Convert to a number instead of returning a hex string. For Windows as well, obviously
 export async function getCall(methodId: string, _: string, args?: Args) {
   if (!(await isAcpiAvailable())) {
-    return "";
+    return NaN;
   }
 
   const command = `\\_SB.PCI0.AMW0.WMBC 0 ${methodId} ${argstoHexString(args)}`;
   try {
     await Bun.write(ACPI_CALL_PATH, command);
     const result = await Bun.file(ACPI_CALL_PATH).text();
-    return result.replace("\0", "");
+    return parseInt(result.replaceAll("\0", "").trim(), 16);
   } catch (error) {
     console.error(`[ACPI] getCall failed for ${methodId}:`, error);
-    return "";
+    return NaN;
   }
 }
 

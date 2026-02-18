@@ -30,8 +30,9 @@ native/
 
 ## CONVENTIONS
 
-- **getCall/setCall**: Returns string (hex for Linux, parsed for Windows)
-- **Error handling**: Throws on hardware failures, caller must handle
+- **getCall**: Returns `Promise<number>` (both platforms). Linux returns `NaN` on failure; Windows throws.
+- **setCall**: Returns `Promise<void>`. Throws on failure (both platforms).
+- **Error handling**: Windows throws on hardware failures. Linux `getCall` returns `NaN` (WebSocket layer sends `ACPI_ERROR`). Callers must handle both patterns.
 
 ## ANTI-PATTERNS
 
@@ -40,7 +41,6 @@ native/
 
 ## NOTES
 
-- TODO exists: hex string → number conversion needed in both acpi.ts files
 - Linux requires `acpi_call` kernel module loaded
 - Windows requires admin rights for WMI access
 - DLL rebuild commands in `server/package.json` (`build:cpuoc`, `build:wmiapi`)
