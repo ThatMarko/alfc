@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@csstools/normalize.css": "^12.1.1",
-    "@emotion/core": "^11.0.0",
+    "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
     "@fortawesome/fontawesome-svg-core": "^6.7.2",
     "@fortawesome/free-solid-svg-icons": "^6.7.2",
@@ -39,7 +39,6 @@
     "@emotion/babel-plugin": "^11.13.5",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "@types/react-fontawesome": "^1.6.8",
     "@vitejs/plugin-react": "^4.3.4",
     "vite": "^6.1.0"
   }
