@@ -7,7 +7,7 @@ import { StyledArea } from "../components/StyledArea";
 import { useWebSocket } from "../utils/useWebSocket";
 
 export function Status({ disabled }: { disabled: boolean }) {
-  const tooltipRef = useRef<SVGSVGElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
 
   const [appliedSpeed, setAppliedSpeed] = useState<string>("-");
   const [avgCPUTemp, setAvgCPUTemp] = useState<string>("-");
@@ -55,8 +55,10 @@ Last applied: ${appliedSpeed}%`;
   return (
     <StyledArea>
       <h2>
-        Status <FontAwesomeIcon icon={faInfoCircle} ref={tooltipRef} />
-        {/* @ts-expect-error Reactstrap demands RefObject<HTMLElement> */}
+        Status{" "}
+        <span ref={tooltipRef}>
+          <FontAwesomeIcon icon={faInfoCircle} />
+        </span>
         <SimpleTooltip target={tooltipRef}>
           There&apos;s only one target speed because both fans always operate at
           the same speed. Whichever target speed for either CPU or GPU would be

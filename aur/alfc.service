@@ -1,0 +1,16 @@
+[Unit]
+Description=Aorus Laptop Fan Control
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/lib/alfc
+ExecStart=/usr/lib/alfc/alfc
+Environment=NODE_ENV=production
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

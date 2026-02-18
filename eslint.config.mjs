@@ -25,10 +25,9 @@ export default tseslint.config(
   includeIgnoreFile(gitignorePath),
   includeIgnoreFile(gitignorePathFrontend),
   includeIgnoreFile(gitignorePathServer),
+
+  // Base config for all files
   {
-    plugins: {
-      reactPlugin,
-    },
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
@@ -42,27 +41,30 @@ export default tseslint.config(
         tsconfigRootDir: import.meta.dirname,
       },
     },
-    settings: {
-      react: {
-        version: "detect",
-      },
-    },
   },
 
   eslint.configs.recommended,
   tseslint.configs.recommended,
 
+  // React plugins scoped to frontend only
   {
+    files: ["frontend/**/*.{ts,tsx,js,jsx}"],
     plugins: {
+      react: reactPlugin,
       "react-hooks": hooksPlugin,
       "react-refresh": reactRefresh,
     },
-    rules: hooksPlugin.configs.recommended.rules,
+    settings: {
+      react: {
+        version: "detect",
+      },
+    },
+    rules: {
+      ...reactPlugin.configs.flat["recommended"].rules,
+      ...reactPlugin.configs.flat["jsx-runtime"].rules,
+      ...hooksPlugin.configs.recommended.rules,
+    },
   },
-
-  // React team can't write proper types
-  reactPlugin.configs.flat["recommended"],
-  reactPlugin.configs.flat["jsx-runtime"],
 
   {
     rules: {

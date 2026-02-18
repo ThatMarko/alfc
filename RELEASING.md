@@ -18,6 +18,15 @@ The GitHub Actions release workflow will:
 
 Review the draft release, edit the notes if needed, then publish it.
 
+5. After publishing, update the AUR package:
+   ```bash
+   cd /path/to/aur/alfc-bin
+   # Update pkgver in PKGBUILD, then:
+   updpkgsums
+   makepkg --printsrcinfo > .SRCINFO
+   git add -u && git commit -m "Update to vX.Y.Z" && git push
+   ```
+
 ## Release artifacts
 
 | Artifact                       | Contents                                                                     |
@@ -48,10 +57,10 @@ To enable CPU tuning:
 
 - **GitHub Releases** — Primary distribution for all platforms
 
-### Planned
+### Ready (pending first submission)
 
+- **AUR** (Arch User Repository) — PKGBUILD is in `aur/`. Package name: `alfc-bin`. Submit after the first tagged release.
 - **KDE Store** (store.kde.org) — The `org.kde.alfc.plasmoid` file can be uploaded to the KDE Store so Plasma users can discover and install the widget directly from KDE Discover. The backend still needs to be installed separately from GitHub Releases.
-- **AUR** (Arch User Repository) — Arch Linux has the highest KDE Plasma user density. An AUR package (`alfc`) would provide native package management for Arch users.
 
 ### Not viable
 

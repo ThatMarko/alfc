@@ -1,0 +1,43 @@
+post_install() {
+  echo "==> ALFC installed."
+  echo ""
+  echo "  IMPORTANT: alfc requires the acpi_call kernel module."
+  echo "  Install it with: sudo pacman -S acpi_call"
+  echo "  Or the DKMS version: sudo pacman -S acpi_call-dkms"
+  echo "  Then load it: sudo modprobe acpi_call"
+  echo ""
+  echo "  Start the service:"
+  echo "    sudo systemctl enable --now alfc"
+  echo ""
+  echo "  Web UI: http://localhost:5522"
+  echo ""
+  echo "  KDE Plasma 6 widget (optional):"
+  echo "    kpackagetool6 --type Plasma/Applet --install /usr/lib/alfc/plasmoid/package"
+}
+
+post_upgrade() {
+  echo "==> ALFC upgraded."
+  echo ""
+  echo "  Restart the service: sudo systemctl restart alfc"
+  echo ""
+  echo "  Upgrade KDE widget (if installed):"
+  echo "    kpackagetool6 --type Plasma/Applet --upgrade /usr/lib/alfc/plasmoid/package"
+}
+
+pre_remove() {
+  if systemctl is-active --quiet alfc 2>/dev/null; then
+    systemctl stop alfc
+  fi
+  if systemctl is-enabled --quiet alfc 2>/dev/null; then
+    systemctl disable alfc
+  fi
+}
+
+post_remove() {
+  echo "==> ALFC removed."
+  echo ""
+  echo "  To remove the KDE widget (if installed):"
+  echo "    kpackagetool6 --type Plasma/Applet --remove org.kde.alfc"
+  echo ""
+  echo "  Config file preserved at /usr/lib/alfc/alfc.config.json.pacsave (if modified)"
+}
