@@ -47,6 +47,13 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
+# Hardening — restrict what the root service can access
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/proc/acpi/call ${ROOT_DIR}
+PrivateTmp=true
+NoNewPrivileges=true
+
 [Install]
 WantedBy=multi-user.target
 EOF
