@@ -1,12 +1,12 @@
 # ALFC - Aorus Laptop Fan Control
 
-**Generated:** 2026-02-17
-**Commit:** 3cb92b7
+**Generated:** 2026-02-18
+**Commit:** 5bd77bb
 **Branch:** master
 
 ## OVERVIEW
 
-Cross-platform fan control utility for Aorus laptops. Web UI (React) + Bun backend with platform-specific native bindings. KDE Plasma 6 widget for Linux desktop integration.
+Cross-platform fan control utility for Aorus laptops. Web UI (React) + Bun backend with platform-specific native bindings. KDE Plasma 6 widget for Linux desktop integration (panel, system tray, desktop widget).
 
 ## STRUCTURE
 
@@ -14,37 +14,42 @@ Cross-platform fan control utility for Aorus laptops. Web UI (React) + Bun backe
 alfc/
 ├── bootstrap/       # Service management (install/uninstall/run)
 ├── common/          # Shared TypeScript types + protocol docs
-├── frontend/        # React web UI (Vite)
+├── frontend/        # React web UI (Vite, @emotion/react)
 ├── plasmoid/        # KDE Plasma 6 widget (QML)
+│   └── package/contents/ui/  # 7 QML files: main, compact, full, tooltip, backend, fan editor, config
 ├── server/          # Bun backend
-│   ├── fan-control/ # Core fan logic
+│   ├── fan-control/ # Core fan logic + tests
 │   ├── native/      # Platform-specific (linux/windows)
 │   │   ├── wmiapi/  # Windows WMI NativeAOT
 │   │   └── cpuoc-dotnet/ # Windows CPU OC NativeAOT
 │   ├── state/       # Config persistence
-│   └── websocket/   # Client communication
+│   └── websocket/   # Client communication + tests
 └── assets/          # Static resources
 ```
 
 ## WHERE TO LOOK
 
-| Task              | Location                                | Notes                                                                  |
-| ----------------- | --------------------------------------- | ---------------------------------------------------------------------- |
-| Fan curve logic   | `server/fan-control/`                   | Ramping prevents frequent fluctuations                                 |
-| ACPI/WMI calls    | `server/native/{linux,windows}/acpi.ts` | Platform abstraction (Linux: /proc/acpi, Windows: bun:ffi + NativeAOT) |
-| Frontend state    | `frontend/src/utils/useWebSocket.ts`    | WebSocket hook for real-time updates                                   |
-| Shared types      | `common/types.ts`                       | `State`, `MessageToServer`, `MessageToClient`                          |
-| Service lifecycle | `bootstrap/scripts/linux/*.sh`          | Linux: auto-detects systemd or OpenRC                                  |
-| KDE Plasma widget | `plasmoid/package/contents/ui/`         | QML-based Plasma 6 widget with WebSocket client                        |
-| Config schema     | `alfc.config.json`                      | Fan tables, PL1/PL2 limits                                             |
+| Task              | Location                                | Notes                                                                                |
+| ----------------- | --------------------------------------- | ------------------------------------------------------------------------------------ |
+| Fan curve logic   | `server/fan-control/`                   | Ramping prevents frequent fluctuations                                               |
+| ACPI/WMI calls    | `server/native/{linux,windows}/acpi.ts` | Platform abstraction (Linux: /proc/acpi, Windows: bun:ffi + NativeAOT)               |
+| Frontend state    | `frontend/src/utils/useWebSocket.ts`    | WebSocket hook for real-time updates                                                 |
+| Frontend tests    | `frontend/src/{data,utils}/*.test.ts`   | MOF parser tests, toast utility tests                                                |
+| Shared types      | `common/types.ts`                       | `State`, `MessageToServer`, `MessageToClient`                                        |
+| Service lifecycle | `bootstrap/scripts/linux/*.sh`          | Linux: auto-detects systemd or OpenRC                                                |
+| KDE Plasma widget | `plasmoid/package/contents/ui/`         | Multi-context: panel (text), system tray (icon), desktop (full), tooltip (mini-dash) |
+| Config schema     | `alfc.config.json`                      | Fan tables, PL1/PL2 limits                                                           |
 
 ## CONVENTIONS
 
 - **Monorepo**: Bun workspaces (`frontend`, `server`)
 - **Bun 1.3+** required
 - **ESM imports**: Extensionless relative imports (Bun `moduleResolution: "bundler"` convention). Use `node:` prefix for Node built-in modules.
-- **No explicit `any`**: ESLint allows but prefer avoiding
+- **No explicit `any`**: ESLint warns on `@typescript-eslint/no-explicit-any`. One known exception in `common/types.ts` (protocol data field).
 - **Underscore prefix**: Unused vars must use `_` prefix
+- **Strict TypeScript**: `strict: true` + `noUncheckedIndexedAccess: true` — always handle potential `undefined` from indexed access
+- **Accessibility**: Frontend uses `aria-label` on all interactive elements. Plasmoid uses `Accessible.role` / `Accessible.name`.
+- **i18n (QML)**: All user-visible strings wrapped in `i18n()` for KDE translation framework
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
@@ -67,9 +72,9 @@ sudo bun run start        # Frontend at :3000, server at :5522
 # Build & Check
 bun run build             # Build all packages
 bun run all-checks        # Lint + type-check + test + build
-bun run lint              # ESLint
-bun run type-check        # TypeScript (no emit)
-bun run test              # Vitest
+bun run lint              # ESLint (0 errors required, warnings OK)
+bun run type-check        # TypeScript (no emit, strict + noUncheckedIndexedAccess)
+bun run test              # Vitest (28 tests: server + frontend)
 
 # Windows NativeAOT Build
 cd server/native/wmiapi && dotnet publish -c Release -r win-x64
@@ -78,6 +83,11 @@ cd server/native/cpuoc-dotnet && dotnet publish -c Release -r win-x64
 # Service Management (Linux)
 sudo ./install.sh         # Install as system service
 sudo ./uninstall.sh       # Remove service
+
+# Plasmoid
+kpackagetool6 --type Plasma/Applet --install plasmoid/package    # Install
+kpackagetool6 --type Plasma/Applet --upgrade plasmoid/package    # Upgrade
+plasmoidviewer -a plasmoid/package                               # Dev preview
 ```
 
 ## NOTES
@@ -91,3 +101,4 @@ sudo ./uninstall.sh       # Remove service
 - Windows build requires .NET 8 SDK
 - CI: GitHub Actions on master, runs `bun run all-checks`
 - Release: GitHub Actions on `v*` tag, builds Linux + Windows + plasmoid
+- Pre-commit: Husky + lint-staged runs ESLint, type-check, Prettier on staged files

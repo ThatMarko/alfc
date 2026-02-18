@@ -91,12 +91,18 @@ In the direction frontend -> server, arguments are not provided as hex strings, 
 WMI uses named arguments and it is easier to strip this info and convert to a
 hex string for Linux.
 
+### Quality tooling
+
+- **Lint**: `bun run lint` — ESLint with TypeScript, React, Prettier integration. `no-explicit-any` warns, `no-unreachable` errors.
+- **Type-check**: `bun run type-check` — Strict TypeScript with `noUncheckedIndexedAccess` enabled.
+- **Test**: `bun run test` — Vitest (28 tests across server + frontend).
+- **Full check**: `bun run all-checks` — Runs lint, type-check, test, and build in sequence.
+- **Pre-commit**: Husky + lint-staged runs ESLint, type-check, and Prettier on staged files.
+
 ## Todo/Wishlist
 
 Contributions welcome, as always. 🙂
 
-- Refactor styles so there aren't as many inline ones.
-- Prettier status UI.
 - Using RGB lighting to highlight caps/num lock. There's something [here](https://gitlab.com/wtwrp/aeroctl/-/tree/master/Samples/AeroCtl.Rgb.LockKeys) for the Gigabyte Aero that could potentially be reused. (This should actually probably be a separate tool, like the Gigabyte-Aorus-Battery-Manager.)
 - Publish plasmoid to [KDE Store](https://store.kde.org) for discoverability in KDE Discover.
 - Create an [AUR](https://aur.archlinux.org) package for Arch Linux users.
