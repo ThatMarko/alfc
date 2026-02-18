@@ -60,6 +60,7 @@ export function FixedSpeed({ disabled }: { disabled: boolean }) {
         <StyledInput
           type="number"
           name="percentage"
+          aria-label="Fixed fan speed percentage"
           min={0}
           max={100}
           maxLength={3}

@@ -68,33 +68,32 @@ export function RawUI() {
     setArgs({});
   };
 
+  const methods = kind === Kind.Get ? getMethods : setMethods;
+  const selectedMethod = methodName !== "" ? methods[methodName] : undefined;
+
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
     refRun.current?.focus();
+    if (!selectedMethod) return;
     setIsRunning(true);
     sendJsonMessage({
       kind,
-      methodId:
-        kind === Kind.Get
-          ? getMethods[methodName].methodId
-          : setMethods[methodName].methodId,
+      methodId: selectedMethod.methodId,
       methodName,
       data: Object.keys(args).length > 0 ? args : undefined,
     });
   };
 
-  const methods = kind === Kind.Get ? getMethods : setMethods;
-  const methodNameOptions = Object.keys(methods).map((methodName) => (
-    <option key={methodName} value={methodName}>
-      {methodName}
+  const methodNameOptions = Object.keys(methods).map((name) => (
+    <option key={name} value={name}>
+      {name}
     </option>
   ));
   const argumentsComponent =
-    methodName === "" ? null : methods[methodName].inArgs.length ===
-      0 ? null : (
+    !selectedMethod || selectedMethod.inArgs.length === 0 ? null : (
       <div>
         Arguments:
-        {methods[methodName].inArgs.map((arg) => (
+        {selectedMethod.inArgs.map((arg) => (
           <div key={arg.name}>
             <label>
               <em>{arg.type}</em> {arg.name} ({arg.description})
@@ -119,8 +118,8 @@ export function RawUI() {
     );
 
   const isRunnable =
-    methodName !== "" &&
-    Object.keys(args).length === methods[methodName].inArgs.length;
+    selectedMethod !== undefined &&
+    Object.keys(args).length === selectedMethod.inArgs.length;
 
   const content = isVisible && (
     <StyledContent>
@@ -159,6 +158,7 @@ export function RawUI() {
           </div>
           <select
             name="methodName"
+            aria-label="WMI method name"
             size={10}
             onChange={(event) => {
               setArgs({});
@@ -169,9 +169,9 @@ export function RawUI() {
           </select>
           {argumentsComponent}
           <div>
-            {methodName !== "" &&
-              methods[methodName].outArgs.length > 0 &&
-              methods[methodName].outArgs[0].type === "uint16" && (
+            {selectedMethod &&
+              selectedMethod.outArgs.length > 0 &&
+              selectedMethod.outArgs[0]?.type === "uint16" && (
                 <div style={{ marginLeft: 4 }}>
                   uint16 output =&gt; little endian!
                 </div>
@@ -189,7 +189,13 @@ export function RawUI() {
           <label>
             Output
             <br />
-            <textarea readOnly rows={4} cols={40} value={result} />
+            <textarea
+              readOnly
+              aria-label="WMI command output"
+              rows={4}
+              cols={40}
+              value={result}
+            />
           </label>
         </div>
       </StyledControls>

@@ -65,6 +65,7 @@ Last applied: ${appliedSpeed}%`;
       </h2>
       <textarea
         readOnly
+        aria-label="Fan control status"
         value={status}
         rows={4}
         cols={25}

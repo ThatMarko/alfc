@@ -8,6 +8,9 @@ Item {
 
     required property var backend
 
+    // Use same threshold as main.qml (90°C)
+    readonly property int warningTemp: 90
+
     implicitWidth: tooltipLayout.implicitWidth + Kirigami.Units.gridUnit * 2
     implicitHeight: tooltipLayout.implicitHeight + Kirigami.Units.gridUnit
 
@@ -58,7 +61,7 @@ Item {
                 text: backend && backend.latestActivity != null
                     ? i18n("%1\u00B0C", Math.round(backend.latestActivity.avgCPUTemp))
                     : "--"
-                color: backend && backend.latestActivity != null && backend.latestActivity.avgCPUTemp >= 90
+                color: backend && backend.latestActivity != null && backend.latestActivity.avgCPUTemp >= tooltipRoot.warningTemp
                     ? Kirigami.Theme.negativeTextColor
                     : Kirigami.Theme.textColor
             }
@@ -71,7 +74,7 @@ Item {
                 text: backend && backend.latestActivity != null
                     ? i18n("%1\u00B0C", Math.round(backend.latestActivity.avgGPUTemp))
                     : "--"
-                color: backend && backend.latestActivity != null && backend.latestActivity.avgGPUTemp >= 90
+                color: backend && backend.latestActivity != null && backend.latestActivity.avgGPUTemp >= tooltipRoot.warningTemp
                     ? Kirigami.Theme.negativeTextColor
                     : Kirigami.Theme.textColor
             }

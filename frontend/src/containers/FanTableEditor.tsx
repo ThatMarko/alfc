@@ -31,6 +31,7 @@ export function FanTableEditor({ onChange, value }: Props) {
           <StyledInput
             type="number"
             name="temperature"
+            aria-label={`Temperature for row ${idx + 1}`}
             min={40}
             max={100}
             maxLength={3}
@@ -47,6 +48,7 @@ export function FanTableEditor({ onChange, value }: Props) {
           <StyledInput
             type="number"
             name="percentage"
+            aria-label={`Fan speed for row ${idx + 1}`}
             min={0}
             max={100}
             maxLength={3}
@@ -62,6 +64,7 @@ export function FanTableEditor({ onChange, value }: Props) {
         <td>
           <StyledButton
             type="button"
+            aria-label={`Add row before row ${idx + 1}`}
             onClick={() => {
               const nextValue = structuredClone(value);
               let temperature = parseInt(tableItem[0], 10) - 1;
@@ -79,12 +82,13 @@ export function FanTableEditor({ onChange, value }: Props) {
               onChange(nextValue);
             }}
           >
-            <FontAwesomeIcon icon={faPlusCircle} />
+            <FontAwesomeIcon icon={faPlusCircle} aria-hidden="true" />
           </StyledButton>
         </td>
         <td>
           <StyledButton
             type="button"
+            aria-label={`Remove row ${idx + 1}`}
             disabled={value.length === 1}
             style={
               value.length === 1
@@ -100,7 +104,7 @@ export function FanTableEditor({ onChange, value }: Props) {
               onChange(nextValue);
             }}
           >
-            <FontAwesomeIcon icon={faMinusCircle} />
+            <FontAwesomeIcon icon={faMinusCircle} aria-hidden="true" />
           </StyledButton>
         </td>
       </tr>
@@ -112,12 +116,16 @@ export function FanTableEditor({ onChange, value }: Props) {
       <table>
         <thead>
           <tr>
-            <th>
-              <FontAwesomeIcon icon={faThermometerHalf} />
+            <th aria-label="Temperature">
+              <FontAwesomeIcon icon={faThermometerHalf} aria-hidden="true" />
+              <span className="sr-only">Temperature</span>
             </th>
-            <th>
-              <FontAwesomeIcon icon={faFan} />
+            <th aria-label="Fan Speed">
+              <FontAwesomeIcon icon={faFan} aria-hidden="true" />
+              <span className="sr-only">Fan Speed</span>
             </th>
+            <th aria-label="Add Row" />
+            <th aria-label="Remove Row" />
           </tr>
         </thead>
         <tbody>{inputs}</tbody>

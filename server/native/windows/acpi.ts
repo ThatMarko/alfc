@@ -61,7 +61,7 @@ export function setCall(_: string, methodName: string, args: Args) {
 // uint16 values are already little-endian, just need to split them up
 function splitWords(numbers: number[]) {
   for (let i = 0; i < numbers.length; i++) {
-    const current = numbers[i];
+    const current = numbers[i] ?? 0;
     if (current > 255) {
       numbers[i] = current >> 8;
       numbers.splice(i + 1, 0, current & 0xff);

@@ -27,8 +27,8 @@ function parseMof(mof: string) {
     );
     if (match && match.groups) {
       const { methodId, description, methodName, args } = match.groups;
+      if (!methodId || !description || !methodName || !args) continue;
 
-      // parse args
       const inArgs: Args[] = [];
       const outArgs: Args[] = [];
       const rawArgs = args.substring(1).split(", [");
@@ -37,10 +37,11 @@ function parseMof(mof: string) {
           /(?<kind>in|out), Description\("(?<description>.+?)"\)] (?<type>.+?) (?<name>.+?)$/,
         );
         if (argsMatch && argsMatch.groups) {
-          const { kind, description, type, name } = argsMatch.groups;
+          const { kind, description: argDesc, type, name } = argsMatch.groups;
+          if (!kind || !argDesc || !type || !name) continue;
           const inOrOut = kind === "in" ? inArgs : outArgs;
           inOrOut.push({
-            description,
+            description: argDesc,
             type,
             name,
           });
@@ -59,7 +60,8 @@ function parseMof(mof: string) {
 
   const result: WmiMethods = {};
   for (const key of Object.keys(methods).sort()) {
-    result[key] = methods[key];
+    const method = methods[key];
+    if (method) result[key] = method;
   }
   return result;
 }

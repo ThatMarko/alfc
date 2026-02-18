@@ -55,10 +55,15 @@ function App() {
           <FanTable disabled={doFixedSpeed} />
           {isConnected && (
             <StyledChangeModeContainer>
-              <Button onClick={onChangeMode}>
+              <Button
+                onClick={onChangeMode}
+                aria-label={
+                  doFixedSpeed ? "Switch to auto mode" : "Switch to fixed mode"
+                }
+              >
                 Auto
                 <br />
-                <FontAwesomeIcon icon={faExchangeAlt} />
+                <FontAwesomeIcon icon={faExchangeAlt} aria-hidden="true" />
                 <br />
                 Fixed
               </Button>

@@ -46,6 +46,7 @@ const StyledToggle = styled.span<{
 const StyledLabel = styled.label`
   display: inline-block;
   margin-left: 8px;
+  white-space: nowrap;
   cursor: pointer;
 `;
 
@@ -70,14 +71,7 @@ export function Toggle({ label, name, onChange, value }: Props) {
         />
         <StyledToggle isChecked={value === ToggleState.On} />
       </StyledToggleContainer>
-      <StyledLabel
-        htmlFor={name}
-        style={{
-          marginLeft: 8,
-          whiteSpace: "nowrap",
-          display: "inline-block",
-        }}
-      >
+      <StyledLabel htmlFor={name}>
         <h2>{label}</h2>
       </StyledLabel>
     </>

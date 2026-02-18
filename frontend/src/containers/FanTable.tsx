@@ -99,7 +99,7 @@ export function FanTable({ disabled }: { disabled: boolean }) {
       >
         Apply
       </StyledApplyButton>
-      {<Status disabled={disabled} />}
+      <Status disabled={disabled} />
     </StyledForm>
   );
 }

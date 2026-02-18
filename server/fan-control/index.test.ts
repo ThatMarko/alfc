@@ -15,6 +15,18 @@ vi.mock("../native/index", () => ({
 const mockedGetCall = vi.mocked(getCall);
 const mockedSetCall = vi.mocked(setCall);
 
+function firstSpeed(table: [number, number][]) {
+  const entry = table[0];
+  if (!entry) throw new Error("Fan table is empty");
+  return entry[1];
+}
+
+function lastSpeed(table: [number, number][]) {
+  const entry = table[table.length - 1];
+  if (!entry) throw new Error("Fan table is empty");
+  return entry[1];
+}
+
 function mockTemperatures(cpu: number, gpu: number) {
   mockedGetCall.mockImplementation((methodId: string) => {
     switch (methodId) {
@@ -137,9 +149,7 @@ describe("fan-control", () => {
       expect.any(String),
       expect.any(String),
       {
-        Data: fanPercentToSpeed(
-          state.cpuFanTable[state.cpuFanTable.length - 1][1],
-        ),
+        Data: fanPercentToSpeed(lastSpeed(state.cpuFanTable)),
       },
     );
 
@@ -152,7 +162,7 @@ describe("fan-control", () => {
       expect.any(String),
       expect.any(String),
       {
-        Data: fanPercentToSpeed(state.cpuFanTable[0][1]),
+        Data: fanPercentToSpeed(firstSpeed(state.cpuFanTable)),
       },
     );
 
@@ -165,9 +175,7 @@ describe("fan-control", () => {
       expect.any(String),
       expect.any(String),
       {
-        Data: fanPercentToSpeed(
-          state.gpuFanTable[state.gpuFanTable.length - 1][1],
-        ),
+        Data: fanPercentToSpeed(lastSpeed(state.gpuFanTable)),
       },
     );
   });
@@ -193,14 +201,14 @@ describe("fan-control", () => {
 
     fanControl();
     // Make sure steady state is reached at initial temperature
-    await waitUntilFanPercent(state.cpuFanTable[0][1]);
+    await waitUntilFanPercent(firstSpeed(state.cpuFanTable));
 
     // Change to high CPU temperature
     mockTemperatures(90, 30);
     vi.clearAllMocks();
 
-    const initialPercentage = state.cpuFanTable[0][1];
-    const targetPercentage = state.cpuFanTable[state.cpuFanTable.length - 1][1];
+    const initialPercentage = firstSpeed(state.cpuFanTable);
+    const targetPercentage = lastSpeed(state.cpuFanTable);
 
     // First gradient step
     let currentPercentage = initialPercentage;
@@ -236,15 +244,13 @@ describe("fan-control", () => {
     ];
 
     // Should reset to lowest speed in new table
-    await waitUntilFanPercent(state.cpuFanTable[0][1]);
+    await waitUntilFanPercent(firstSpeed(state.cpuFanTable));
   });
 
   it("should use highest fan speed when readings are invalid", async () => {
     fanControl();
 
     mockedGetCall.mockResolvedValue(NaN);
-    await waitUntilFanPercent(
-      state.gpuFanTable[state.gpuFanTable.length - 1][1],
-    );
+    await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
   });
 });

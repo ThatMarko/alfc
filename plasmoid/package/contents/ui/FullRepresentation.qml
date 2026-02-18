@@ -6,7 +6,15 @@ import org.kde.plasma.plasmoid
 import org.kde.kirigami as Kirigami
 
 PlasmaExtras.Representation {
+    id: fullRoot
     required property var backend
+
+    // ── Helper Properties (reduce repetitive null-guard chains) ────
+    readonly property bool connected: backend && backend.isConnected
+    readonly property var activity: connected && backend.latestActivity ? backend.latestActivity : null
+    readonly property var state: connected && backend.latestState ? backend.latestState : null
+    readonly property bool hasActivity: activity != null && activity.avgCPUTemp !== undefined
+    readonly property bool hasState: state != null && state.protocolVersion !== undefined
 
     collapseMarginsHint: true
     Layout.minimumWidth: Kirigami.Units.gridUnit * 22
@@ -38,7 +46,7 @@ PlasmaExtras.Representation {
         anchors.fill: parent
         anchors.margins: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.largeSpacing
-        visible: backend && backend.isConnected
+        visible: fullRoot.connected
 
         PlasmaComponents.Label {
             text: i18n("Connected")
@@ -53,23 +61,23 @@ PlasmaExtras.Representation {
             columnSpacing: Kirigami.Units.largeSpacing
             rowSpacing: Kirigami.Units.smallSpacing
             Layout.fillWidth: true
-            visible: backend && backend.isConnected && backend.latestActivity && backend.latestActivity.avgCPUTemp !== undefined
+            visible: fullRoot.hasActivity
 
             PlasmaComponents.Label { text: i18n("CPU Temp:") }
-            PlasmaComponents.Label { text: backend && backend.latestActivity && backend.latestActivity.avgCPUTemp !== undefined ? i18n("%1°C", Math.round(backend.latestActivity.avgCPUTemp)) : "--" }
+            PlasmaComponents.Label { text: fullRoot.activity ? i18n("%1°C", Math.round(fullRoot.activity.avgCPUTemp)) : "--" }
 
             PlasmaComponents.Label { text: i18n("GPU Temp:") }
-            PlasmaComponents.Label { text: backend && backend.latestActivity && backend.latestActivity.avgGPUTemp !== undefined ? i18n("%1°C", Math.round(backend.latestActivity.avgGPUTemp)) : "--" }
+            PlasmaComponents.Label { text: fullRoot.activity ? i18n("%1°C", Math.round(fullRoot.activity.avgGPUTemp)) : "--" }
 
             PlasmaComponents.Label { text: i18n("Fan Speed:") }
-            PlasmaComponents.Label { text: backend && backend.latestActivity && backend.latestActivity.appliedSpeed != null ? i18n("%1%", Math.round(backend.latestActivity.appliedSpeed)) : "--" }
+            PlasmaComponents.Label { text: fullRoot.activity && fullRoot.activity.appliedSpeed != null ? i18n("%1%", Math.round(fullRoot.activity.appliedSpeed)) : "--" }
 
             PlasmaComponents.Label { text: i18n("Target:") }
-            PlasmaComponents.Label { text: backend && backend.latestActivity && backend.latestActivity.target !== undefined ? i18n("%1%", Math.round(backend.latestActivity.target)) : "--" }
+            PlasmaComponents.Label { text: fullRoot.activity && fullRoot.activity.target !== undefined ? i18n("%1%", Math.round(fullRoot.activity.target)) : "--" }
         }
 
         PlasmaComponents.Label {
-            visible: backend && backend.isConnected && (!backend.latestActivity || backend.latestActivity.avgCPUTemp === undefined)
+            visible: fullRoot.connected && !fullRoot.hasActivity
             text: i18n("Waiting for activity data…")
             Layout.alignment: Qt.AlignHCenter
             font.italic: true
@@ -82,29 +90,29 @@ PlasmaExtras.Representation {
             columnSpacing: Kirigami.Units.largeSpacing
             rowSpacing: Kirigami.Units.smallSpacing
             Layout.fillWidth: true
-            visible: backend && backend.isConnected && backend.latestState && backend.latestState.protocolVersion !== undefined
+            visible: fullRoot.hasState
 
             PlasmaComponents.Label { text: i18n("Protocol:") }
-            PlasmaComponents.Label { text: backend && backend.latestState && backend.latestState.protocolVersion ? backend.latestState.protocolVersion : "--" }
+            PlasmaComponents.Label { text: fullRoot.state ? fullRoot.state.protocolVersion : "--" }
 
             PlasmaComponents.Label { text: i18n("Mode:") }
-            PlasmaComponents.Label { text: backend && backend.latestState && backend.latestState.doFixedSpeed !== undefined ? (backend.latestState.doFixedSpeed ? i18n("Fixed") : i18n("Curve")) : "--" }
+            PlasmaComponents.Label { text: fullRoot.state && fullRoot.state.doFixedSpeed !== undefined ? (fullRoot.state.doFixedSpeed ? i18n("Fixed") : i18n("Curve")) : "--" }
 
             PlasmaComponents.Label { text: i18n("Fixed Speed:") }
-            PlasmaComponents.Label { text: backend && backend.latestState && backend.latestState.fixedPercentage !== undefined ? i18n("%1%", backend.latestState.fixedPercentage) : "--" }
+            PlasmaComponents.Label { text: fullRoot.state && fullRoot.state.fixedPercentage !== undefined ? i18n("%1%", fullRoot.state.fixedPercentage) : "--" }
 
             PlasmaComponents.Label { text: i18n("PL1:") }
-            PlasmaComponents.Label { text: backend && backend.latestState && backend.latestState.pl1 !== undefined ? i18n("%1 W", backend.latestState.pl1) : "--" }
+            PlasmaComponents.Label { text: fullRoot.state && fullRoot.state.pl1 !== undefined ? i18n("%1 W", fullRoot.state.pl1) : "--" }
 
             PlasmaComponents.Label { text: i18n("PL2:") }
-            PlasmaComponents.Label { text: backend && backend.latestState && backend.latestState.pl2 !== undefined ? i18n("%1 W", backend.latestState.pl2) : "--" }
+            PlasmaComponents.Label { text: fullRoot.state && fullRoot.state.pl2 !== undefined ? i18n("%1 W", fullRoot.state.pl2) : "--" }
 
             PlasmaComponents.Label { text: i18n("GPU Boost:") }
-            PlasmaComponents.Label { text: backend && backend.latestState && backend.latestState.gpuBoost !== undefined ? (backend.latestState.gpuBoost ? i18n("On") : i18n("Off")) : "--" }
+            PlasmaComponents.Label { text: fullRoot.state && fullRoot.state.gpuBoost !== undefined ? (fullRoot.state.gpuBoost ? i18n("On") : i18n("Off")) : "--" }
         }
 
         PlasmaComponents.Label {
-            visible: backend && backend.isConnected && (!backend.latestState || backend.latestState.protocolVersion === undefined)
+            visible: fullRoot.connected && !fullRoot.hasState
             text: i18n("Waiting for state data…")
             Layout.alignment: Qt.AlignHCenter
             font.italic: true
@@ -114,7 +122,7 @@ PlasmaExtras.Representation {
         // Controls Section
         ColumnLayout {
             Layout.fillWidth: true
-            visible: backend && backend.isConnected && backend.latestState
+            visible: fullRoot.state != null
             spacing: Kirigami.Units.largeSpacing
 
             // Mode Toggle & Fixed Speed
@@ -135,7 +143,7 @@ PlasmaExtras.Representation {
                     PlasmaComponents.Label { text: i18n("Auto") }
 
                     PlasmaComponents.Switch {
-                        checked: backend && backend.latestState && backend.latestState.doFixedSpeed === true
+                        checked: fullRoot.state && fullRoot.state.doFixedSpeed === true
                         onToggled: {
                             backend.send({
                                 kind: "dofixedspeed",
@@ -152,7 +160,7 @@ PlasmaExtras.Representation {
                 // Fixed Speed Control
                 ColumnLayout {
                     Layout.fillWidth: true
-                    opacity: backend && backend.latestState && backend.latestState.doFixedSpeed === true ? 1.0 : 0.0
+                    opacity: fullRoot.state && fullRoot.state.doFixedSpeed === true ? 1.0 : 0.0
                     visible: opacity > 0
                     Behavior on opacity { NumberAnimation { duration: Kirigami.Units.longDuration } }
 
@@ -170,8 +178,8 @@ PlasmaExtras.Representation {
                             stepSize: 1
 
                             Binding on value {
-                                value: backend && backend.latestState && backend.latestState.fixedPercentage !== undefined ? backend.latestState.fixedPercentage : 0
-                                when: !speedSlider.pressed && backend && backend.latestState
+                                value: fullRoot.state && fullRoot.state.fixedPercentage !== undefined ? fullRoot.state.fixedPercentage : 0
+                                when: !speedSlider.pressed && fullRoot.state != null
                                 restoreMode: Binding.RestoreBinding
                             }
 
@@ -201,7 +209,7 @@ PlasmaExtras.Representation {
                             }
                         }
 
-                        PlasmaComponents.Label { text: "%" }
+                        PlasmaComponents.Label { text: i18n("%") }
                     }
 
                     PlasmaComponents.Label {
@@ -253,14 +261,14 @@ PlasmaExtras.Representation {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: Kirigami.Units.gridUnit * 11
-                    visible: backend && backend.latestState && backend.latestState.doFixedSpeed === false
+                    visible: fullRoot.state && fullRoot.state.doFixedSpeed === false
                     backend: backend
                 }
             }
 
             // GPU Boost
             RowLayout {
-                visible: backend && backend.latestState && backend.latestState.isGpuBoostAvailable === true
+                visible: fullRoot.state && fullRoot.state.isGpuBoostAvailable === true
                 Layout.fillWidth: true
 
                 PlasmaComponents.Label {
@@ -269,7 +277,7 @@ PlasmaExtras.Representation {
                 }
 
                 PlasmaComponents.Switch {
-                    checked: backend && backend.latestState && backend.latestState.gpuBoost === true
+                    checked: fullRoot.state && fullRoot.state.gpuBoost === true
                     onToggled: {
                         backend.send({
                             kind: "set",
@@ -283,7 +291,7 @@ PlasmaExtras.Representation {
 
             // CPU Tuning
             ColumnLayout {
-                visible: backend && backend.latestState && backend.latestState.isCpuTuningAvailable === true
+                visible: fullRoot.state && fullRoot.state.isCpuTuningAvailable === true
                 Layout.fillWidth: true
                 spacing: Kirigami.Units.smallSpacing
 
@@ -305,7 +313,7 @@ PlasmaExtras.Representation {
                         Layout.fillWidth: true
 
                         Binding on text {
-                            value: backend && backend.latestState && backend.latestState.pl1 !== undefined ? backend.latestState.pl1.toString() : "0"
+                            value: fullRoot.state && fullRoot.state.pl1 !== undefined ? fullRoot.state.pl1.toString() : "0"
                             when: !pl1Field.activeFocus
                             restoreMode: Binding.RestoreBinding
                         }
@@ -318,7 +326,7 @@ PlasmaExtras.Representation {
                         Layout.fillWidth: true
 
                         Binding on text {
-                            value: backend && backend.latestState && backend.latestState.pl2 !== undefined ? backend.latestState.pl2.toString() : "0"
+                            value: fullRoot.state && fullRoot.state.pl2 !== undefined ? fullRoot.state.pl2.toString() : "0"
                             when: !pl2Field.activeFocus
                             restoreMode: Binding.RestoreBinding
                         }
@@ -344,7 +352,7 @@ PlasmaExtras.Representation {
             }
 
             PlasmaComponents.Label {
-                visible: backend && backend.latestState && backend.latestState.isCpuTuningAvailable === false
+                visible: fullRoot.state && fullRoot.state.isCpuTuningAvailable === false
                 text: i18n("CPU Tuning unavailable (Intel XTU issue?)")
                 font.italic: true
                 color: Kirigami.Theme.disabledTextColor
@@ -356,7 +364,7 @@ PlasmaExtras.Representation {
     }
 
     PlasmaExtras.PlaceholderMessage {
-        visible: !backend || !backend.isConnected
+        visible: !fullRoot.connected
         iconName: "network-disconnect"
         text: backend ? (backend.lastError ? i18n("Disconnected: %1", backend.lastError) : i18n("Disconnected")) : i18n("No Backend")
         width: parent.width - Kirigami.Units.gridUnit * 2

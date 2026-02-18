@@ -66,7 +66,7 @@ export default tseslint.config(
 
   {
     rules: {
-      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-require-imports": "off",
       "@typescript-eslint/no-unused-vars": [
         "error",
@@ -80,7 +80,7 @@ export default tseslint.config(
         },
       ],
 
-      "no-unreachable": "off",
+      "no-unreachable": "error",
       "require-await": "error",
     },
   },

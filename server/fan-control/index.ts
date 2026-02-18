@@ -85,8 +85,10 @@ function initFanControl() {
 }
 
 function resetFanSpeed() {
-  setFixedFan(state.cpuFanTable[0][1]);
-  return state.cpuFanTable[0][1];
+  const firstEntry = state.cpuFanTable[0];
+  const speed = firstEntry ? firstEntry[1] : 0;
+  setFixedFan(speed);
+  return speed;
 }
 
 async function collectAverageTemps(runId: number) {
@@ -149,8 +151,11 @@ export function fanControl() {
 
   // Find highest entry that isn't larger than provided temp,
   // assuming that fan table entries in profiles are ascending.
-  function findHighestMatch(temperature: number, table: FanTable) {
-    let highestMatch = table[0];
+  function findHighestMatch(
+    temperature: number,
+    table: FanTable,
+  ): [number, number] {
+    let highestMatch: [number, number] = table[0] ?? [0, 0];
 
     for (const entry of table) {
       if (entry[0] <= temperature) {
@@ -233,7 +238,7 @@ export function fanControl() {
       if (currRampUpCycle === WAIT_RAMP_UP_CYCLES) {
         gradientTarget = getGradientTarget(
           appliedPercentage === -1
-            ? state.cpuFanTable[0][1]
+            ? (state.cpuFanTable[0]?.[1] ?? 0)
             : appliedPercentage,
           target,
         );
