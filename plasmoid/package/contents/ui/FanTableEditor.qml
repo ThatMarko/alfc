@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls as QQC2
 import org.kde.plasma.components as PlasmaComponents
+import org.kde.kirigami as Kirigami
 
 ColumnLayout {
     id: root
@@ -47,7 +48,7 @@ ColumnLayout {
     Connections {
         target: backend
         function onLatestStateChanged() {
-            if (!loaded && backend.latestState && backend.latestState.cpuFanTable) {
+            if (backend && !loaded && backend.latestState && backend.latestState.cpuFanTable) {
                 loadFromBackend()
             }
         }
@@ -192,16 +193,16 @@ ColumnLayout {
     // Header
     RowLayout {
         Layout.fillWidth: true
-        Layout.margins: 5
+        Layout.margins: Kirigami.Units.smallSpacing
         PlasmaComponents.Label { 
             text: "Temp (°C)" 
-            Layout.preferredWidth: 80 
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 5
             font.bold: true 
             horizontalAlignment: Text.AlignHCenter 
         }
         PlasmaComponents.Label { 
             text: "Speed (%)" 
-            Layout.preferredWidth: 80 
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 5
             font.bold: true 
             horizontalAlignment: Text.AlignHCenter 
         }
@@ -211,23 +212,23 @@ ColumnLayout {
     QQC2.ScrollView {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        Layout.minimumHeight: 200
+        Layout.minimumHeight: Kirigami.Units.gridUnit * 11
         contentWidth: availableWidth
         clip: true
 
         ColumnLayout {
             width: parent.width
-            spacing: 5
+            spacing: Kirigami.Units.smallSpacing
 
             Repeater {
                 model: currentTab === 0 ? cpuModel : gpuModel
                 delegate: RowLayout {
                     Layout.fillWidth: true
-                    spacing: 10
+                    spacing: Kirigami.Units.largeSpacing
                     
                     PlasmaComponents.TextField {
                         text: temp
-                        Layout.preferredWidth: 80
+                        Layout.preferredWidth: Kirigami.Units.gridUnit * 5
                         horizontalAlignment: Text.AlignHCenter
                         validator: IntValidator { bottom: 0; top: 110 }
                         inputMethodHints: Qt.ImhDigitsOnly
@@ -239,7 +240,7 @@ ColumnLayout {
                     
                     PlasmaComponents.TextField {
                         text: speed
-                        Layout.preferredWidth: 80
+                        Layout.preferredWidth: Kirigami.Units.gridUnit * 5
                         horizontalAlignment: Text.AlignHCenter
                         validator: IntValidator { bottom: 0; top: 100 }
                         inputMethodHints: Qt.ImhDigitsOnly
@@ -250,8 +251,8 @@ ColumnLayout {
                     }
                     
                     PlasmaComponents.Button {
-                        text: "X"
-                        Layout.preferredWidth: 40
+                        icon.name: "list-remove"
+                        Layout.preferredWidth: Kirigami.Units.gridUnit * 2.5
                         onClicked: removeRow(currentTab === 0, index)
                         PlasmaComponents.ToolTip.text: "Remove Row"
                         PlasmaComponents.ToolTip.visible: hovered
@@ -272,7 +273,7 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true
-        Layout.topMargin: 10
+        Layout.topMargin: Kirigami.Units.largeSpacing
         
         PlasmaComponents.Button {
             text: "Reload"
@@ -295,11 +296,19 @@ ColumnLayout {
 
     PlasmaComponents.Label {
         text: statusMessage
-        color: isError ? "red" : "green"
+        color: isError
+            ? Kirigami.Theme.negativeTextColor
+            : (statusMessage === "Loaded from backend"
+                ? Kirigami.Theme.neutralTextColor
+                : (statusMessage === ""
+                    ? Kirigami.Theme.textColor
+                    : Kirigami.Theme.positiveTextColor))
         visible: text !== ""
         Layout.fillWidth: true
         wrapMode: Text.WordWrap
         horizontalAlignment: Text.AlignHCenter
+        font.pointSize: Kirigami.Theme.smallFont.pointSize
+        font.family: Kirigami.Theme.smallFont.family
         font.bold: true
     }
 }

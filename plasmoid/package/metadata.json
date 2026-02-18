@@ -13,7 +13,7 @@
       }
     ],
     "Category": "System Information",
-    "Icon": "preferences-system-windows"
+    "Icon": "computer-laptop"
   },
   "KPackageStructure": "Plasma/Applet",
   "X-Plasma-API-Minimum-Version": "6.0"

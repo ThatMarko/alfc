@@ -12,6 +12,10 @@ Item {
     property var latestState: ({})
     property var latestActivity: ({})
 
+    onUrlChanged: {
+        reconnectTimer.interval = 1000;
+    }
+
     // Signal for other components to react to messages if needed
     signal messageReceived(var message)
 
