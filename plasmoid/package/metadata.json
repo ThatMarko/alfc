@@ -5,6 +5,7 @@
     "Description": "Control your Aorus laptop fans",
     "Version": "2.0.0",
     "Website": "https://github.com/ThatMarko/alfc",
+    "BugReportUrl": "https://github.com/ThatMarko/alfc/issues",
     "License": "MIT",
     "Authors": [
       {
