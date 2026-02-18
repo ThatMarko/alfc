@@ -31,7 +31,7 @@ function parseMof(mof: string) {
       // parse args
       const inArgs: Args[] = [];
       const outArgs: Args[] = [];
-      const rawArgs = args.substr(1).split(", [");
+      const rawArgs = args.substring(1).split(", [");
       for (const rawArg of rawArgs) {
         const argsMatch = rawArg.match(
           /(?<kind>in|out), Description\("(?<description>.+?)"\)] (?<type>.+?) (?<name>.+?)$/,

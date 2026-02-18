@@ -18,7 +18,7 @@ export function Toggles() {
       // Current state only changes when we get the websocket
       // result.
       if (methodName === "GetAIBoostStatus") {
-        setGPUBoost(data === "0x1" ? ToggleState.On : ToggleState.Off);
+        setGPUBoost(data === 1 ? ToggleState.On : ToggleState.Off);
       } else if (methodName === "SetAIBoostStatus") {
         sendJsonMessage({
           ...getMethods["GetAIBoostStatus"],

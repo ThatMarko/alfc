@@ -48,8 +48,12 @@ export function RawUI() {
 
   useEffect(() => {
     const { kind, data } = lastJsonMessage;
-    if (kind !== "state" && data) {
-      setResult(`${new Date().toLocaleTimeString()}: ${data}`);
+    if (kind !== "state" && data !== undefined) {
+      const display =
+        typeof data === "number"
+          ? `${data} (0x${data.toString(16)})`
+          : String(data);
+      setResult(`${new Date().toLocaleTimeString()}: ${display}`);
       setIsRunning(false);
     }
   }, [lastJsonMessage]);
