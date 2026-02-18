@@ -113,11 +113,6 @@ export async function persistState() {
     ...persistable
   } = state;
 
-  void _protocolVersion;
-  void _isCpuTuningAvailable;
-  void _isGpuBoostAvailable;
-  void _isFanControlAvailable;
-
   try {
     await writeFile(TMP_CONFIG_FILE, stringifyCompact(persistable), {
       encoding: "utf8",

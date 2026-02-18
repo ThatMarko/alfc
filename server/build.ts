@@ -23,7 +23,7 @@ if (isWindows) {
   });
 }
 
-Bun.spawnSync(
+const result = Bun.spawnSync(
   [
     "bun",
     "build",
@@ -37,3 +37,7 @@ Bun.spawnSync(
   ],
   { stdio: ["inherit", "inherit", "inherit"] },
 );
+
+if (result.exitCode !== 0) {
+  process.exit(result.exitCode);
+}
