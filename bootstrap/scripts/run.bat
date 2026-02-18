@@ -7,5 +7,6 @@ net session >nul 2>&1 || (
 
 echo Starting ALFC fan control (temporary, non-service mode)...
 echo Press Ctrl+C to stop.
+set NODE_ENV=production
 start http://localhost:5522
 alfc.exe
