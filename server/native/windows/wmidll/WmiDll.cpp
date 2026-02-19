@@ -134,12 +134,16 @@ static HRESULT GetClassDefAndInstancePath(
 extern "C" {
 
 __declspec(dllexport) int wmi_init(void) {
+    // Clean up any partially initialized state from a previous failed attempt,
+    // preventing COM object leaks when the TypeScript retry logic calls us again.
+    wmi_cleanup();
+
     HRESULT hr;
 
     hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (hr == S_OK) {
+    if (hr == S_OK || hr == S_FALSE) {
         g_comInitialized = true;
-    } else if (hr != S_FALSE && hr != RPC_E_CHANGED_MODE) {
+    } else if (hr != RPC_E_CHANGED_MODE) {
         SetLastErr("CoInitializeEx failed: 0x%08lX", hr);
         return -1;
     }
@@ -262,6 +266,7 @@ __declspec(dllexport) int wmi_get(
 
     BSTR propName = nullptr;
     VARIANT varVal;
+    VariantInit(&varVal);
     int count = 0;
 
     while (pOutParams->Next(0, &propName, &varVal, nullptr, nullptr) == WBEM_S_NO_ERROR) {
