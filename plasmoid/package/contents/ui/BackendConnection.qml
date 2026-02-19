@@ -91,7 +91,7 @@ Item {
         repeat: false
         onTriggered: {
             console.info("BackendConnection: Attempting reconnect...");
-            interval = Math.min(interval * 2, 5000);
+            interval = Math.min(interval * 2, 30000);
             socket.active = false;
             socket.active = true;
         }
@@ -99,7 +99,7 @@ Item {
 
     Timer {
         id: keepaliveTimer
-        interval: 5000
+        interval: 20000
         repeat: true
         onTriggered: {
             if (socket.status === WebSocket.Open) {
@@ -110,11 +110,11 @@ Item {
 
     Timer {
         id: pongWatchdog
-        interval: 15000
+        interval: 60000
         repeat: true
         running: keepaliveTimer.running
         onTriggered: {
-            if (root.lastPongTime > 0 && (Date.now() - root.lastPongTime) > 15000) {
+            if (root.lastPongTime > 0 && (Date.now() - root.lastPongTime) > 60000) {
                 console.warn("BackendConnection: Pong timeout, forcing reconnect");
                 root.lastPongTime = 0;
                 socket.active = false;
