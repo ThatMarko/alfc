@@ -7,6 +7,7 @@ const shouldReconnect = (_: CloseEvent) => true;
 export function useWebSocket() {
   const { lastJsonMessage, sendJsonMessage, readyState } =
     useReactWebSocket<MessageToClient | null>("ws://localhost:5522/ws", {
+      share: true,
       heartbeat: {
         message: "ping",
         returnMessage: "pong",

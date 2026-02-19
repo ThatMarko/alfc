@@ -2,7 +2,6 @@ import styled from "@emotion/styled";
 import React, { useEffect, useRef, useState } from "react";
 import { StyledApplyButton } from "../components/StyledApplyButton";
 import { useWebSocket } from "../utils/useWebSocket";
-import { errorToast, successToast } from "../utils/misc";
 import { disabledFormStyle, enabledFormStyle } from "./styles/misc";
 
 const StyledForm = styled.form<{ disabled: boolean }>`
@@ -32,11 +31,6 @@ export function FixedSpeed({ disabled }: { disabled: boolean }) {
     const { kind, data } = lastJsonMessage;
     if (kind === "state") {
       setFixedPercentage(data.fixedPercentage.toString());
-    } else if (kind === "success") {
-      successToast("Successfully applied.");
-    } else if (kind === "error") {
-      errorToast("Couldn't apply change.");
-      console.error(data);
     }
   }, [lastJsonMessage]);
 

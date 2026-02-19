@@ -3,97 +3,97 @@ using System.Collections.Generic;
 using System.IO;
 using System.Management;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using System.Web.Script.Serialization;
 
 namespace WmiAPI
 {
-    internal class Request
-    {
-        [JsonPropertyName("cmd")]
-        public string Cmd { get; set; } = "";
-
-        [JsonPropertyName("method")]
-        public string? Method { get; set; }
-
-        [JsonPropertyName("args")]
-        public Dictionary<string, JsonElement>? Args { get; set; }
-    }
-
-    internal class Response
-    {
-        [JsonPropertyName("ok")]
-        public bool Ok { get; set; }
-
-        [JsonPropertyName("data")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public List<double>? Data { get; set; }
-
-        [JsonPropertyName("error")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public string? Error { get; set; }
-    }
-
-    [JsonSerializable(typeof(Request))]
-    [JsonSerializable(typeof(Response))]
-    [JsonSerializable(typeof(Dictionary<string, JsonElement>))]
-    [JsonSerializable(typeof(List<double>))]
-    internal partial class WmiJsonContext : JsonSerializerContext { }
-
     class Program
     {
-        private static ManagementObject? wmiGetObject;
-        private static ManagementObject? wmiSetObject;
-        private static ManagementClass? wmiGetClass;
-        private static ManagementClass? wmiSetClass;
+        private static ManagementObject wmiGetObject;
+        private static ManagementObject wmiSetObject;
+        private static ManagementClass wmiGetClass;
+        private static ManagementClass wmiSetClass;
+        private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
 
         static void Main()
         {
+            Console.CancelKeyPress += (sender, e) => { e.Cancel = true; };
+
             Console.InputEncoding = Encoding.UTF8;
-            var writer = new StreamWriter(Console.OpenStandardOutput(), Encoding.UTF8) { AutoFlush = true };
+            var writer = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
             Console.SetOut(writer);
 
-            string? line;
+            string line;
             while ((line = Console.ReadLine()) != null)
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
 
-                Response response;
+                Dictionary<string, object> response;
                 try
                 {
-                    var request = JsonSerializer.Deserialize(line, WmiJsonContext.Default.Request);
+                    var request = Json.Deserialize<Dictionary<string, object>>(line);
                     if (request == null)
                     {
-                        response = new Response { Ok = false, Error = "Failed to parse request" };
+                        response = ErrorResponse("Failed to parse request");
                     }
                     else
                     {
-                        response = request.Cmd switch
+                        var cmd = (string)request["cmd"];
+                        switch (cmd)
                         {
-                            "init" => HandleInit(),
-                            "get" => HandleGet(request.Method!, request.Args),
-                            "set" => HandleSet(request.Method!, request.Args),
-                            _ => new Response { Ok = false, Error = $"Unknown command: {request.Cmd}" }
-                        };
+                            case "init":
+                                response = HandleInit();
+                                break;
+                            case "get":
+                                response = HandleGet(
+                                    (string)request["method"],
+                                    request.ContainsKey("args") ? request["args"] as Dictionary<string, object> : null
+                                );
+                                break;
+                            case "set":
+                                response = HandleSet(
+                                    (string)request["method"],
+                                    request.ContainsKey("args") ? request["args"] as Dictionary<string, object> : null
+                                );
+                                break;
+                            default:
+                                response = ErrorResponse("Unknown command: " + cmd);
+                                break;
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
-                    response = new Response { Ok = false, Error = ex.ToString() };
+                    response = ErrorResponse(ex.ToString());
                 }
 
-                Console.WriteLine(JsonSerializer.Serialize(response, WmiJsonContext.Default.Response));
+                Console.WriteLine(Json.Serialize(response));
             }
         }
 
-        private static Response HandleInit()
+        private static Dictionary<string, object> OkResponse()
+        {
+            return new Dictionary<string, object> { { "ok", true } };
+        }
+
+        private static Dictionary<string, object> OkResponse(List<double> data)
+        {
+            return new Dictionary<string, object> { { "ok", true }, { "data", data } };
+        }
+
+        private static Dictionary<string, object> ErrorResponse(string error)
+        {
+            return new Dictionary<string, object> { { "ok", false }, { "error", error } };
+        }
+
+        private static Dictionary<string, object> HandleInit()
         {
             var getTuple = GetWmiClassAndObject("GB_WMIACPI_Get");
             var setTuple = GetWmiClassAndObject("GB_WMIACPI_Set");
 
             if (getTuple == null || setTuple == null)
             {
-                return new Response { Ok = false, Error = "Failed to get WMI class/object instances for GB_WMIACPI" };
+                return ErrorResponse("Failed to get WMI class/object instances for GB_WMIACPI");
             }
 
             wmiGetClass = getTuple.Item1;
@@ -101,23 +101,23 @@ namespace WmiAPI
             wmiSetClass = setTuple.Item1;
             wmiSetObject = setTuple.Item2;
 
-            return new Response { Ok = true };
+            return OkResponse();
         }
 
-        private static Response HandleGet(string methodName, Dictionary<string, JsonElement>? args)
+        private static Dictionary<string, object> HandleGet(string methodName, Dictionary<string, object> args)
         {
             if (wmiGetObject == null || wmiGetClass == null)
             {
-                return new Response { Ok = false, Error = "WMI not initialized" };
+                return ErrorResponse("WMI not initialized");
             }
 
-            ManagementBaseObject? methodParameters = null;
+            ManagementBaseObject methodParameters = null;
             if (args != null)
             {
                 methodParameters = wmiGetClass.GetMethodParameters(methodName);
                 foreach (var kvp in args)
                 {
-                    methodParameters[kvp.Key] = kvp.Value.GetInt32();
+                    methodParameters[kvp.Key] = Convert.ToInt32(kvp.Value);
                 }
             }
 
@@ -129,32 +129,32 @@ namespace WmiAPI
                 ret.Add(Convert.ToDouble(property.Value));
             }
 
-            return new Response { Ok = true, Data = ret };
+            return OkResponse(ret);
         }
 
-        private static Response HandleSet(string methodName, Dictionary<string, JsonElement>? args)
+        private static Dictionary<string, object> HandleSet(string methodName, Dictionary<string, object> args)
         {
             if (wmiSetObject == null || wmiSetClass == null)
             {
-                return new Response { Ok = false, Error = "WMI not initialized" };
+                return ErrorResponse("WMI not initialized");
             }
 
-            ManagementBaseObject? methodParameters = null;
+            ManagementBaseObject methodParameters = null;
             if (args != null)
             {
                 methodParameters = wmiSetClass.GetMethodParameters(methodName);
                 foreach (var kvp in args)
                 {
-                    methodParameters[kvp.Key] = kvp.Value.GetInt32();
+                    methodParameters[kvp.Key] = Convert.ToInt32(kvp.Value);
                 }
             }
 
             wmiSetObject.InvokeMethod(methodName, methodParameters, null);
 
-            return new Response { Ok = true };
+            return OkResponse();
         }
 
-        private static Tuple<ManagementClass, ManagementObject>? GetWmiClassAndObject(string className)
+        private static Tuple<ManagementClass, ManagementObject> GetWmiClassAndObject(string className)
         {
             ManagementScope scope = new ManagementScope("root\\WMI", new ConnectionOptions
             {

@@ -11,7 +11,7 @@ import { FixedSpeed } from "./containers/FixedSpeed";
 import { RawUI } from "./containers/RawUI";
 import { Toggles } from "./containers/Toggles";
 import { useWebSocket } from "./utils/useWebSocket";
-import { errorToast } from "./utils/misc";
+import { errorToast, successToast } from "./utils/misc";
 import { UpdateNotification } from "./components/UpdateNotification";
 const StyledTopRow = styled.div`
   display: flex;
@@ -37,8 +37,12 @@ function App() {
     const { kind, data } = lastJsonMessage;
     if (kind === "state") {
       setDoFixedSpeed(data.doFixedSpeed);
+    } else if (kind === "success") {
+      successToast("Successfully applied.");
     } else if (kind === "error") {
-      errorToast("Unknown error");
+      errorToast(
+        typeof data === "string" ? data : "An unexpected error occurred.",
+      );
       console.error(data);
     }
   }, [lastJsonMessage]);

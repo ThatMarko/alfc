@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { Toggle } from "../components/Toggle";
 import { useWebSocket } from "../utils/useWebSocket";
-import { errorToast } from "../utils/misc";
 import { getMethods, setMethods } from "../data/mof";
 import { ToggleState } from "../utils/enums";
 
 export function Toggles() {
   const [gpuBoost, setGPUBoost] = useState(ToggleState.Unknown);
+  const [isGpuBoostAvailable, setIsGpuBoostAvailable] = useState(true);
 
   const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
 
@@ -14,6 +14,9 @@ export function Toggles() {
     const { kind, data, methodName } = lastJsonMessage;
     if (kind === "state") {
       setGPUBoost(data.gpuBoost ? ToggleState.On : ToggleState.Off);
+      if (data.isGpuBoostAvailable !== undefined) {
+        setIsGpuBoostAvailable(data.isGpuBoostAvailable);
+      }
     } else if (kind === "success") {
       // Current state only changes when we get the websocket
       // result.
@@ -25,13 +28,10 @@ export function Toggles() {
           kind: "get",
         });
       }
-    } else if (kind === "error") {
-      errorToast("Couldn't apply change.");
-      console.error(data);
     }
   }, [lastJsonMessage, sendJsonMessage]);
 
-  if (!isConnected) {
+  if (!isConnected || !isGpuBoostAvailable) {
     return null;
   }
 

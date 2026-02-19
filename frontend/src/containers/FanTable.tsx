@@ -3,7 +3,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { StyledApplyButton } from "../components/StyledApplyButton";
 import { StyledArea } from "../components/StyledArea";
 import { useWebSocket } from "../utils/useWebSocket";
-import { errorToast, successToast } from "../utils/misc";
 import { FanTableEditor } from "./FanTableEditor";
 import { Status } from "./Status";
 import { disabledFormStyle, enabledFormStyle } from "./styles/misc";
@@ -44,11 +43,6 @@ export function FanTable({ disabled }: { disabled: boolean }) {
           speed.toString(),
         ]),
       );
-    } else if (kind === "success") {
-      successToast("Successfully applied.");
-    } else if (kind === "error") {
-      errorToast("Couldn't apply change.");
-      console.error(data);
     }
   }, [lastJsonMessage]);
 

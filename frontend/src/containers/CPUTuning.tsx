@@ -7,7 +7,6 @@ import { StyledApplyButton } from "../components/StyledApplyButton";
 import { StyledArea } from "../components/StyledArea";
 import xtuIncompatibility from "../images/xtu_incompatibility.png";
 import { useWebSocket } from "../utils/useWebSocket";
-import { errorToast, successToast } from "../utils/misc";
 
 const StyledInput = styled.input`
   width: 56px;
@@ -38,13 +37,8 @@ export function CPUTuning() {
         setPL2(data.pl2.toString());
       }
       setIsCpuTuningAvailable(data.isCpuTuningAvailable);
-    } else if (kind === "success") {
+    } else if (kind === "success" || kind === "error") {
       setIsApplying(false);
-      successToast("Successfully applied.");
-    } else if (kind === "error") {
-      setIsApplying(false);
-      errorToast("Couldn't apply change.");
-      console.error(data);
     }
   }, [lastJsonMessage]);
 
