@@ -30,11 +30,22 @@ static BSTR GetCachedBSTR(const char *method_name) {
         }
     }
 
+    if (strlen(method_name) >= sizeof(g_bstrCache[0].key)) {
+        SetLastErr("Method name too long for cache: '%s'", method_name);
+        return nullptr;
+    }
+
     wchar_t *wMethod = Utf8ToWide(method_name);
-    if (!wMethod) return nullptr;
+    if (!wMethod) {
+        SetLastErr("UTF-8 to wide conversion failed for '%s'", method_name);
+        return nullptr;
+    }
     BSTR bstr = SysAllocString(wMethod);
     free(wMethod);
-    if (!bstr) return nullptr;
+    if (!bstr) {
+        SetLastErr("SysAllocString failed for '%s'", method_name);
+        return nullptr;
+    }
 
     if (g_bstrCacheCount >= MAX_BSTR_CACHE) {
         SysFreeString(bstr);
@@ -209,7 +220,7 @@ __declspec(dllexport) int wmi_get(
     *out_count = 0;
 
     BSTR bstrMethod = GetCachedBSTR(method_name);
-    if (!bstrMethod) { SetLastErr("BSTR conversion failed for '%s'", method_name); return -1; }
+    if (!bstrMethod) return -1;
 
     IWbemClassObject *pInParams = nullptr;
     HRESULT hr;
@@ -299,7 +310,7 @@ __declspec(dllexport) int wmi_set(const char *method_name, int arg_value) {
     }
 
     BSTR bstrMethod = GetCachedBSTR(method_name);
-    if (!bstrMethod) { SetLastErr("BSTR conversion failed for '%s'", method_name); return -1; }
+    if (!bstrMethod) return -1;
 
     IWbemClassObject *pInParamsDef = nullptr;
     HRESULT hr = g_pSetClassDef->GetMethod(bstrMethod, 0, &pInParamsDef, nullptr);
