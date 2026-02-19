@@ -23,12 +23,21 @@ function getLastError(): string {
   return new CString(errorPtr).toString();
 }
 
-function encodeMethod(name: string): Buffer {
-  return Buffer.from(name + "\0");
-}
-
 const resultsBuffer = new Float64Array(16);
 const countBuffer = new Int32Array(1);
+const resultsPtr = ptr(resultsBuffer);
+const countPtr = ptr(countBuffer);
+
+const methodPtrCache = new Map<string, { buf: Buffer; ptr: number }>();
+
+function getMethodPtr(name: string): number {
+  const cached = methodPtrCache.get(name);
+  if (cached) return cached.ptr;
+  const buf = Buffer.from(name + "\0");
+  const pointer = ptr(buf);
+  methodPtrCache.set(name, { buf, ptr: pointer });
+  return pointer;
+}
 
 export async function wmiInit() {
   let attempt = 0;
@@ -53,8 +62,7 @@ export async function wmiInit() {
 
 export function setCall(_: string, methodName: string, args: Args) {
   const argValue = typeof args.Data === "number" ? args.Data : 0;
-  const methodBuf = encodeMethod(methodName);
-  const result = lib.symbols.wmi_set(ptr(methodBuf), argValue);
+  const result = lib.symbols.wmi_set(getMethodPtr(methodName), argValue);
   if (result !== 0) {
     return Promise.reject(
       new Error(`WMI set '${methodName}' failed: ${getLastError()}`),
@@ -63,25 +71,14 @@ export function setCall(_: string, methodName: string, args: Args) {
   return Promise.resolve();
 }
 
-function splitWords(numbers: number[]) {
-  for (let i = 0; i < numbers.length; i++) {
-    const current = numbers[i] ?? 0;
-    if (current > 255) {
-      numbers[i] = current >> 8;
-      numbers.splice(i + 1, 0, current & 0xff);
-    }
-  }
-}
-
 export function getCall(_: string, methodName: string, args?: Args) {
   const argValue = args?.Data !== undefined ? Number(args.Data) : -1;
-  const methodBuf = encodeMethod(methodName);
 
   const result = lib.symbols.wmi_get(
-    ptr(methodBuf),
+    getMethodPtr(methodName),
     argValue,
-    ptr(resultsBuffer),
-    ptr(countBuffer),
+    resultsPtr,
+    countPtr,
   );
 
   if (result !== 0) {
@@ -91,17 +88,15 @@ export function getCall(_: string, methodName: string, args?: Args) {
   }
 
   const count = countBuffer[0] ?? 0;
-  const data: number[] = [];
-  for (let i = 0; i < count; i++) {
-    data.push(resultsBuffer[i] ?? 0);
-  }
-
-  data.reverse();
-  splitWords(data);
-
   let value = 0;
-  for (const byte of data) {
-    value = value * 256 + byte;
+  for (let i = count - 1; i >= 0; i--) {
+    const raw = resultsBuffer[i] ?? 0;
+    if (raw > 255) {
+      value = value * 256 + (raw >> 8);
+      value = value * 256 + (raw & 0xff);
+    } else {
+      value = value * 256 + raw;
+    }
   }
 
   return Promise.resolve(value);

@@ -10,6 +10,45 @@
 #pragma comment(lib, "wbemuuid.lib")
 
 #define MAX_RESULTS 16
+#define MAX_BSTR_CACHE 32
+
+static wchar_t *Utf8ToWide(const char *str);
+static void SetLastErr(const char *fmt, ...);
+
+struct BstrCacheEntry {
+    char key[128];
+    BSTR bstr;
+};
+
+static BstrCacheEntry g_bstrCache[MAX_BSTR_CACHE];
+static int g_bstrCacheCount = 0;
+
+static BSTR GetCachedBSTR(const char *method_name) {
+    for (int i = 0; i < g_bstrCacheCount; i++) {
+        if (strcmp(g_bstrCache[i].key, method_name) == 0) {
+            return g_bstrCache[i].bstr;
+        }
+    }
+
+    wchar_t *wMethod = Utf8ToWide(method_name);
+    if (!wMethod) return nullptr;
+    BSTR bstr = SysAllocString(wMethod);
+    free(wMethod);
+    if (!bstr) return nullptr;
+
+    if (g_bstrCacheCount >= MAX_BSTR_CACHE) {
+        SysFreeString(bstr);
+        SetLastErr("BSTR cache full (%d entries)", MAX_BSTR_CACHE);
+        return nullptr;
+    }
+
+    strncpy_s(g_bstrCache[g_bstrCacheCount].key,
+              sizeof(g_bstrCache[0].key), method_name, _TRUNCATE);
+    g_bstrCache[g_bstrCacheCount].bstr = bstr;
+    g_bstrCacheCount++;
+
+    return bstr;
+}
 
 static IWbemLocator *g_pLoc = nullptr;
 static IWbemServices *g_pSvc = nullptr;
@@ -165,11 +204,8 @@ __declspec(dllexport) int wmi_get(
 
     *out_count = 0;
 
-    wchar_t *wMethod = Utf8ToWide(method_name);
-    if (!wMethod) { SetLastErr("UTF-8 conversion failed"); return -1; }
-    BSTR bstrMethod = SysAllocString(wMethod);
-    free(wMethod);
-    if (!bstrMethod) { SetLastErr("SysAllocString failed"); return -1; }
+    BSTR bstrMethod = GetCachedBSTR(method_name);
+    if (!bstrMethod) { SetLastErr("BSTR conversion failed for '%s'", method_name); return -1; }
 
     IWbemClassObject *pInParams = nullptr;
     HRESULT hr;
@@ -178,7 +214,6 @@ __declspec(dllexport) int wmi_get(
         IWbemClassObject *pInParamsDef = nullptr;
         hr = g_pGetClassDef->GetMethod(bstrMethod, 0, &pInParamsDef, nullptr);
         if (FAILED(hr)) {
-            SysFreeString(bstrMethod);
             SetLastErr("GetMethod(%s) failed: 0x%08lX", method_name, hr);
             return -1;
         }
@@ -186,7 +221,6 @@ __declspec(dllexport) int wmi_get(
         hr = pInParamsDef->SpawnInstance(0, &pInParams);
         pInParamsDef->Release();
         if (FAILED(hr)) {
-            SysFreeString(bstrMethod);
             SetLastErr("SpawnInstance failed: 0x%08lX", hr);
             return -1;
         }
@@ -199,7 +233,6 @@ __declspec(dllexport) int wmi_get(
         VariantClear(&varArg);
         if (FAILED(hr)) {
             pInParams->Release();
-            SysFreeString(bstrMethod);
             SetLastErr("Put Data failed: 0x%08lX", hr);
             return -1;
         }
@@ -209,7 +242,6 @@ __declspec(dllexport) int wmi_get(
     hr = g_pSvc->ExecMethod(g_getObjectPath, bstrMethod, 0, nullptr, pInParams, &pOutParams, nullptr);
 
     if (pInParams) pInParams->Release();
-    SysFreeString(bstrMethod);
 
     if (FAILED(hr)) {
         SetLastErr("ExecMethod(%s) failed: 0x%08lX", method_name, hr);
@@ -261,16 +293,12 @@ __declspec(dllexport) int wmi_set(const char *method_name, int arg_value) {
         return -1;
     }
 
-    wchar_t *wMethod = Utf8ToWide(method_name);
-    if (!wMethod) { SetLastErr("UTF-8 conversion failed"); return -1; }
-    BSTR bstrMethod = SysAllocString(wMethod);
-    free(wMethod);
-    if (!bstrMethod) { SetLastErr("SysAllocString failed"); return -1; }
+    BSTR bstrMethod = GetCachedBSTR(method_name);
+    if (!bstrMethod) { SetLastErr("BSTR conversion failed for '%s'", method_name); return -1; }
 
     IWbemClassObject *pInParamsDef = nullptr;
     HRESULT hr = g_pSetClassDef->GetMethod(bstrMethod, 0, &pInParamsDef, nullptr);
     if (FAILED(hr)) {
-        SysFreeString(bstrMethod);
         SetLastErr("GetMethod(%s) failed: 0x%08lX", method_name, hr);
         return -1;
     }
@@ -279,7 +307,6 @@ __declspec(dllexport) int wmi_set(const char *method_name, int arg_value) {
     hr = pInParamsDef->SpawnInstance(0, &pInParams);
     pInParamsDef->Release();
     if (FAILED(hr)) {
-        SysFreeString(bstrMethod);
         SetLastErr("SpawnInstance failed: 0x%08lX", hr);
         return -1;
     }
@@ -292,7 +319,6 @@ __declspec(dllexport) int wmi_set(const char *method_name, int arg_value) {
     VariantClear(&varArg);
     if (FAILED(hr)) {
         pInParams->Release();
-        SysFreeString(bstrMethod);
         SetLastErr("Put Data failed: 0x%08lX", hr);
         return -1;
     }
@@ -300,7 +326,6 @@ __declspec(dllexport) int wmi_set(const char *method_name, int arg_value) {
     hr = g_pSvc->ExecMethod(g_setObjectPath, bstrMethod, 0, nullptr, pInParams, nullptr, nullptr);
 
     pInParams->Release();
-    SysFreeString(bstrMethod);
 
     if (FAILED(hr)) {
         SetLastErr("ExecMethod(%s) failed: 0x%08lX", method_name, hr);
@@ -311,6 +336,10 @@ __declspec(dllexport) int wmi_set(const char *method_name, int arg_value) {
 }
 
 __declspec(dllexport) void wmi_cleanup(void) {
+    for (int i = 0; i < g_bstrCacheCount; i++) {
+        SysFreeString(g_bstrCache[i].bstr);
+    }
+    g_bstrCacheCount = 0;
     if (g_pGetClassDef) { g_pGetClassDef->Release(); g_pGetClassDef = nullptr; }
     if (g_pSetClassDef) { g_pSetClassDef->Release(); g_pSetClassDef = nullptr; }
     if (g_getObjectPath) { SysFreeString(g_getObjectPath); g_getObjectPath = nullptr; }
