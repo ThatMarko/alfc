@@ -103,7 +103,9 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Build WmiDll
-        run: bun run --cwd server build:wmidll
+        run: build.bat
+        shell: cmd
+        working-directory: server/native/windows/wmidll
 
       - name: Download WinSW
         run: |
