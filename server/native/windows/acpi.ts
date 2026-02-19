@@ -4,7 +4,9 @@ import type { Args } from "../../../common/types";
 import { isDev } from "../../utils/consts";
 
 const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
-const dllPath = path.join(baseDir, "WmiDll.dll");
+const dllPath = isDev
+  ? path.join(baseDir, "wmidll", "WmiDll.dll")
+  : path.join(baseDir, "WmiDll.dll");
 
 const lib = dlopen(dllPath, {
   wmi_init: { args: [], returns: FFIType.i32 },
