@@ -8,8 +8,7 @@
 
   <delayedAutoStart>true</delayedAutoStart>
 
-  <!-- Let alfc.exe handle its own shutdown (restoreAutoFanControl) before children are touched.
-       Without this, WinSW may kill WmiAPI.exe while alfc.exe still needs it to restore BIOS fan control. -->
+  <!-- Let alfc.exe complete its shutdown (restoreAutoFanControl + COM cleanup) before being killed. -->
   <stopParentFirst>true</stopParentFirst>
   <stopTimeout>15 sec</stopTimeout>
 

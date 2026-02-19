@@ -11,7 +11,7 @@ The GitHub Actions release workflow will:
 
 - Build Linux (x64) and Windows (x64) on their respective runners
 - Run `bun run all-checks` (lint, typecheck, test, build) on Linux
-- Build `WmiAPI.exe` (.NET Framework 4.8) on Windows
+- Build `WmiDll.dll` (C++ COM wrapper, requires MSVC) on Windows
 - Download WinSW service wrapper
 - Assemble release archives
 - Create a **draft** GitHub Release with all artifacts
@@ -32,7 +32,7 @@ Review the draft release, edit the notes if needed, then publish it.
 | Artifact                       | Contents                                                                     |
 | ------------------------------ | ---------------------------------------------------------------------------- |
 | `alfc-vX.Y.Z-linux-x64.tar.gz` | Server binary, frontend, service scripts, plasmoid, config, LICENSE          |
-| `alfc-vX.Y.Z-windows-x64.zip`  | Server binary, frontend, WmiAPI.exe, service scripts, WinSW, config, LICENSE |
+| `alfc-vX.Y.Z-windows-x64.zip`  | Server binary, frontend, WmiDll.dll, service scripts, WinSW, config, LICENSE |
 | `org.kde.alfc.plasmoid`        | Standalone plasmoid package (zip of QML files for KDE Store)                 |
 
 ## Windows: CPU tuning (PL1/PL2)

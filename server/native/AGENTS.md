@@ -13,20 +13,20 @@ native/
 │   ├── acpi.ts    # Reads/writes via /proc/acpi/call
 │   └── cpuoc.ts   # CPU power limits via sysfs (intel-rapl)
 └── windows/
-    ├── acpi.ts    # WMI via helper process (stdin/stdout JSON IPC)
+    ├── acpi.ts    # WMI via bun:ffi (loads WmiDll.dll)
     ├── cpuoc.ts   # Intel XTU integration via bun:ffi + NativeAOT
-    ├── wmiapi/    # .NET Framework 4.8 WMI helper (spawned as subprocess)
+    ├── wmidll/    # C++ WMI COM wrapper (WmiDll.dll)
     └── cpuoc-dotnet/ # NativeAOT CPU OC project
 ```
 
 ## WHERE TO LOOK
 
-| Task             | Location                                                        |
-| ---------------- | --------------------------------------------------------------- |
-| Unified API      | `index.ts` → `getCall`, `setCall`, `initNativeServices`         |
-| Linux ACPI       | `linux/acpi.ts` → reads `/proc/acpi/call`                       |
-| Windows WMI      | `windows/acpi.ts` → spawns `WmiAPI.exe`, JSON over stdin/stdout |
-| CPU power limits | `windows/cpuoc.ts` (Windows only, Intel XTU)                    |
+| Task             | Location                                                |
+| ---------------- | ------------------------------------------------------- |
+| Unified API      | `index.ts` → `getCall`, `setCall`, `initNativeServices` |
+| Linux ACPI       | `linux/acpi.ts` → reads `/proc/acpi/call`               |
+| Windows WMI      | `windows/acpi.ts` → loads `WmiDll.dll` via `bun:ffi`    |
+| CPU power limits | `windows/cpuoc.ts` (Windows only, Intel XTU)            |
 
 ## CONVENTIONS
 
@@ -37,13 +37,13 @@ native/
 ## ANTI-PATTERNS
 
 - **Never call Windows modules on Linux**: Always guard with `os.platform()`
-- **No inline .NET code**: WmiAPI.exe built separately with `dotnet publish`, CPUOC.dll with NativeAOT
+- **No inline native code**: WmiDll.dll built separately with `cl.exe`, CPUOC.dll with NativeAOT
 
 ## NOTES
 
 - Linux requires `acpi_call` kernel module loaded
 - Windows requires admin rights for WMI access
-- WmiAPI uses .NET Framework 4.8 (built into Windows 11) — no runtime bundling needed
-- WmiAPI has a 30-second stdin watchdog — self-terminates if parent process is gone
+- WmiDll uses C++ COM (`wbemcli.h`) — compiled with MSVC (`cl.exe`), loaded via `bun:ffi`
+- WmiDll exports: `wmi_init`, `wmi_get`, `wmi_set`, `wmi_cleanup`, `wmi_get_last_error`
 - CPUOC uses NativeAOT (.NET 8) — loaded via `bun:ffi`
-- Build commands in `server/package.json` (`build:cpuoc`, `build:wmiapi`)
+- Build commands in `server/package.json` (`build:cpuoc`, `build:wmidll`)

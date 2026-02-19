@@ -20,7 +20,7 @@ alfc/
 ├── server/          # Bun backend
 │   ├── fan-control/ # Core fan logic + tests
 │   ├── native/      # Platform-specific (linux/windows)
-│   │   ├── wmiapi/  # Windows WMI helper (.NET Framework 4.8)
+│   │   ├── wmidll/  # Windows WMI C++ DLL (bun:ffi)
 │   │   └── cpuoc-dotnet/ # Windows CPU OC NativeAOT
 │   ├── state/       # Config persistence
 │   └── websocket/   # Client communication + tests
@@ -32,7 +32,7 @@ alfc/
 | Task              | Location                                | Notes                                                                                |
 | ----------------- | --------------------------------------- | ------------------------------------------------------------------------------------ |
 | Fan curve logic   | `server/fan-control/`                   | Ramping prevents frequent fluctuations                                               |
-| ACPI/WMI calls    | `server/native/{linux,windows}/acpi.ts` | Platform abstraction (Linux: /proc/acpi, Windows: WmiAPI.exe subprocess)             |
+| ACPI/WMI calls    | `server/native/{linux,windows}/acpi.ts` | Platform abstraction (Linux: /proc/acpi, Windows: WmiDll.dll via bun:ffi)            |
 | Frontend state    | `frontend/src/utils/useWebSocket.ts`    | WebSocket hook for real-time updates                                                 |
 | Frontend tests    | `frontend/src/{data,utils}/*.test.ts`   | MOF parser tests, toast utility tests                                                |
 | Shared types      | `common/types.ts`                       | `State`, `MessageToServer`, `MessageToClient`                                        |
@@ -76,8 +76,8 @@ bun run lint              # ESLint (0 errors required, warnings OK)
 bun run type-check        # TypeScript (no emit, strict + noUncheckedIndexedAccess)
 bun run test              # Vitest (28 tests: server + frontend)
 
-# Windows Native Build
-cd server/native/wmiapi && dotnet publish -c Release
+# Windows Native Build (requires MSVC for WmiDll, .NET 8 SDK for CPUOC)
+cd server/native/windows/wmidll && build.bat
 cd server/native/cpuoc-dotnet && dotnet publish -c Release -r win-x64
 
 # Service Management (Linux)
@@ -96,7 +96,7 @@ plasmoidviewer -a plasmoid/package                               # Dev preview
 - Linux release is a Bun-compiled executable with systemd/OpenRC service scripts
 - Windows release is a Bun-compiled executable with WinSW service wrapper
 - Windows logging: WinSW to `service.log` (systemd journal / OpenRC stdout for Linux)
-- Windows WMI: `WmiAPI.exe` subprocess (.NET Framework 4.8, built into Windows 11) communicates via stdin/stdout JSON, 30s stdin watchdog
+- Windows WMI: `WmiDll.dll` (C++ COM wrapper) loaded via `bun:ffi` — direct in-process WMI calls, no subprocess
 - Windows CPU OC: `bun:ffi` loads NativeAOT DLL (requires .NET 8 SDK to build)
 - Windows service: WinSW with `stopParentFirst` + `stopTimeout=15s` for safe fan restore on shutdown
 - Bootstrap: Scripts-only (no TypeScript), WinSW replaces `os-service`
