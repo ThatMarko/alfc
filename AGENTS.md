@@ -96,8 +96,9 @@ plasmoidviewer -a plasmoid/package                               # Dev preview
 - Linux release is a Bun-compiled executable with systemd/OpenRC service scripts
 - Windows release is a Bun-compiled executable with WinSW service wrapper
 - Windows logging: WinSW to `service.log` (systemd journal / OpenRC stdout for Linux)
-- Windows WMI: `WmiAPI.exe` subprocess (.NET Framework 4.8, built into Windows 11) communicates via stdin/stdout JSON
+- Windows WMI: `WmiAPI.exe` subprocess (.NET Framework 4.8, built into Windows 11) communicates via stdin/stdout JSON, 30s stdin watchdog
 - Windows CPU OC: `bun:ffi` loads NativeAOT DLL (requires .NET 8 SDK to build)
+- Windows service: WinSW with `stopParentFirst` + `stopTimeout=15s` for safe fan restore on shutdown
 - Bootstrap: Scripts-only (no TypeScript), WinSW replaces `os-service`
 - CI: GitHub Actions on master, runs `bun run all-checks`
 - Release: GitHub Actions on `v*` tag, builds Linux + Windows + plasmoid

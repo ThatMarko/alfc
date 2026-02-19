@@ -25,7 +25,8 @@ copy server\native\windows\IntelOverclockingSDK.dll dist\alfc\ || exit /b
 @REM Frontend
 xcopy /I /E frontend\build dist\alfc\frontend || exit /b
 
-@REM WinSW service wrapper
+@REM WinSW service wrapper (alfc-service.exe must be downloaded separately for local builds,
+@REM CI downloads it automatically from https://github.com/winsw/winsw/releases)
 copy bootstrap\scripts\alfc-service.exe dist\alfc\ || exit /b
 copy bootstrap\scripts\alfc-service.xml dist\alfc\ || exit /b
 

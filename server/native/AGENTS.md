@@ -44,5 +44,6 @@ native/
 - Linux requires `acpi_call` kernel module loaded
 - Windows requires admin rights for WMI access
 - WmiAPI uses .NET Framework 4.8 (built into Windows 11) — no runtime bundling needed
+- WmiAPI has a 30-second stdin watchdog — self-terminates if parent process is gone
 - CPUOC uses NativeAOT (.NET 8) — loaded via `bun:ffi`
 - Build commands in `server/package.json` (`build:cpuoc`, `build:wmiapi`)
