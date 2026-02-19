@@ -1,8 +1,8 @@
 @echo off
 
-@REM Build native helpers (WmiAPI requires .NET 4.8 targeting pack, CPUOC requires .NET 8 SDK)
+@REM Build native helpers (WmiDll requires MSVC/cl.exe, CPUOC requires .NET 8 SDK)
 echo Building native helpers...
-call bun run --cwd server build:wmiapi || exit /b
+call bun run --cwd server build:wmidll || exit /b
 call bun run --cwd server build:cpuoc || exit /b
 
 @REM Build frontend + server
@@ -17,8 +17,8 @@ mkdir dist\alfc || exit /b
 @REM Server binary
 copy server\dist\alfc.exe dist\alfc\ || exit /b
 
-@REM WMI helper (.NET Framework 4.8 exe)
-copy server\native\windows\WmiAPI.exe dist\alfc\ || exit /b
+@REM WMI DLL (C++ COM wrapper loaded via bun:ffi)
+copy server\native\windows\wmidll\WmiDll.dll dist\alfc\ || exit /b
 copy server\native\windows\CPUOC.dll dist\alfc\ || exit /b
 copy server\native\windows\IntelOverclockingSDK.dll dist\alfc\ || exit /b
 

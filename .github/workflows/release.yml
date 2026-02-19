@@ -99,8 +99,11 @@ jobs:
       - name: Build frontend and server
         run: bun run build
 
-      - name: Build WmiAPI helper
-        run: dotnet publish server/native/windows/wmiapi -c Release -o server/native/windows
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build WmiDll
+        run: bun run --cwd server build:wmidll
 
       - name: Download WinSW
         run: |
@@ -122,8 +125,8 @@ jobs:
           # Server binary
           cp server/dist/alfc.exe "${RELEASE_DIR}/"
 
-          # WMI helper (.NET Framework 4.8 exe — runtime built into Windows 11)
-          cp server/native/windows/WmiAPI.exe "${RELEASE_DIR}/"
+          # WMI DLL (C++ COM wrapper loaded via bun:ffi)
+          cp server/native/windows/wmidll/WmiDll.dll "${RELEASE_DIR}/"
 
           # NOTE: CPUOC.dll and IntelOverclockingSDK.dll are NOT included.
           # CPU tuning requires users to build CPUOC.dll themselves.
