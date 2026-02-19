@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Management;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Management.Infrastructure;
+using Microsoft.Management.Infrastructure.Options;
 
 namespace WmiAPI
 {
@@ -14,10 +16,13 @@ namespace WmiAPI
 
     public static class NativeExports
     {
-        private static ManagementObject? wmiGetObject;
-        private static ManagementObject? wmiSetObject;
-        private static ManagementClass? wmiGetClass;
-        private static ManagementClass? wmiSetClass;
+        private static CimSession? session;
+        private static CimInstance? wmiGetInstance;
+        private static CimInstance? wmiSetInstance;
+
+        private const string WmiNamespace = @"root\WMI";
+        private const string GetClassName = "GB_WMIACPI_Get";
+        private const string SetClassName = "GB_WMIACPI_Set";
 
         [ThreadStatic]
         private static string? lastError;
@@ -27,19 +32,28 @@ namespace WmiAPI
         {
             try
             {
-                var getTuple = GetWmiClassAndObject("GB_WMIACPI_Get");
-                var setTuple = GetWmiClassAndObject("GB_WMIACPI_Set");
-
-                if (getTuple == null || setTuple == null)
+                var options = new DComSessionOptions
                 {
-                    lastError = "Failed to get WMI class/object instances for GB_WMIACPI";
+                    Impersonation = ImpersonationType.Impersonate
+                };
+
+                session = CimSession.Create(null, options);
+
+                wmiGetInstance = session
+                    .EnumerateInstances(WmiNamespace, GetClassName)
+                    .FirstOrDefault();
+
+                wmiSetInstance = session
+                    .EnumerateInstances(WmiNamespace, SetClassName)
+                    .FirstOrDefault();
+
+                if (wmiGetInstance == null || wmiSetInstance == null)
+                {
+                    lastError = "Failed to get CIM instances for GB_WMIACPI";
+                    session.Dispose();
+                    session = null;
                     return -1;
                 }
-
-                wmiGetClass = getTuple.Item1;
-                wmiGetObject = getTuple.Item2;
-                wmiSetClass = setTuple.Item1;
-                wmiSetObject = setTuple.Item2;
 
                 return 0;
             }
@@ -56,7 +70,7 @@ namespace WmiAPI
         {
             try
             {
-                if (wmiGetObject == null || wmiGetClass == null)
+                if (session == null || wmiGetInstance == null)
                 {
                     lastError = "WMI not initialized. Call wmi_init() first.";
                     return IntPtr.Zero;
@@ -64,28 +78,37 @@ namespace WmiAPI
 
                 string methodName = Marshal.PtrToStringUTF8(methodNamePtr)!;
 
-                ManagementBaseObject? methodParameters = null;
+                CimMethodParametersCollection? methodParameters = null;
                 if (argsJsonPtr != IntPtr.Zero)
                 {
                     string argsJson = Marshal.PtrToStringUTF8(argsJsonPtr)!;
                     var args = JsonSerializer.Deserialize(argsJson, WmiJsonContext.Default.DictionaryStringJsonElement);
                     if (args != null)
                     {
-                        methodParameters = wmiGetClass.GetMethodParameters(methodName);
+                        methodParameters = new CimMethodParametersCollection();
                         foreach (var kvp in args)
                         {
-                            methodParameters[kvp.Key] = kvp.Value.GetInt32();
+                            methodParameters.Add(
+                                CimMethodParameter.Create(kvp.Key, kvp.Value.GetInt32(), CimType.UInt32, CimFlags.In));
                         }
                     }
                 }
 
-                ManagementBaseObject result = wmiGetObject.InvokeMethod(methodName, methodParameters, null);
+                CimMethodResult result = session.InvokeMethod(wmiGetInstance, methodName, methodParameters);
 
-                PropertyDataCollection properties = result.Properties;
+                // Collect all output values — matches old System.Management behavior
+                // where result.Properties included ReturnValue + all out-parameters
                 var ret = new List<double>();
-                foreach (PropertyData property in properties)
+                if (result.ReturnValue != null)
                 {
-                    ret.Add(Convert.ToDouble(property.Value));
+                    ret.Add(Convert.ToDouble(result.ReturnValue.Value));
+                }
+                if (result.OutParameters != null)
+                {
+                    foreach (CimMethodParameter param in result.OutParameters)
+                    {
+                        ret.Add(Convert.ToDouble(param.Value));
+                    }
                 }
 
                 string resultJson = JsonSerializer.Serialize(ret, WmiJsonContext.Default.ListDouble);
@@ -103,7 +126,7 @@ namespace WmiAPI
         {
             try
             {
-                if (wmiSetObject == null || wmiSetClass == null)
+                if (session == null || wmiSetInstance == null)
                 {
                     lastError = "WMI not initialized. Call wmi_init() first.";
                     return -1;
@@ -111,22 +134,23 @@ namespace WmiAPI
 
                 string methodName = Marshal.PtrToStringUTF8(methodNamePtr)!;
 
-                ManagementBaseObject? methodParameters = null;
+                CimMethodParametersCollection? methodParameters = null;
                 if (argsJsonPtr != IntPtr.Zero)
                 {
                     string argsJson = Marshal.PtrToStringUTF8(argsJsonPtr)!;
                     var args = JsonSerializer.Deserialize(argsJson, WmiJsonContext.Default.DictionaryStringJsonElement);
                     if (args != null)
                     {
-                        methodParameters = wmiSetClass.GetMethodParameters(methodName);
+                        methodParameters = new CimMethodParametersCollection();
                         foreach (var kvp in args)
                         {
-                            methodParameters[kvp.Key] = kvp.Value.GetInt32();
+                            methodParameters.Add(
+                                CimMethodParameter.Create(kvp.Key, kvp.Value.GetInt32(), CimType.UInt32, CimFlags.In));
                         }
                     }
                 }
 
-                wmiSetObject.InvokeMethod(methodName, methodParameters, null);
+                session.InvokeMethod(wmiSetInstance, methodName, methodParameters);
                 return 0;
             }
             catch (Exception ex)
@@ -150,25 +174,6 @@ namespace WmiAPI
         public static IntPtr GetLastError()
         {
             return Marshal.StringToCoTaskMemUTF8(lastError ?? "Unknown error");
-        }
-
-        private static Tuple<ManagementClass, ManagementObject>? GetWmiClassAndObject(string className)
-        {
-            ManagementScope scope = new ManagementScope("root\\WMI", new ConnectionOptions
-            {
-                EnablePrivileges = true,
-                Impersonation = ImpersonationLevel.Impersonate
-            });
-            ManagementPath path = new ManagementPath(className);
-            ManagementClass wmiClass = new ManagementClass(scope, path, null);
-            var enumerator = wmiClass.GetInstances().GetEnumerator();
-
-            if (enumerator.MoveNext())
-            {
-                return new Tuple<ManagementClass, ManagementObject>(wmiClass, (ManagementObject)enumerator.Current);
-            }
-
-            return null;
         }
     }
 }
