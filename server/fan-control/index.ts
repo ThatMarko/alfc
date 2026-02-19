@@ -3,10 +3,10 @@ import { getCall, setCall } from "../native/index";
 import { state } from "../state/index";
 import { publishActivity } from "../websocket/index";
 
-export const WAIT_RAMP_DOWN_CYCLES = 10;
-export const WAIT_RAMP_UP_CYCLES = 3;
-export const CYCLE_DURATION = 1000;
-const TEMP_POLL_INTERVAL = 200;
+export const WAIT_RAMP_DOWN_CYCLES = 6;
+export const WAIT_RAMP_UP_CYCLES = 1;
+export const CYCLE_DURATION = 10_000;
+const TEMP_POLL_INTERVAL = 2000;
 
 let autoFanInterval: ReturnType<typeof setInterval> | null = null;
 let reinitInterval: ReturnType<typeof setInterval> | null = null;
@@ -92,33 +92,32 @@ function resetFanSpeed() {
 }
 
 async function collectAverageTemps(runId: number) {
-  const CPUTemps: number[] = [];
-  const GPUTemps: number[] = [];
   const samplesPerCycle = Math.round(
     (CYCLE_DURATION - TEMP_POLL_INTERVAL) / TEMP_POLL_INTERVAL,
   );
 
-  while (CPUTemps.length < samplesPerCycle) {
+  // Running sums instead of array allocations — zero per-cycle heap pressure
+  let cpuSum = 0;
+  let gpuSum = 0;
+
+  for (let sample = 0; sample < samplesPerCycle; sample++) {
     if (isFanControlShuttingDown || runId !== fanControlRunId) {
       return null;
     }
 
-    const currCPUTemp = await getCallInt("0xe1", "getCpuTemp");
-    const currGPUTemp1 = await getCallInt("0xe2", "getGpuTemp1");
-    const currGPUTemp2 = await getCallInt("0xe3", "getGpuTemp2");
-    const currGPUTemp = Math.max(currGPUTemp1, currGPUTemp2);
+    cpuSum += await getCallInt("0xe1", "getCpuTemp");
+    const gpuTemp1 = await getCallInt("0xe2", "getGpuTemp1");
+    const gpuTemp2 = await getCallInt("0xe3", "getGpuTemp2");
+    gpuSum += Math.max(gpuTemp1, gpuTemp2);
 
-    CPUTemps.push(currCPUTemp);
-    GPUTemps.push(currGPUTemp);
-
-    if (CPUTemps.length < samplesPerCycle) {
+    if (sample < samplesPerCycle - 1) {
       await Bun.sleep(TEMP_POLL_INTERVAL);
     }
   }
 
   return {
-    avgCPUTemp: CPUTemps.reduce((sum, temp) => sum + temp, 0) / CPUTemps.length,
-    avgGPUTemp: GPUTemps.reduce((sum, temp) => sum + temp, 0) / GPUTemps.length,
+    avgCPUTemp: cpuSum / samplesPerCycle,
+    avgGPUTemp: gpuSum / samplesPerCycle,
   };
 }
 
