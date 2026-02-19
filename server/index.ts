@@ -1,5 +1,5 @@
 import path from "node:path";
-import { initNativeServices } from "./native/index";
+import { cleanupNativeServices, initNativeServices } from "./native/index";
 import { isDev } from "./utils/consts";
 import { websocketHandlers, setServer } from "./websocket/index";
 import {
@@ -112,6 +112,7 @@ const exitWithError = () => {
       } catch (err) {
         console.error("[Server] Failed to restore fan control on exit:", err);
       } finally {
+        cleanupNativeServices();
         originalProcessExit(code ?? 1);
       }
     })();
