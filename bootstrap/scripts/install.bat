@@ -7,6 +7,14 @@ net session >nul 2>&1 || (
 
 pushd "%~dp0"
 
+echo Stopping existing service (if any)...
+alfc-service.exe stop 2>nul
+timeout /t 2 /nobreak >nul
+
+echo Removing existing service (if any)...
+alfc-service.exe uninstall 2>nul
+timeout /t 2 /nobreak >nul
+
 echo Installing ALFC service...
 alfc-service.exe install || (
     echo Failed to install service.

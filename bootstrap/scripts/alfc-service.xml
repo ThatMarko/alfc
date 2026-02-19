@@ -4,8 +4,14 @@
   <description>Cross-platform fan control utility for Aorus laptops</description>
 
   <executable>%BASE%\alfc.exe</executable>
+  <workingDirectory>%BASE%</workingDirectory>
 
   <delayedAutoStart>true</delayedAutoStart>
+
+  <!-- Let alfc.exe handle its own shutdown (restoreAutoFanControl) before children are touched.
+       Without this, WinSW may kill WmiAPI.exe while alfc.exe still needs it to restore BIOS fan control. -->
+  <stopParentFirst>true</stopParentFirst>
+  <stopTimeout>15 sec</stopTimeout>
 
   <log mode="roll-by-size">
     <sizeThreshold>10240</sizeThreshold>
@@ -15,6 +21,7 @@
   <onfailure action="restart" delay="10 sec"/>
   <onfailure action="restart" delay="20 sec"/>
   <onfailure action="restart" delay="30 sec"/>
+  <resetfailure>1 hour</resetfailure>
 
   <env name="NODE_ENV" value="production"/>
 </service>
