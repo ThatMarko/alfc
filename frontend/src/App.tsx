@@ -38,7 +38,11 @@ function App() {
     if (kind === "state") {
       setDoFixedSpeed(data.doFixedSpeed);
     } else if (kind === "success") {
-      successToast("Successfully applied.");
+      // Only toast for config changes (no methodName).
+      // WMI get/set responses have methodName and are handled by their own components.
+      if (!lastJsonMessage.methodName) {
+        successToast("Successfully applied.");
+      }
     } else if (kind === "error") {
       errorToast(
         typeof data === "string" ? data : "An unexpected error occurred.",
