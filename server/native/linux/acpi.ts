@@ -46,6 +46,8 @@ export async function getCall(methodId: string, _: string, args?: Args) {
   }
 }
 
+export function wmiCleanup() {}
+
 export async function setCall(methodId: string, _: string, args: Args) {
   if (!(await isAcpiAvailable())) {
     return;

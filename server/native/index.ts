@@ -10,6 +10,7 @@ type ACPIModule = {
   ) => Promise<number>;
   setCall: (methodId: string, methodName: string, args: Args) => Promise<void>;
   wmiInit: () => Promise<void>;
+  wmiCleanup: () => void;
 };
 
 type CPUOCModule = {
@@ -27,7 +28,7 @@ const cpuocModule: CPUOCModule = await (isLinux
   ? import("./linux/cpuoc")
   : import("./windows/cpuoc"));
 
-const { getCall, wmiInit, setCall } = acpiModule;
+const { getCall, wmiInit, setCall, wmiCleanup } = acpiModule;
 const { tuneInit, tune: tuneNative } = cpuocModule;
 
 function tune() {
@@ -107,4 +108,8 @@ async function initNativeServices() {
   );
 }
 
-export { getCall, initNativeServices, setCall, tune };
+function cleanupNativeServices() {
+  wmiCleanup();
+}
+
+export { cleanupNativeServices, getCall, initNativeServices, setCall, tune };
