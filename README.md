@@ -99,10 +99,6 @@ hex string for Linux.
 - **Full check**: `bun run all-checks` — Runs lint, type-check, test, and build in sequence.
 - **Pre-commit**: Husky + lint-staged runs ESLint, type-check, and Prettier on staged files.
 
-## Todo/Wishlist
+## Roadmap
 
-Contributions welcome, as always. 🙂
-
-- Using RGB lighting to highlight caps/num lock. There's something [here](https://gitlab.com/wtwrp/aeroctl/-/tree/master/Samples/AeroCtl.Rgb.LockKeys) for the Gigabyte Aero that could potentially be reused. (This should actually probably be a separate tool, like the Gigabyte-Aorus-Battery-Manager.)
-- Publish plasmoid to [KDE Store](https://store.kde.org) for discoverability in KDE Discover.
-- Publish AUR package — PKGBUILD ready in `aur/`, needs first release tag to submit.
+See [ROADMAP.md](./ROADMAP.md) for the full list of planned features, nice-to-haves, and areas where contributions are welcome.
