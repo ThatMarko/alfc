@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Management;
 using System.Text;
+using System.Threading;
 using System.Web.Script.Serialization;
 
 namespace WmiAPI
@@ -15,6 +16,11 @@ namespace WmiAPI
         private static ManagementClass wmiSetClass;
         private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
 
+        // Safety net: self-terminate if no stdin activity for 30 seconds.
+        // During normal operation, the fan control loop sends commands every ~1 second.
+        // Silence means the parent process (alfc.exe) is gone without closing stdin.
+        private static DateTime lastActivity = DateTime.UtcNow;
+
         static void Main()
         {
             Console.CancelKeyPress += (sender, e) => { e.Cancel = true; };
@@ -23,9 +29,18 @@ namespace WmiAPI
             var writer = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
             Console.SetOut(writer);
 
+            var watchdog = new Timer(_ =>
+            {
+                if ((DateTime.UtcNow - lastActivity).TotalSeconds > 30)
+                {
+                    Environment.Exit(0);
+                }
+            }, null, 5000, 5000);
+
             string line;
             while ((line = Console.ReadLine()) != null)
             {
+                lastActivity = DateTime.UtcNow;
                 if (string.IsNullOrWhiteSpace(line)) continue;
 
                 Dictionary<string, object> response;
@@ -69,6 +84,8 @@ namespace WmiAPI
 
                 Console.WriteLine(Json.Serialize(response));
             }
+
+            watchdog.Dispose();
         }
 
         private static Dictionary<string, object> OkResponse()
