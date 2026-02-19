@@ -5,7 +5,7 @@
   "scripts": {
     "build": "bun build.ts",
     "build:cpuoc": "dotnet publish native/windows/cpuoc-dotnet -c Release -o native/windows",
-    "build:wmiapi": "dotnet publish native/windows/wmiapi -c Release -o native/windows",
+    "build:wmidll": "native\\windows\\wmidll\\build.bat",
     "start": "bun --watch index.ts",
     "start:prod": "NODE_ENV=production ./dist/alfc",
     "debug:acpi": "bun native/windows/acpi.ts",
