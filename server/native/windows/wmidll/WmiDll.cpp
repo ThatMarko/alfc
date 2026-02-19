@@ -145,8 +145,6 @@ static HRESULT GetClassDefAndInstancePath(
 extern "C" {
 
 __declspec(dllexport) int wmi_init(void) {
-    // Clean up any partially initialized state from a previous failed attempt,
-    // preventing COM object leaks when the TypeScript retry logic calls us again.
     wmi_cleanup();
 
     HRESULT hr;
@@ -167,7 +165,7 @@ __declspec(dllexport) int wmi_init(void) {
     );
     if (FAILED(hr) && hr != RPC_E_TOO_LATE) {
         SetLastErr("CoInitializeSecurity failed: 0x%08lX", hr);
-        return -1;
+        goto fail;
     }
 
     hr = CoCreateInstance(
@@ -176,15 +174,17 @@ __declspec(dllexport) int wmi_init(void) {
     );
     if (FAILED(hr)) {
         SetLastErr("CoCreateInstance WbemLocator failed: 0x%08lX", hr);
-        return -1;
+        goto fail;
     }
 
-    BSTR bstrNs = SysAllocString(L"ROOT\\WMI");
-    hr = g_pLoc->ConnectServer(bstrNs, nullptr, nullptr, nullptr, 0, nullptr, nullptr, &g_pSvc);
-    SysFreeString(bstrNs);
+    {
+        BSTR bstrNs = SysAllocString(L"ROOT\\WMI");
+        hr = g_pLoc->ConnectServer(bstrNs, nullptr, nullptr, nullptr, 0, nullptr, nullptr, &g_pSvc);
+        SysFreeString(bstrNs);
+    }
     if (FAILED(hr)) {
         SetLastErr("ConnectServer ROOT\\WMI failed: 0x%08lX", hr);
-        return -1;
+        goto fail;
     }
 
     hr = CoSetProxyBlanket(
@@ -194,16 +194,20 @@ __declspec(dllexport) int wmi_init(void) {
     );
     if (FAILED(hr)) {
         SetLastErr("CoSetProxyBlanket failed: 0x%08lX", hr);
-        return -1;
+        goto fail;
     }
 
     hr = GetClassDefAndInstancePath(L"GB_WMIACPI_Get", &g_pGetClassDef, &g_getObjectPath);
-    if (FAILED(hr)) return -1;
+    if (FAILED(hr)) goto fail;
 
     hr = GetClassDefAndInstancePath(L"GB_WMIACPI_Set", &g_pSetClassDef, &g_setObjectPath);
-    if (FAILED(hr)) return -1;
+    if (FAILED(hr)) goto fail;
 
     return 0;
+
+fail:
+    wmi_cleanup();
+    return -1;
 }
 
 __declspec(dllexport) int wmi_get(
