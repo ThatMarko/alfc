@@ -5,6 +5,8 @@ net session >nul 2>&1 || (
     exit /b
 )
 
+pushd "%~dp0"
+
 echo Installing ALFC service...
 alfc-service.exe install || (
     echo Failed to install service.

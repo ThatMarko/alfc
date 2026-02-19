@@ -1,38 +1,60 @@
-import { CString, dlopen, FFIType, ptr } from "bun:ffi";
 import path from "node:path";
 import type { Args } from "../../../common/types";
 import { isDev } from "../../utils/consts";
 
 const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
-const dllPath = path.join(baseDir, "WmiAPI.dll");
+const exePath = path.join(baseDir, "WmiAPI.exe");
 
-if (!(await Bun.file(dllPath).exists())) {
-  throw new Error(`WmiAPI.dll not found at ${dllPath}`);
+interface WmiResponse {
+  ok: boolean;
+  data?: number[];
+  error?: string;
 }
 
-const lib = dlopen(dllPath, {
-  wmi_init: { args: [], returns: FFIType.i32 },
-  wmi_get: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr },
-  wmi_set: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
-  free_string: { args: [FFIType.ptr], returns: FFIType.void },
-  get_last_error: { args: [], returns: FFIType.ptr },
-});
-
-function getLastError(): string {
-  const errorPtr = lib.symbols.get_last_error();
-  if (!errorPtr) return "Unknown error";
-  const error = new CString(errorPtr);
-  lib.symbols.free_string(errorPtr);
-  return error.toString();
-}
+let sendCommand: ((cmd: object) => Promise<WmiResponse>) | null = null;
 
 export async function wmiInit() {
+  if (!(await Bun.file(exePath).exists())) {
+    throw new Error(`WmiAPI.exe not found at ${exePath}`);
+  }
+
+  const proc = Bun.spawn([exePath], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+
+  const stdoutReader = proc.stdout.getReader();
+  const textDecoder = new TextDecoder();
+  let readBuffer = "";
+
+  async function readLine(): Promise<string> {
+    for (;;) {
+      const idx = readBuffer.indexOf("\n");
+      if (idx !== -1) {
+        const line = readBuffer.slice(0, idx).replace(/\r$/, "");
+        readBuffer = readBuffer.slice(idx + 1);
+        return line;
+      }
+      const { value, done } = await stdoutReader.read();
+      if (done) throw new Error("WMI helper process exited unexpectedly");
+      readBuffer += textDecoder.decode(value, { stream: true });
+    }
+  }
+
+  sendCommand = async (cmd: object): Promise<WmiResponse> => {
+    proc.stdin.write(JSON.stringify(cmd) + "\n");
+    proc.stdin.flush();
+    const line = await readLine();
+    return JSON.parse(line) as WmiResponse;
+  };
+
   let attempt = 0;
   while (attempt < 3) {
     try {
-      const result = lib.symbols.wmi_init();
-      if (result !== 0) {
-        throw new Error(`WMI init failed: ${getLastError()}`);
+      const response = await sendCommand({ cmd: "init" });
+      if (!response.ok) {
+        throw new Error(`WMI init failed: ${response.error}`);
       }
       return;
     } catch (e) {
@@ -48,14 +70,14 @@ export async function wmiInit() {
 }
 
 export function setCall(_: string, methodName: string, args: Args) {
-  const nameBuf = Buffer.from(methodName + "\0", "utf-8");
-  const argsBuf = Buffer.from(JSON.stringify(args) + "\0", "utf-8");
-
-  const result = lib.symbols.wmi_set(ptr(nameBuf), ptr(argsBuf));
-  if (result !== 0) {
-    throw new Error(`WMI set '${methodName}' failed: ${getLastError()}`);
-  }
-  return Promise.resolve();
+  if (!sendCommand) return Promise.reject(new Error("WMI not initialized"));
+  return sendCommand({ cmd: "set", method: methodName, args }).then(
+    (response) => {
+      if (!response.ok) {
+        throw new Error(`WMI set '${methodName}' failed: ${response.error}`);
+      }
+    },
+  );
 }
 
 // uint16 values are already little-endian, just need to split them up
@@ -70,30 +92,25 @@ function splitWords(numbers: number[]) {
 }
 
 export function getCall(_: string, methodName: string, args?: Args) {
-  const nameBuf = Buffer.from(methodName + "\0", "utf-8");
-  const argsBuf = args
-    ? Buffer.from(JSON.stringify(args) + "\0", "utf-8")
-    : null;
+  if (!sendCommand) return Promise.reject(new Error("WMI not initialized"));
+  return sendCommand({
+    cmd: "get",
+    method: methodName,
+    ...(args ? { args } : {}),
+  }).then((response) => {
+    if (!response.ok) {
+      throw new Error(`WMI get '${methodName}' failed: ${response.error}`);
+    }
 
-  const resultPtr = lib.symbols.wmi_get(
-    ptr(nameBuf),
-    argsBuf ? ptr(argsBuf) : null,
-  );
-  if (!resultPtr) {
-    throw new Error(`WMI get '${methodName}' failed: ${getLastError()}`);
-  }
+    const result: number[] = (response.data ?? []).reverse();
+    splitWords(result);
 
-  const resultJson = new CString(resultPtr);
-  lib.symbols.free_string(resultPtr);
-
-  const result: number[] = JSON.parse(resultJson.toString()).reverse();
-  splitWords(result);
-
-  let value = 0;
-  for (const byte of result) {
-    value = value * 256 + byte;
-  }
-  return Promise.resolve(value);
+    let value = 0;
+    for (const byte of result) {
+      value = value * 256 + byte;
+    }
+    return value;
+  });
 }
 
 if (import.meta.main) {

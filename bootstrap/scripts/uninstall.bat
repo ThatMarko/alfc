@@ -5,6 +5,8 @@ net session >nul 2>&1 || (
     exit /b
 )
 
+pushd "%~dp0"
+
 echo Stopping ALFC service...
 alfc-service.exe stop 2>nul
 

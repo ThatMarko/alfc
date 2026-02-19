@@ -5,6 +5,8 @@ net session >nul 2>&1 || (
     exit /b
 )
 
+pushd "%~dp0"
+
 echo Starting ALFC fan control (temporary, non-service mode)...
 echo Press Ctrl+C to stop.
 set NODE_ENV=production

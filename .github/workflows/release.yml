@@ -104,7 +104,7 @@ jobs:
       - name: Build frontend and server
         run: bun run build
 
-      - name: Build WmiAPI NativeAOT DLL
+      - name: Build WmiAPI helper
         run: dotnet publish server/native/windows/wmiapi -c Release -o server/native/windows
 
       - name: Download WinSW
@@ -127,8 +127,8 @@ jobs:
           # Server binary
           cp server/dist/alfc.exe "${RELEASE_DIR}/"
 
-          # WMI DLL (our code, MIT deps — safe to distribute)
-          cp server/native/windows/WmiAPI.dll "${RELEASE_DIR}/"
+          # WMI helper (self-contained .NET exe, our code + MIT deps)
+          cp server/native/windows/WmiAPI.exe "${RELEASE_DIR}/"
 
           # NOTE: CPUOC.dll and IntelOverclockingSDK.dll are NOT included.
           # CPU tuning requires users to build CPUOC.dll themselves.
