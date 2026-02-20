@@ -224,7 +224,9 @@ export const websocketHandlers = {
     handleMessage(ws, message);
   },
 
-  close(_ws: ServerWebSocket<unknown>) {
-    console.log("[WebSocket] Client disconnected");
+  close(_ws: ServerWebSocket<unknown>, code: number, reason: string) {
+    console.log(
+      `[WebSocket] Client disconnected (code: ${code}${reason ? `, reason: ${reason}` : ""})`,
+    );
   },
 };
