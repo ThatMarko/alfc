@@ -18,8 +18,8 @@ KCM.SimpleKCM {
             id: serverUrlField
 
             Kirigami.FormData.label: i18n("Server URL:")
-            placeholderText: "ws://localhost:5522/ws"
-            inputMethodHints: Qt.ImhUrlCharactersOnly
+            placeholderText: i18n("ws://localhost:5522/ws")
+            inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
         }
 
         QQC2.SpinBox {

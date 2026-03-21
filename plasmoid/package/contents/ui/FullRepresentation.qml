@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 
 import org.kde.kirigami as Kirigami
@@ -180,6 +181,10 @@ PlasmaExtras.Representation {
         fullRoot.modeSelectionOverride = mode
         fullRoot.pendingModeRequestId =
             fullRoot.backend.setFixedMode(mode === "fixed")
+    }
+
+    QQC2.ButtonGroup {
+        id: modeButtonGroup
     }
 
     header: WidgetHeading {
@@ -383,25 +388,29 @@ PlasmaExtras.Representation {
                 RowLayout {
                     visible: fullRoot.fanControlAvailable
                     Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing
+                    spacing: 0
 
                     PlasmaComponents.Button {
                         text: i18n("Auto")
-                        highlighted: fullRoot.selectedMode === "auto"
+                        checkable: true
+                        checked: fullRoot.selectedMode === "auto"
                         enabled: fullRoot.hasState
                             && fullRoot.fanControlAvailable
                             && !fullRoot.modeBusy
                         Layout.fillWidth: true
+                        QQC2.ButtonGroup.group: modeButtonGroup
                         onClicked: fullRoot.requestMode("auto")
                     }
 
                     PlasmaComponents.Button {
                         text: i18n("Fixed")
-                        highlighted: fullRoot.selectedMode === "fixed"
+                        checkable: true
+                        checked: fullRoot.selectedMode === "fixed"
                         enabled: fullRoot.hasState
                             && fullRoot.fanControlAvailable
                             && !fullRoot.modeBusy
                         Layout.fillWidth: true
+                        QQC2.ButtonGroup.group: modeButtonGroup
                         onClicked: fullRoot.requestMode("fixed")
                     }
                 }
@@ -469,7 +478,7 @@ PlasmaExtras.Representation {
                             }
 
                             onEditingFinished: {
-                                const value = parseInt(text)
+                                const value = parseInt(text, 10)
                                 if (!Number.isNaN(value)) {
                                     fullRoot.draftFixedPercentage =
                                         Math.max(0, Math.min(100, value))
@@ -577,7 +586,7 @@ PlasmaExtras.Representation {
                             }
 
                             onEditingFinished: {
-                                const value = parseInt(text)
+                                const value = parseInt(text, 10)
                                 if (!Number.isNaN(value)) {
                                     fullRoot.draftPl1 = value
                                 }
@@ -605,7 +614,7 @@ PlasmaExtras.Representation {
                             }
 
                             onEditingFinished: {
-                                const value = parseInt(text)
+                                const value = parseInt(text, 10)
                                 if (!Number.isNaN(value)) {
                                     fullRoot.draftPl2 = value
                                 }
