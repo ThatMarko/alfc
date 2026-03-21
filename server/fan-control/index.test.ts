@@ -93,6 +93,7 @@ describe("fan-control", () => {
 
   it("should change fan speed as temperatures change", async () => {
     fanControl();
+    await vi.advanceTimersByTimeAsync(0);
     expect(mockedSetCall.mock.calls).toMatchInlineSnapshot(`
       [
         [
