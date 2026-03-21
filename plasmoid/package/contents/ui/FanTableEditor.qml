@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 
 import org.kde.kirigami as Kirigami
@@ -79,7 +80,10 @@ ColumnLayout {
 
         for (let index = 0; index < model.count; index += 1) {
             const row = model.get(index)
-            table.push([parseInt(row.temp), parseInt(row.speed)])
+            table.push([
+                parseInt(row.temp, 10),
+                parseInt(row.speed, 10)
+            ])
         }
 
         return table
@@ -113,8 +117,8 @@ ColumnLayout {
 
         if (model.count > 0) {
             const lastItem = model.get(model.count - 1)
-            newTemp = Math.min(110, parseInt(lastItem.temp) + 5)
-            newSpeed = Math.min(100, parseInt(lastItem.speed) + 10)
+            newTemp = Math.min(110, parseInt(lastItem.temp, 10) + 5)
+            newSpeed = Math.min(100, parseInt(lastItem.speed, 10) + 10)
         }
 
         model.append({
@@ -228,14 +232,19 @@ ColumnLayout {
         onTriggered: root.clearStatus()
     }
 
+    QQC2.ButtonGroup {
+        id: tabButtonGroup
+    }
+
     RowLayout {
         Layout.fillWidth: true
-        spacing: Kirigami.Units.smallSpacing
+        spacing: 0
 
         PlasmaComponents.Button {
             text: i18n("CPU")
             checkable: true
             checked: root.currentTab === 0
+            QQC2.ButtonGroup.group: tabButtonGroup
             onClicked: root.currentTab = 0
             Layout.fillWidth: true
         }
@@ -244,6 +253,7 @@ ColumnLayout {
             text: i18n("GPU")
             checkable: true
             checked: root.currentTab === 1
+            QQC2.ButtonGroup.group: tabButtonGroup
             onClicked: root.currentTab = 1
             Layout.fillWidth: true
         }
@@ -319,7 +329,7 @@ ColumnLayout {
                         inputMethodHints: Qt.ImhDigitsOnly
 
                         onEditingFinished: {
-                            const value = parseInt(text)
+                            const value = parseInt(text, 10)
                             if (!Number.isNaN(value)) {
                                 root.updateValue(root.activeModel(),
                                     row.index, "temp", value)
@@ -338,7 +348,7 @@ ColumnLayout {
                         inputMethodHints: Qt.ImhDigitsOnly
 
                         onEditingFinished: {
-                            const value = parseInt(text)
+                            const value = parseInt(text, 10)
                             if (!Number.isNaN(value)) {
                                 root.updateValue(root.activeModel(),
                                     row.index, "speed", value)
