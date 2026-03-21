@@ -9,5 +9,13 @@
       <label>Server URL</label>
       <default>ws://localhost:5522/ws</default>
     </entry>
+    <entry name="warningTemp" type="Int">
+      <label>Warning temperature threshold (Celsius)</label>
+      <default>90</default>
+    </entry>
+    <entry name="compactShowIcon" type="Bool">
+      <label>Show icon instead of text in panel</label>
+      <default>false</default>
+    </entry>
   </group>
 </kcfg>

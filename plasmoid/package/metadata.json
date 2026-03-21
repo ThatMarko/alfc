@@ -1,23 +1,26 @@
 {
+  "KPackageStructure": "Plasma/Applet",
   "KPlugin": {
-    "Id": "org.kde.alfc",
-    "Name": "Aorus Laptop Fan Control",
-    "Description": "Control your Aorus laptop fans",
-    "Version": "2.0.0",
-    "Website": "https://github.com/ThatMarko/alfc",
-    "BugReportUrl": "https://github.com/ThatMarko/alfc/issues",
-    "License": "MIT",
     "Authors": [
       {
-        "Name": "Marko Bogosavljevic",
-        "Email": "markox123@icloud.com"
+        "Email": "markox123@icloud.com",
+        "Name": "Marko Bogosavljevic"
       }
     ],
+    "BugReportUrl": "https://github.com/ThatMarko/alfc/issues",
     "Category": "System Information",
-    "Icon": "computer-laptop"
+    "Description": "Control your Aorus laptop fans",
+    "EnabledByDefault": true,
+    "FormFactors": ["desktop", "tablet", "panel"],
+    "Icon": "computer-laptop",
+    "Id": "org.kde.alfc",
+    "License": "MIT",
+    "Name": "Aorus Laptop Fan Control",
+    "Version": "2.0.0",
+    "Website": "https://github.com/ThatMarko/alfc"
   },
-  "KPackageStructure": "Plasma/Applet",
   "X-Plasma-API-Minimum-Version": "6.0",
+  "X-Plasma-MainScript": "ui/main.qml",
   "X-Plasma-NotificationArea": "true",
   "X-Plasma-NotificationAreaCategory": "Hardware"
 }
