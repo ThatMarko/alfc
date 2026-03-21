@@ -7,6 +7,7 @@ export const WAIT_RAMP_DOWN_CYCLES = 10;
 export const WAIT_RAMP_UP_CYCLES = 3;
 export const CYCLE_DURATION = 1000;
 const TEMP_POLL_INTERVAL = 200;
+const FIXED_MODE_SAMPLES_PER_CYCLE = 1;
 
 let autoFanInterval: ReturnType<typeof setInterval> | null = null;
 let reinitInterval: ReturnType<typeof setInterval> | null = null;
@@ -39,22 +40,33 @@ export function fanPercentToSpeed(percent: number) {
   return Math.ceil((percent / 100.0) * 229);
 }
 
-// Both CPU and GPU fan are set to the same speed
-// due to the shared heat pipes.
-export function setFixedFan(percent: number) {
+async function applyFixedFanSpeed(speed: number) {
+  try {
+    await setCall("0x6b", "SetFixedFanSpeed", { Data: speed });
+  } catch (error) {
+    throw new Error(`SetFixedFanSpeed failed: ${String(error)}`);
+  }
+
+  try {
+    await setCall("0x47", "SetGPUFanDuty", { Data: speed });
+  } catch (error) {
+    throw new Error(`SetGPUFanDuty failed: ${String(error)}`);
+  }
+}
+
+export async function applyFixedFan(percent: number) {
   if (isFanControlShuttingDown) {
     return;
   }
 
-  const speed = fanPercentToSpeed(percent);
+  await applyFixedFanSpeed(fanPercentToSpeed(percent));
+}
 
-  // SetFixedFanSpeed
-  setCall("0x6b", "SetFixedFanSpeed", { Data: speed }).catch((e) =>
-    console.warn("[FanControl] SetFixedFanSpeed failed:", e),
-  );
-  // SetGPUFanDuty
-  setCall("0x47", "SetGPUFanDuty", { Data: speed }).catch((e) =>
-    console.warn("[FanControl] SetGPUFanDuty failed:", e),
+// Both CPU and GPU fan are set to the same speed
+// due to the shared heat pipes.
+export function setFixedFan(percent: number) {
+  void applyFixedFan(percent).catch((error) =>
+    console.warn("[FanControl] Failed to apply fixed fan speed:", error),
   );
 }
 
@@ -94,9 +106,11 @@ function resetFanSpeed() {
 async function collectAverageTemps(runId: number) {
   const CPUTemps: number[] = [];
   const GPUTemps: number[] = [];
-  const samplesPerCycle = Math.round(
-    (CYCLE_DURATION - TEMP_POLL_INTERVAL) / TEMP_POLL_INTERVAL,
-  );
+  const isFixedMode = state.doFixedSpeed;
+  const samplesPerCycle = isFixedMode
+    ? FIXED_MODE_SAMPLES_PER_CYCLE
+    : Math.round((CYCLE_DURATION - TEMP_POLL_INTERVAL) / TEMP_POLL_INTERVAL);
+  const sampleInterval = isFixedMode ? CYCLE_DURATION : TEMP_POLL_INTERVAL;
 
   while (CPUTemps.length < samplesPerCycle) {
     if (isFanControlShuttingDown || runId !== fanControlRunId) {
@@ -112,7 +126,7 @@ async function collectAverageTemps(runId: number) {
     GPUTemps.push(currGPUTemp);
 
     if (CPUTemps.length < samplesPerCycle) {
-      await Bun.sleep(TEMP_POLL_INTERVAL);
+      await Bun.sleep(sampleInterval);
     }
   }
 
@@ -131,7 +145,13 @@ export function fanControl() {
   const runId = ++fanControlRunId;
 
   initFanControl();
-  resetFanSpeed();
+  let appliedPercentage = state.doFixedSpeed
+    ? state.fixedPercentage
+    : resetFanSpeed();
+
+  if (state.doFixedSpeed) {
+    setFixedFan(state.fixedPercentage);
+  }
 
   // On Linux, it happened once that restarting the fan control
   // was necessary. But it's so rare it can't be tested what
@@ -189,7 +209,6 @@ export function fanControl() {
       : gradientTarget;
   }
 
-  let appliedPercentage = -1;
   let currRampDownCycle = 1;
   let currRampUpCycle = 1;
   let prevCPUFanTable = state.cpuFanTable;
@@ -200,20 +219,35 @@ export function fanControl() {
       return;
     }
 
-    // Interrupt if switching to fixed fan speed
-    if (state.doFixedSpeed) {
-      cleanupFanControlIntervals();
-      setFixedFan(state.fixedPercentage);
-      return;
-    }
-
-    // Collect average temperature throughout CYCLE_DURATION
+    // Collect average temperature throughout CYCLE_DURATION.
+    // In fixed mode we intentionally use a single sample per cycle to keep
+    // telemetry available without paying the full auto-control polling cost.
     const averages = await collectAverageTemps(runId);
     if (!averages || isFanControlShuttingDown || runId !== fanControlRunId) {
       return;
     }
 
     const { avgCPUTemp, avgGPUTemp } = averages;
+
+    if (state.doFixedSpeed) {
+      if (appliedPercentage !== state.fixedPercentage) {
+        setFixedFan(state.fixedPercentage);
+        appliedPercentage = state.fixedPercentage;
+      }
+
+      currRampDownCycle = 1;
+      currRampUpCycle = 1;
+      prevCPUFanTable = state.cpuFanTable;
+      prevGPUFanTable = state.gpuFanTable;
+
+      publishActivity({
+        appliedSpeed: appliedPercentage,
+        avgCPUTemp,
+        avgGPUTemp,
+        target: state.fixedPercentage,
+      });
+      return;
+    }
 
     const highestMatchCPU = findHighestMatch(avgCPUTemp, state.cpuFanTable);
     const highestMatchGPU = findHighestMatch(avgGPUTemp, state.gpuFanTable);
@@ -236,12 +270,7 @@ export function fanControl() {
       currRampUpCycle = 1;
     } else if (appliedPercentage < target) {
       if (currRampUpCycle === WAIT_RAMP_UP_CYCLES) {
-        gradientTarget = getGradientTarget(
-          appliedPercentage === -1
-            ? (state.cpuFanTable[0]?.[1] ?? 0)
-            : appliedPercentage,
-          target,
-        );
+        gradientTarget = getGradientTarget(appliedPercentage, target);
         setFixedFan(gradientTarget);
 
         currRampDownCycle = 1;
@@ -271,7 +300,7 @@ export function fanControl() {
     }
 
     publishActivity({
-      appliedSpeed: appliedPercentage === -1 ? null : appliedPercentage,
+      appliedSpeed: appliedPercentage,
       avgCPUTemp,
       avgGPUTemp,
       target,

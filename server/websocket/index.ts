@@ -1,14 +1,16 @@
 import type { Server, ServerWebSocket } from "bun";
 import {
   type FanControlActivity,
+  type FanTable,
   MessageToClientKind,
   type MessageToServer,
   MessageToServerKind,
+  type State,
 } from "../../common/types";
 import { getCall, setCall, tune } from "../native/index";
 import { persistState, state } from "../state/index";
 import {
-  setFixedFan,
+  applyFixedFan,
   fanControl as autoFanControl,
 } from "../fan-control/index";
 
@@ -30,8 +32,75 @@ const requiredDataKinds = new Set<MessageToServerKind>([
   MessageToServerKind.Set,
 ]);
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isIntegerInRange(value: unknown, minimum: number, maximum: number) {
+  return (
+    isFiniteNumber(value) &&
+    Number.isInteger(value) &&
+    value >= minimum &&
+    value <= maximum
+  );
+}
+
+function isValidFanTable(value: unknown): value is FanTable {
+  if (!Array.isArray(value) || value.length === 0) {
+    return false;
+  }
+
+  let previousTemperature = Number.NEGATIVE_INFINITY;
+
+  for (const entry of value) {
+    if (!Array.isArray(entry) || entry.length !== 2) {
+      return false;
+    }
+
+    const [temperature, percentage] = entry;
+    if (!isFiniteNumber(temperature) || !isFiniteNumber(percentage)) {
+      return false;
+    }
+
+    if (temperature <= previousTemperature) {
+      return false;
+    }
+
+    if (percentage < 0 || percentage > 100) {
+      return false;
+    }
+
+    previousTemperature = temperature;
+  }
+
+  return true;
+}
+
 export function setServer(s: Server<unknown>) {
   server = s;
+}
+
+function buildStateSnapshot(): State {
+  return {
+    ...state,
+    protocolVersion: "1.0",
+  };
+}
+
+function publishState() {
+  if (!server) return;
+
+  server.publish(
+    "state",
+    JSON.stringify({
+      kind: MessageToClientKind.State,
+      data: buildStateSnapshot(),
+    }),
+  );
 }
 
 export function publishActivity(data: FanControlActivity) {
@@ -46,7 +115,7 @@ function sendState(ws: ServerWebSocket<unknown>) {
   ws.send(
     JSON.stringify({
       kind: MessageToClientKind.State,
-      data: { ...state, protocolVersion: "1.0" },
+      data: buildStateSnapshot(),
     }),
   );
 }
@@ -96,6 +165,30 @@ function sendError(
       data: errorMessage,
     }),
   );
+}
+
+function rejectUnsupportedFeature(
+  ws: ServerWebSocket<unknown>,
+  payload: unknown,
+  message: string,
+) {
+  sendError(ws, payload, `UNSUPPORTED_FEATURE: ${message}`);
+}
+
+function rejectInvalidPayload(
+  ws: ServerWebSocket<unknown>,
+  payload: unknown,
+  message: string,
+) {
+  sendError(ws, payload, `INVALID_PAYLOAD: ${message}`);
+}
+
+function rejectInvalidRange(
+  ws: ServerWebSocket<unknown>,
+  payload: unknown,
+  message: string,
+) {
+  sendError(ws, payload, `INVALID_RANGE: ${message}`);
 }
 
 async function handleMessage(
@@ -156,35 +249,132 @@ async function handleMessage(
       case MessageToServerKind.RegisterActivitySocket:
         ws.subscribe("activity");
         return;
-      case MessageToServerKind.FixedPercentage:
+      case MessageToServerKind.FixedPercentage: {
+        if (state.isFanControlAvailable === false) {
+          return rejectUnsupportedFeature(
+            ws,
+            payload,
+            "Fan control is not available on this system",
+          );
+        }
+        if (!isIntegerInRange(payload.data, 0, 100)) {
+          return rejectInvalidRange(
+            ws,
+            payload,
+            "fixedpercentage must be an integer from 0 to 100",
+          );
+        }
+
+        const previousFixedPercentage = state.fixedPercentage;
         state.fixedPercentage = payload.data;
-        setFixedFan(state.fixedPercentage);
+        try {
+          if (state.doFixedSpeed) {
+            await applyFixedFan(state.fixedPercentage);
+          }
+        } catch (error) {
+          state.fixedPercentage = previousFixedPercentage;
+          throw error;
+        }
         persistState();
+        publishState();
         return sendSuccess(ws, payload);
-      case MessageToServerKind.DoFixedSpeed:
+      }
+      case MessageToServerKind.DoFixedSpeed: {
+        if (state.isFanControlAvailable === false) {
+          return rejectUnsupportedFeature(
+            ws,
+            payload,
+            "Fan control is not available on this system",
+          );
+        }
+        if (!isBoolean(payload.data)) {
+          return rejectInvalidPayload(
+            ws,
+            payload,
+            "dofixedspeed requires a boolean payload",
+          );
+        }
+
+        const previousDoFixedSpeed = state.doFixedSpeed;
         state.doFixedSpeed = payload.data;
-        if (!state.doFixedSpeed) {
-          autoFanControl();
+        try {
+          if (state.doFixedSpeed) {
+            await applyFixedFan(state.fixedPercentage);
+          } else {
+            autoFanControl();
+          }
+        } catch (error) {
+          state.doFixedSpeed = previousDoFixedSpeed;
+          throw error;
         }
         persistState();
+        publishState();
         return sendSuccess(ws, payload);
+      }
       case MessageToServerKind.FanTable:
-        if (payload.data) {
-          state.cpuFanTable = payload.data.cpu;
-          state.gpuFanTable = payload.data.gpu;
-          persistState();
-          return sendSuccess(ws, payload);
+        if (state.isFanControlAvailable === false) {
+          return rejectUnsupportedFeature(
+            ws,
+            payload,
+            "Fan control is not available on this system",
+          );
         }
-        break;
-      case MessageToServerKind.Tune:
-        if (payload.data) {
-          state.pl1 = payload.data.pl1;
-          state.pl2 = payload.data.pl2;
-          persistState();
+        if (
+          !payload.data ||
+          typeof payload.data !== "object" ||
+          !isValidFanTable(payload.data.cpu) ||
+          !isValidFanTable(payload.data.gpu)
+        ) {
+          return rejectInvalidPayload(
+            ws,
+            payload,
+            "fantable requires ascending CPU and GPU tables with percentages from 0 to 100",
+          );
+        }
+
+        state.cpuFanTable = payload.data.cpu;
+        state.gpuFanTable = payload.data.gpu;
+        persistState();
+        publishState();
+        return sendSuccess(ws, payload);
+      case MessageToServerKind.Tune: {
+        if (state.isCpuTuningAvailable === false) {
+          return rejectUnsupportedFeature(
+            ws,
+            payload,
+            "CPU tuning is not available on this system",
+          );
+        }
+        if (
+          !payload.data ||
+          typeof payload.data !== "object" ||
+          !isIntegerInRange(payload.data.pl1, 0, 200) ||
+          !isIntegerInRange(payload.data.pl2, 0, 200)
+        ) {
+          return rejectInvalidRange(
+            ws,
+            payload,
+            "tune requires integer pl1/pl2 values from 0 to 200",
+          );
+        }
+
+        const previousPl1 = state.pl1;
+        const previousPl2 = state.pl2;
+
+        state.pl1 = payload.data.pl1;
+        state.pl2 = payload.data.pl2;
+        try {
           await tune();
-          return sendSuccess(ws, payload);
+        } catch (error) {
+          state.pl1 = previousPl1;
+          state.pl2 = previousPl2;
+          throw error;
         }
-        break;
+
+        persistState();
+        publishState();
+        return sendSuccess(ws, payload);
+      }
       case MessageToServerKind.Get: {
         const result = await getCall(
           payload.methodId,
@@ -197,15 +387,34 @@ async function handleMessage(
         return sendSuccess(ws, payload, result);
       }
       case MessageToServerKind.Set:
-        if (payload.data) {
-          await setCall(payload.methodId, payload.methodName, payload.data);
-          if (payload.methodName === "SetAIBoostStatus") {
-            state.gpuBoost = payload.data.Data === 1;
-            persistState();
+        if (payload.methodName === "SetAIBoostStatus") {
+          if (state.isGpuBoostAvailable === false) {
+            return rejectUnsupportedFeature(
+              ws,
+              payload,
+              "GPU boost is not available on this system",
+            );
           }
-          return sendSuccess(ws, payload);
+          if (
+            !payload.data ||
+            typeof payload.data !== "object" ||
+            ![0, 1].includes(payload.data.Data)
+          ) {
+            return rejectInvalidPayload(
+              ws,
+              payload,
+              "SetAIBoostStatus requires Data to be 0 or 1",
+            );
+          }
         }
-        break;
+
+        await setCall(payload.methodId, payload.methodName, payload.data);
+        if (payload.methodName === "SetAIBoostStatus") {
+          state.gpuBoost = payload.data.Data === 1;
+          persistState();
+          publishState();
+        }
+        return sendSuccess(ws, payload);
     }
 
     sendError(ws, payload, `MISSING_DATA: ${payload.kind}`);
@@ -217,6 +426,7 @@ async function handleMessage(
 export const websocketHandlers = {
   open(ws: ServerWebSocket<unknown>) {
     console.log("[WebSocket] Client connected");
+    ws.subscribe("state");
     sendState(ws);
   },
 
