@@ -1,20 +1,23 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls as QQC2
-import org.kde.plasma.components as PlasmaComponents
+
 import org.kde.kirigami as Kirigami
+import org.kde.plasma.components as PlasmaComponents
 
 ColumnLayout {
     id: root
+
     required property var backend
 
     property bool loaded: false
+    property bool dirty: false
+    property bool saving: false
+    property string pendingRequestId: ""
     property string statusMessage: ""
-    property bool isError: false
-    property bool isNeutral: false
-
-    // Current view
-    property int currentTab: 0 // 0: CPU, 1: GPU
+    property string statusTone: ""
+    property int currentTab: 0
 
     ListModel {
         id: cpuModel
@@ -24,303 +27,389 @@ ColumnLayout {
         id: gpuModel
     }
 
-    function loadFromBackend() {
-        if (backend && backend.latestState) {
-            if (backend.latestState.cpuFanTable) {
-                cpuModel.clear()
-                var cpu = backend.latestState.cpuFanTable
-                for (var i = 0; i < cpu.length; i++) {
-                    cpuModel.append({ "temp": cpu[i][0], "speed": cpu[i][1] })
-                }
-            }
-            if (backend.latestState.gpuFanTable) {
-                gpuModel.clear()
-                var gpu = backend.latestState.gpuFanTable
-                for (var j = 0; j < gpu.length; j++) {
-                    gpuModel.append({ "temp": gpu[j][0], "speed": gpu[j][1] })
-                }
-            }
-            loaded = true
-            statusMessage = i18n("Loaded from backend")
-            isError = false
-            isNeutral = true
+    function setStatus(message, tone) {
+        root.statusMessage = message
+        root.statusTone = tone
+
+        if (tone === "success") {
+            statusTimer.restart()
+        } else {
+            statusTimer.stop()
         }
     }
 
-    Connections {
-        target: backend
-        function onLatestStateChanged() {
-            if (backend && !loaded && backend.latestState && backend.latestState.cpuFanTable) {
-                loadFromBackend()
-            }
+    function clearStatus() {
+        root.statusMessage = ""
+        root.statusTone = ""
+    }
+
+    function populateModel(model, table) {
+        model.clear()
+
+        for (let index = 0; index < table.length; index += 1) {
+            model.append({
+                temp: table[index][0],
+                speed: table[index][1]
+            })
         }
     }
 
-    Component.onCompleted: {
-        if (backend && backend.latestState && backend.latestState.cpuFanTable) {
-            loadFromBackend()
+    function syncFromBackend(force) {
+        if (!root.backend || !root.backend.hasState) {
+            return
+        }
+
+        if (root.dirty && !force) {
+            return
+        }
+
+        populateModel(cpuModel, root.backend.latestState.cpuFanTable || [])
+        populateModel(gpuModel, root.backend.latestState.gpuFanTable || [])
+
+        root.loaded = true
+        root.dirty = false
+
+        if (!force) {
+            clearStatus()
         }
     }
 
-    function addRow(isCpu) {
-        var model = isCpu ? cpuModel : gpuModel
-        var lastTemp = 0
-        var lastSpeed = 0
+    function modelToArray(model) {
+        const table = []
+
+        for (let index = 0; index < model.count; index += 1) {
+            const row = model.get(index)
+            table.push([parseInt(row.temp), parseInt(row.speed)])
+        }
+
+        return table
+    }
+
+    function activeModel() {
+        return root.currentTab === 0 ? cpuModel : gpuModel
+    }
+
+    function markDirty() {
+        root.dirty = true
+
+        if (!root.saving) {
+            setStatus(i18n("Unsaved changes"), "neutral")
+        }
+    }
+
+    function updateValue(model, index, key, value) {
+        if (index < 0 || index >= model.count) {
+            return
+        }
+
+        model.setProperty(index, key, Math.round(value))
+        markDirty()
+    }
+
+    function addRow() {
+        const model = activeModel()
+        let newTemp = 40
+        let newSpeed = 30
+
         if (model.count > 0) {
-            var lastItem = model.get(model.count - 1)
-            lastTemp = parseInt(lastItem.temp)
-            lastSpeed = parseInt(lastItem.speed)
+            const lastItem = model.get(model.count - 1)
+            newTemp = Math.min(110, parseInt(lastItem.temp) + 5)
+            newSpeed = Math.min(100, parseInt(lastItem.speed) + 10)
         }
 
-        var newTemp = Math.min(110, lastTemp + 10)
-        var newSpeed = Math.min(100, lastSpeed + 10)
-
-        model.append({ "temp": newTemp, "speed": newSpeed })
+        model.append({
+            temp: newTemp,
+            speed: newSpeed
+        })
+        markDirty()
     }
 
-    function removeRow(isCpu, index) {
-        var model = isCpu ? cpuModel : gpuModel
-        if (model.count > 0) {
-            model.remove(index)
+    function removeRow(index) {
+        const model = activeModel()
+
+        if (model.count <= 1 || index < 0 || index >= model.count) {
+            return
         }
+
+        model.remove(index)
+        markDirty()
+    }
+
+    function validateTable(table, label) {
+        if (table.length === 0) {
+            return i18n("%1 fan curve must contain at least one point.", label)
+        }
+
+        let previousTemp = -1
+
+        for (let index = 0; index < table.length; index += 1) {
+            const temp = table[index][0]
+            const speed = table[index][1]
+
+            if (!Number.isFinite(temp) || !Number.isFinite(speed)) {
+                return i18n("%1 fan curve contains invalid numbers.", label)
+            }
+
+            if (temp < 0 || temp > 110) {
+                return i18n("%1 temperatures must stay between 0 and 110\u00B0C.", label)
+            }
+
+            if (speed < 0 || speed > 100) {
+                return i18n("%1 speeds must stay between 0 and 100%.", label)
+            }
+
+            if (temp <= previousTemp) {
+                return i18n("%1 temperatures must be strictly ascending.", label)
+            }
+
+            previousTemp = temp
+        }
+
+        return ""
     }
 
     function validateAndSave() {
-        var cpuTable = []
-        var lastTemp = -1
+        const cpuTable = modelToArray(cpuModel)
+        const gpuTable = modelToArray(gpuModel)
 
-        // Validate CPU
-        for (var i = 0; i < cpuModel.count; i++) {
-            var item = cpuModel.get(i)
-            var t = parseInt(item.temp)
-            var s = parseInt(item.speed)
-
-            if (isNaN(t) || isNaN(s)) {
-                statusMessage = i18n("Invalid numbers in CPU table")
-                isError = true
-                isNeutral = false
-                return
-            }
-            if (t < 0 || t > 110) {
-                statusMessage = i18n("CPU temp out of range (0–110)")
-                isError = true
-                isNeutral = false
-                return
-            }
-            if (s < 0 || s > 100) {
-                statusMessage = i18n("CPU speed out of range (0–100)")
-                isError = true
-                isNeutral = false
-                return
-            }
-            if (i > 0 && t <= lastTemp) {
-                statusMessage = i18n("CPU temps must be ascending (row %1)", i + 1)
-                isError = true
-                isNeutral = false
-                return
-            }
-            lastTemp = t
-            cpuTable.push([t, s])
+        const cpuError = validateTable(cpuTable, i18n("CPU"))
+        if (cpuError.length > 0) {
+            setStatus(cpuError, "error")
+            return
         }
 
-        var gpuTable = []
-        lastTemp = -1
-
-        // Validate GPU
-        for (var j = 0; j < gpuModel.count; j++) {
-            var itemG = gpuModel.get(j)
-            var tg = parseInt(itemG.temp)
-            var sg = parseInt(itemG.speed)
-
-            if (isNaN(tg) || isNaN(sg)) {
-                statusMessage = i18n("Invalid numbers in GPU table")
-                isError = true
-                isNeutral = false
-                return
-            }
-            if (tg < 0 || tg > 110) {
-                statusMessage = i18n("GPU temp out of range (0–110)")
-                isError = true
-                isNeutral = false
-                return
-            }
-            if (sg < 0 || sg > 100) {
-                statusMessage = i18n("GPU speed out of range (0–100)")
-                isError = true
-                isNeutral = false
-                return
-            }
-            if (j > 0 && tg <= lastTemp) {
-                statusMessage = i18n("GPU temps must be ascending (row %1)", j + 1)
-                isError = true
-                isNeutral = false
-                return
-            }
-            lastTemp = tg
-            gpuTable.push([tg, sg])
+        const gpuError = validateTable(gpuTable, i18n("GPU"))
+        if (gpuError.length > 0) {
+            setStatus(gpuError, "error")
+            return
         }
 
-        // Send
-        if (backend) {
-            backend.send({
-                kind: "fantable",
-                methodId: "set_fantable_" + Date.now(),
-                methodName: "set_fantable",
-                data: {
-                    cpu: cpuTable,
-                    gpu: gpuTable
-                }
-            })
-            statusMessage = i18n("Configuration sent!")
-            isError = false
-            isNeutral = false
-        } else {
-            statusMessage = i18n("Backend not connected")
-            isError = true
-            isNeutral = false
+        root.pendingRequestId = root.backend.setFanTables(cpuTable, gpuTable)
+        root.saving = root.pendingRequestId.length > 0
+        setStatus(i18n("Saving curves…"), "neutral")
+    }
+
+    Connections {
+        target: root.backend
+
+        function onLatestStateChanged() {
+            root.syncFromBackend(false)
+        }
+
+        function onRequestFinished(requestId, ok, errorMessage, _message) {
+            if (requestId !== root.pendingRequestId) {
+                return
+            }
+
+            root.pendingRequestId = ""
+            root.saving = false
+
+            if (ok) {
+                root.syncFromBackend(true)
+                root.setStatus(i18n("Curves saved"), "success")
+                return
+            }
+
+            root.setStatus(
+                errorMessage.length > 0
+                    ? i18n("Failed to save curves: %1", errorMessage)
+                    : i18n("Failed to save curves."),
+                "error"
+            )
         }
     }
 
-    // UI Layout
+    Component.onCompleted: root.syncFromBackend(false)
+
+    Timer {
+        id: statusTimer
+
+        interval: 2500
+        onTriggered: root.clearStatus()
+    }
+
     RowLayout {
         Layout.fillWidth: true
-        spacing: 0
+        spacing: Kirigami.Units.smallSpacing
 
         PlasmaComponents.Button {
-            text: i18n("CPU Fan Curve")
+            text: i18n("CPU")
             checkable: true
-            checked: currentTab === 0
-            onClicked: currentTab = 0
+            checked: root.currentTab === 0
+            onClicked: root.currentTab = 0
             Layout.fillWidth: true
         }
+
         PlasmaComponents.Button {
-            text: i18n("GPU Fan Curve")
+            text: i18n("GPU")
             checkable: true
-            checked: currentTab === 1
-            onClicked: currentTab = 1
+            checked: root.currentTab === 1
+            onClicked: root.currentTab = 1
             Layout.fillWidth: true
         }
     }
 
-    // Header
-    RowLayout {
+    PlasmaComponents.Label {
+        visible: root.loaded
+        text: i18n("Higher CPU/GPU targets win because both fans share heat pipes.")
+        color: Kirigami.Theme.disabledTextColor
+        font: Kirigami.Theme.smallFont
+        wrapMode: Text.WordWrap
         Layout.fillWidth: true
-        Layout.margins: Kirigami.Units.smallSpacing
+    }
+
+    RowLayout {
+        visible: root.loaded
+        Layout.fillWidth: true
+        spacing: Kirigami.Units.smallSpacing
+
         PlasmaComponents.Label {
-            text: i18n("Temp (°C)")
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 5
+            text: i18n("Temp (\u00B0C)")
             font.bold: true
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 5
             horizontalAlignment: Text.AlignHCenter
         }
+
         PlasmaComponents.Label {
             text: i18n("Speed (%)")
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 5
             font.bold: true
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 5
             horizontalAlignment: Text.AlignHCenter
         }
-        Item { Layout.fillWidth: true } // Spacer
+
+        Item {
+            Layout.fillWidth: true
+        }
     }
 
-    QQC2.ScrollView {
+    PlasmaComponents.ScrollView {
+        id: fanTableScroll
+
+        visible: root.loaded
         Layout.fillWidth: true
         Layout.fillHeight: true
-        Layout.minimumHeight: Kirigami.Units.gridUnit * 11
-        contentWidth: availableWidth
+        Layout.minimumHeight: Kirigami.Units.gridUnit * 10
         clip: true
 
         ColumnLayout {
-            width: parent.width
+            width: fanTableScroll.availableWidth
             spacing: Kirigami.Units.smallSpacing
 
             Repeater {
-                model: currentTab === 0 ? cpuModel : gpuModel
+                model: root.currentTab === 0 ? cpuModel : gpuModel
+
                 delegate: RowLayout {
+                    id: row
+
+                    required property int index
+                    required property int temp
+                    required property int speed
+
                     Layout.fillWidth: true
-                    spacing: Kirigami.Units.largeSpacing
+                    spacing: Kirigami.Units.smallSpacing
 
                     PlasmaComponents.TextField {
-                        text: temp
+                        text: row.temp.toString()
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 5
                         horizontalAlignment: Text.AlignHCenter
-                        validator: IntValidator { bottom: 0; top: 110 }
+                        validator: IntValidator {
+                            bottom: 0
+                            top: 110
+                        }
                         inputMethodHints: Qt.ImhDigitsOnly
+
                         onEditingFinished: {
-                            var model = currentTab === 0 ? cpuModel : gpuModel
-                            model.setProperty(index, "temp", parseInt(text))
+                            const value = parseInt(text)
+                            if (!Number.isNaN(value)) {
+                                root.updateValue(root.activeModel(),
+                                    row.index, "temp", value)
+                            }
                         }
                     }
 
                     PlasmaComponents.TextField {
-                        text: speed
+                        text: row.speed.toString()
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 5
                         horizontalAlignment: Text.AlignHCenter
-                        validator: IntValidator { bottom: 0; top: 100 }
+                        validator: IntValidator {
+                            bottom: 0
+                            top: 100
+                        }
                         inputMethodHints: Qt.ImhDigitsOnly
+
                         onEditingFinished: {
-                            var model = currentTab === 0 ? cpuModel : gpuModel
-                            model.setProperty(index, "speed", parseInt(text))
+                            const value = parseInt(text)
+                            if (!Number.isNaN(value)) {
+                                root.updateValue(root.activeModel(),
+                                    row.index, "speed", value)
+                            }
                         }
                     }
 
                     PlasmaComponents.Button {
                         icon.name: "list-remove"
-                        Layout.preferredWidth: Kirigami.Units.gridUnit * 2.5
-                        onClicked: removeRow(currentTab === 0, index)
-                        PlasmaComponents.ToolTip.text: i18n("Remove Row")
+                        enabled: root.activeModel().count > 1
+                        onClicked: root.removeRow(row.index)
+                        PlasmaComponents.ToolTip.text: i18n("Remove point")
                         PlasmaComponents.ToolTip.visible: hovered
                     }
 
-                    Item { Layout.fillWidth: true }
+                    Item {
+                        Layout.fillWidth: true
+                    }
                 }
             }
-
-            PlasmaComponents.Button {
-                text: i18n("Add Row")
-                icon.name: "list-add"
-                Layout.alignment: Qt.AlignHCenter
-                onClicked: addRow(currentTab === 0)
-            }
-        }
-    }
-
-    RowLayout {
-        Layout.fillWidth: true
-        Layout.topMargin: Kirigami.Units.largeSpacing
-
-        PlasmaComponents.Button {
-            text: i18n("Reload")
-            icon.name: "view-refresh"
-            onClicked: loadFromBackend()
-            PlasmaComponents.ToolTip.text: i18n("Reload from Backend")
-            PlasmaComponents.ToolTip.visible: hovered
-        }
-
-        Item { Layout.fillWidth: true }
-
-        PlasmaComponents.Button {
-            text: i18n("Apply")
-            icon.name: "dialog-ok"
-            onClicked: validateAndSave()
-            PlasmaComponents.ToolTip.text: i18n("Apply Configuration")
-            PlasmaComponents.ToolTip.visible: hovered
         }
     }
 
     PlasmaComponents.Label {
-        text: statusMessage
-        color: isError
-            ? Kirigami.Theme.negativeTextColor
-            : (isNeutral
-                ? Kirigami.Theme.neutralTextColor
-                : (statusMessage === ""
-                    ? Kirigami.Theme.textColor
-                    : Kirigami.Theme.positiveTextColor))
-        visible: text !== ""
+        visible: !root.loaded
+        text: i18n("Waiting for fan curve data…")
+        color: Kirigami.Theme.disabledTextColor
+        font: Kirigami.Theme.smallFont
         Layout.fillWidth: true
-        wrapMode: Text.WordWrap
         horizontalAlignment: Text.AlignHCenter
-        font.pointSize: Kirigami.Theme.smallFont.pointSize
-        font.family: Kirigami.Theme.smallFont.family
-        font.bold: true
+    }
+
+    RowLayout {
+        Layout.fillWidth: true
+
+        PlasmaComponents.Button {
+            text: i18n("Add Point")
+            icon.name: "list-add"
+            enabled: root.loaded
+            onClicked: root.addRow()
+        }
+
+        PlasmaComponents.Button {
+            text: i18n("Reload")
+            icon.name: "view-refresh"
+            enabled: root.backend != null && root.backend.hasState
+            onClicked: root.syncFromBackend(true)
+        }
+
+        Item {
+            Layout.fillWidth: true
+        }
+
+        PlasmaComponents.Button {
+            text: root.saving ? i18n("Saving…") : i18n("Apply Curves")
+            icon.name: "dialog-ok"
+            enabled: root.loaded && !root.saving
+            onClicked: root.validateAndSave()
+        }
+    }
+
+    PlasmaComponents.Label {
+        visible: root.statusMessage.length > 0
+        text: root.statusMessage
+        color: root.statusTone === "error"
+            ? Kirigami.Theme.negativeTextColor
+            : (root.statusTone === "success"
+                ? Kirigami.Theme.positiveTextColor
+                : Kirigami.Theme.disabledTextColor)
+        font: Kirigami.Theme.smallFont
+        wrapMode: Text.WordWrap
+        Layout.fillWidth: true
     }
 }
