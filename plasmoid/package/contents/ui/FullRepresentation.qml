@@ -33,20 +33,32 @@ PlasmaExtras.Representation {
         && typeof backend.protocolVersion === "string"
         ? backend.protocolVersion
         : ""
-    readonly property string connectionSummaryText: !connected
-        ? (connecting
-            ? i18n("Connecting")
-            : i18n("Disconnected"))
-        : (!hasState
-            ? i18n("Connected, waiting for state")
-            : (!protocolCompatible
-                ? i18n("Unsupported backend protocol %1",
-                    protocolVersion)
-                : (hasActivity
-                    ? i18n("Live telemetry")
-                    : (staleActivity
-                        ? i18n("Telemetry stale")
-                    : i18n("Connected, waiting for telemetry"))))
+    readonly property string connectionSummaryText: {
+        if (!connected) {
+            return connecting
+                ? i18n("Connecting")
+                : i18n("Disconnected")
+        }
+
+        if (!hasState) {
+            return i18n("Connected, waiting for state")
+        }
+
+        if (!protocolCompatible) {
+            return i18n("Unsupported backend protocol %1",
+                protocolVersion)
+        }
+
+        if (hasActivity) {
+            return i18n("Live telemetry")
+        }
+
+        if (staleActivity) {
+            return i18n("Telemetry stale")
+        }
+
+        return i18n("Connected, waiting for telemetry")
+    }
     readonly property var state: hasState ? backend.latestState : null
     readonly property var activity: hasTelemetrySnapshot
         ? backend.latestActivity
@@ -78,17 +90,27 @@ PlasmaExtras.Representation {
     readonly property string selectedMode: modeSelectionOverride.length > 0
         ? modeSelectionOverride
         : (fixedModeEnabled ? "fixed" : "auto")
-    readonly property color connectionSummaryColor: !connected
-        ? (connecting
-            ? Kirigami.Theme.disabledTextColor
-            : Kirigami.Theme.negativeTextColor)
-        : (!hasState || !protocolCompatible
-            ? Kirigami.Theme.negativeTextColor
-            : (hasActivity
-                ? Kirigami.Theme.positiveTextColor
-                : (staleActivity
-                    ? Kirigami.Theme.neutralTextColor
-                    : Kirigami.Theme.disabledTextColor)))
+    readonly property color connectionSummaryColor: {
+        if (!connected) {
+            return connecting
+                ? Kirigami.Theme.disabledTextColor
+                : Kirigami.Theme.negativeTextColor
+        }
+
+        if (!hasState || !protocolCompatible) {
+            return Kirigami.Theme.negativeTextColor
+        }
+
+        if (hasActivity) {
+            return Kirigami.Theme.positiveTextColor
+        }
+
+        if (staleActivity) {
+            return Kirigami.Theme.neutralTextColor
+        }
+
+        return Kirigami.Theme.disabledTextColor
+    }
 
     property int draftFixedPercentage: 50
     property int draftPl1: 37

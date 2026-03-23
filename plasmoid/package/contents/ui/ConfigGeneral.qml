@@ -12,6 +12,9 @@ KCM.SimpleKCM {
     property alias cfg_serverUrl: serverUrlField.text
     property alias cfg_warningTemp: warningTempSpinBox.value
     property alias cfg_compactShowIcon: compactShowIconCheck.checked
+    property string cfg_serverUrlDefault: "ws://localhost:5522/ws"
+    property int cfg_warningTempDefault: 90
+    property bool cfg_compactShowIconDefault: false
     readonly property string trimmedServerUrl: serverUrlField.text.trim()
     readonly property bool hasCustomServerUrl: trimmedServerUrl.length > 0
     readonly property bool serverUrlValid: !hasCustomServerUrl
