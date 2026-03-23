@@ -5,13 +5,14 @@ import QtQml
 import QtWebSockets
 
 import org.kde.plasma.plasmoid
+import "." as ALFC
 import "UrlUtils.js" as UrlUtils
 
 Item {
     id: root
 
     readonly property string url: UrlUtils.normalizedServerUrl(
-        Plasmoid.configuration.serverUrl)
+        ALFC.WidgetSettings.serverUrl)
     readonly property bool isConnected: socket.status === WebSocket.Open
     readonly property bool isConnecting: socket.status === WebSocket.Connecting
     readonly property bool hasState: latestState != null
