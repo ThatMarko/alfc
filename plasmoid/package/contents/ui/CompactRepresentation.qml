@@ -18,6 +18,11 @@ Item {
 
     readonly property bool hasState: backend != null && backend.hasState
     readonly property bool hasActivity: backend != null && backend.hasFreshActivity
+    readonly property bool hasTelemetrySnapshot: backend != null && backend.hasActivity
+    readonly property bool staleActivity: hasTelemetrySnapshot && !hasActivity
+    readonly property int staleActivitySeconds: staleActivity
+        ? Math.ceil(backend.activityAgeMs / 1000)
+        : 0
     readonly property bool isConnecting: backend != null && backend.isConnecting
     readonly property bool isDisconnected: backend == null || !backend.isConnected
     readonly property bool protocolCompatible: backend == null
@@ -41,7 +46,7 @@ Item {
         fixedPercentage: 0,
         isFanControlAvailable: true
     })
-    readonly property var safeActivity: hasActivity ? backend.latestActivity : ({
+    readonly property var safeActivity: hasTelemetrySnapshot ? backend.latestActivity : ({
         avgCPUTemp: 0,
         avgGPUTemp: 0,
         appliedSpeed: null,
@@ -52,7 +57,7 @@ Item {
     readonly property bool fanControlAvailable: hasState
         ? safeState.isFanControlAvailable !== false
         : true
-    readonly property bool isWarning: hasActivity
+    readonly property bool isWarning: hasTelemetrySnapshot
         && (Math.round(safeActivity.avgCPUTemp) >= warningTemp
             || Math.round(safeActivity.avgGPUTemp) >= warningTemp)
     readonly property bool showHorizontalPanelDetails: !iconOnly
@@ -70,7 +75,7 @@ Item {
             return i18n("Unsupported")
         }
 
-        if (!hasActivity) {
+        if (!hasTelemetrySnapshot) {
             return i18n("Waiting")
         }
 
@@ -95,11 +100,15 @@ Item {
             return i18n("Unavailable")
         }
 
+        if (staleActivity) {
+            return i18n("Stale %1s", staleActivitySeconds)
+        }
+
         if (fixedModeEnabled) {
             return i18n("Fixed %1%", safeState.fixedPercentage)
         }
 
-        if (hasActivity) {
+        if (hasTelemetrySnapshot) {
             return i18n("Auto %1%", Math.round(safeActivity.target))
         }
 
@@ -247,9 +256,11 @@ Item {
             color: compactRoot.isWarning
                 || (compactRoot.hasState && !compactRoot.protocolCompatible)
                 ? Kirigami.Theme.negativeTextColor
-                : (compactRoot.isDisconnected
+                : (compactRoot.staleActivity
+                    ? Kirigami.Theme.neutralTextColor
+                    : (compactRoot.isDisconnected
                     ? Kirigami.Theme.disabledTextColor
-                    : Kirigami.Theme.positiveTextColor)
+                    : Kirigami.Theme.positiveTextColor))
             border.width: 1
             border.color: Qt.alpha(Kirigami.Theme.backgroundColor, 0.85)
         }

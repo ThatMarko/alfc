@@ -29,8 +29,15 @@ PlasmoidItem {
     readonly property bool protocolCompatible: backendConnection.protocolCompatible
     readonly property string protocolVersion: backendConnection.protocolVersion
     readonly property bool hasActivity: backendConnection.hasFreshActivity
+    readonly property bool hasTelemetrySnapshot: backendConnection.hasActivity
+    readonly property int telemetryAgeSeconds: hasTelemetrySnapshot
+        ? Math.ceil(backendConnection.activityAgeMs / 1000)
+        : 0
     readonly property var state: hasState ? backendConnection.latestState : null
     readonly property var activity: hasActivity ? backendConnection.latestActivity : null
+    readonly property var telemetryActivity: hasTelemetrySnapshot
+        ? backendConnection.latestActivity
+        : null
     readonly property bool fanControlAvailable: state == null
         || state.isFanControlAvailable !== false
     readonly property bool isFixedMode: state != null
@@ -137,6 +144,18 @@ PlasmoidItem {
         }
 
         if (!backendConnection.hasFreshActivity) {
+            if (root.telemetryActivity != null) {
+                const staleFanText = telemetryActivity.appliedSpeed != null
+                    ? i18n("%1%", Math.round(telemetryActivity.appliedSpeed))
+                    : "--"
+
+                return i18n("Last update %1s ago: CPU %2\u00B0C | GPU %3\u00B0C | Fan %4",
+                    root.telemetryAgeSeconds,
+                    Math.round(telemetryActivity.avgCPUTemp),
+                    Math.round(telemetryActivity.avgGPUTemp),
+                    staleFanText)
+            }
+
             return i18n("Connected, waiting for telemetry")
         }
 
@@ -174,6 +193,10 @@ PlasmoidItem {
         }
     }
 
+    function reconnectBackend() {
+        backendConnection.reconnect()
+    }
+
     compactRepresentation: CompactRepresentation {
         backend: backendConnection
         plasmoidItem: root
@@ -198,6 +221,11 @@ PlasmoidItem {
                 && root.protocolCompatible
                 && root.fanControlAvailable
             onTriggered: root.toggleFanMode()
+        },
+        PlasmaCore.Action {
+            text: i18nc("@action", "Reconnect Backend")
+            icon.name: "view-refresh"
+            onTriggered: root.reconnectBackend()
         },
         PlasmaCore.Action {
             text: i18nc("@action", "Open Web UI")
