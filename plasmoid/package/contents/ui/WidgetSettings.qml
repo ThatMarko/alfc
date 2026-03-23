@@ -1,13 +1,20 @@
 pragma Singleton
 pragma ComponentBehavior: Bound
 
-import QtCore
+import QtCore as Core
 import QtQuick
 
 import "UrlUtils.js" as UrlUtils
 
 QtObject {
     id: root
+
+    readonly property Core.Settings settings: Core.Settings {
+        category: "org.kde.alfc"
+        property string serverUrl: ""
+        property int warningTemp: 90
+        property bool compactShowIcon: false
+    }
 
     readonly property string configuredServerUrl: settings.serverUrl.trim()
     readonly property string serverUrl: UrlUtils.normalizedServerUrl(
@@ -25,14 +32,5 @@ QtObject {
 
     function setCompactShowIcon(value) {
         settings.compactShowIcon = Boolean(value)
-    }
-
-    Settings {
-        id: settings
-
-        category: "org.kde.alfc"
-        property string serverUrl: ""
-        property int warningTemp: 90
-        property bool compactShowIcon: false
     }
 }
