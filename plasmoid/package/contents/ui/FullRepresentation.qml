@@ -21,6 +21,12 @@ PlasmaExtras.Representation {
     readonly property bool connecting: backend != null && backend.isConnecting
     readonly property bool hasState: backend != null && backend.hasState
     readonly property bool hasActivity: backend != null && backend.hasFreshActivity
+    readonly property bool hasTelemetrySnapshot: backend != null && backend.hasActivity
+    readonly property bool staleActivity: hasTelemetrySnapshot
+        && !backend.hasFreshActivity
+    readonly property int staleActivitySeconds: staleActivity
+        ? Math.ceil(backend.activityAgeMs / 1000)
+        : 0
     readonly property bool protocolCompatible: backend == null
         || backend.protocolCompatible !== false
     readonly property string protocolVersion: backend != null
@@ -38,9 +44,13 @@ PlasmaExtras.Representation {
                     protocolVersion)
                 : (hasActivity
                     ? i18n("Live telemetry")
+                    : (staleActivity
+                        ? i18n("Telemetry stale")
                     : i18n("Connected, waiting for telemetry"))))
     readonly property var state: hasState ? backend.latestState : null
-    readonly property var activity: hasActivity ? backend.latestActivity : null
+    readonly property var activity: hasTelemetrySnapshot
+        ? backend.latestActivity
+        : null
     readonly property var safeState: hasState ? backend.latestState : ({
         doFixedSpeed: false,
         fixedPercentage: draftFixedPercentage,
@@ -50,7 +60,7 @@ PlasmaExtras.Representation {
         pl1: draftPl1,
         pl2: draftPl2
     })
-    readonly property var safeActivity: hasActivity ? backend.latestActivity : ({
+    readonly property var safeActivity: hasTelemetrySnapshot ? backend.latestActivity : ({
         avgCPUTemp: 0,
         avgGPUTemp: 0,
         appliedSpeed: null,
@@ -76,7 +86,9 @@ PlasmaExtras.Representation {
             ? Kirigami.Theme.negativeTextColor
             : (hasActivity
                 ? Kirigami.Theme.positiveTextColor
-                : Kirigami.Theme.disabledTextColor))
+                : (staleActivity
+                    ? Kirigami.Theme.neutralTextColor
+                    : Kirigami.Theme.disabledTextColor)))
 
     property int draftFixedPercentage: 50
     property int draftPl1: 37
@@ -267,6 +279,22 @@ PlasmaExtras.Representation {
             InlineStatusMessage {
                 messageText: fullRoot.feedbackText
                 tone: fullRoot.feedbackTone
+            }
+
+            Kirigami.InlineMessage {
+                visible: fullRoot.staleActivity
+                    && fullRoot.connected
+                    && fullRoot.hasState
+                    && fullRoot.protocolCompatible
+                type: Kirigami.MessageType.Warning
+                text: i18n("Telemetry last updated %1 seconds ago. ALFC reconnects automatically, but you can retry now if the values stay stale.",
+                    fullRoot.staleActivitySeconds)
+                Layout.fillWidth: true
+                actions: Kirigami.Action {
+                    icon.name: "view-refresh"
+                    text: i18nc("@action:button", "Reconnect")
+                    onTriggered: fullRoot.backend?.reconnect()
+                }
             }
 
             SectionCard {
@@ -624,12 +652,20 @@ PlasmaExtras.Representation {
                     : i18n("Unsupported backend protocol %1. This widget supports ALFC 1.x.",
                         fullRoot.protocolVersion)))
         helpfulAction: Kirigami.Action {
-            icon.name: "configure"
-            text: i18n("Configure Widget")
+            icon.name: !fullRoot.connected || !fullRoot.hasState
+                ? "view-refresh"
+                : "configure"
+            text: !fullRoot.connected || !fullRoot.hasState
+                ? i18nc("@action:button", "Reconnect")
+                : i18n("Configure Widget")
             onTriggered: {
-                const action = Plasmoid.internalAction("configure")
-                if (action) {
-                    action.trigger()
+                if (!fullRoot.connected || !fullRoot.hasState) {
+                    fullRoot.backend?.reconnect()
+                } else {
+                    const action = Plasmoid.internalAction("configure")
+                    if (action) {
+                        action.trigger()
+                    }
                 }
             }
         }
