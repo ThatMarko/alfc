@@ -101,30 +101,6 @@ PlasmaExtras.Representation {
             : Kirigami.Theme.textColor
     }
 
-    function feedbackBackgroundColor() {
-        if (fullRoot.feedbackTone === "error") {
-            return Qt.alpha(Kirigami.Theme.negativeTextColor, 0.14)
-        }
-
-        if (fullRoot.feedbackTone === "success") {
-            return Qt.alpha(Kirigami.Theme.positiveTextColor, 0.14)
-        }
-
-        return Qt.alpha(Kirigami.Theme.textColor, 0.08)
-    }
-
-    function feedbackTextColor() {
-        if (fullRoot.feedbackTone === "error") {
-            return Kirigami.Theme.negativeTextColor
-        }
-
-        if (fullRoot.feedbackTone === "success") {
-            return Kirigami.Theme.positiveTextColor
-        }
-
-        return Kirigami.Theme.textColor
-    }
-
     function setFeedback(message, tone) {
         fullRoot.feedbackText = message
         fullRoot.feedbackTone = tone
@@ -288,28 +264,9 @@ PlasmaExtras.Representation {
                 }
             }
 
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: fullRoot.feedbackText.length > 0
-                    ? feedbackLabel.implicitHeight + Kirigami.Units.mediumSpacing * 2
-                    : 0
-                visible: fullRoot.feedbackText.length > 0
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: Kirigami.Units.mediumSpacing
-                    color: fullRoot.feedbackBackgroundColor()
-
-                    PlasmaComponents.Label {
-                        id: feedbackLabel
-
-                        anchors.fill: parent
-                        anchors.margins: Kirigami.Units.mediumSpacing
-                        text: fullRoot.feedbackText
-                        color: fullRoot.feedbackTextColor()
-                        wrapMode: Text.WordWrap
-                    }
-                }
+            InlineStatusMessage {
+                messageText: fullRoot.feedbackText
+                tone: fullRoot.feedbackTone
             }
 
             SectionCard {
