@@ -31,7 +31,7 @@ Review the draft release, edit the notes if needed, then publish it.
 
 | Artifact                       | Contents                                                                     |
 | ------------------------------ | ---------------------------------------------------------------------------- |
-| `alfc-vX.Y.Z-linux-x64.tar.gz` | Server binary, frontend, service scripts, plasmoid, config, LICENSE          |
+| `alfc-vX.Y.Z-linux-x64.tar.gz` | Server binary, frontend, service scripts, plasmoid, config, LICENSE, docs    |
 | `alfc-vX.Y.Z-windows-x64.zip`  | Server binary, frontend, WmiAPI.exe, service scripts, WinSW, config, LICENSE |
 | `org.kde.alfc.plasmoid`        | Standalone plasmoid package (zip of QML files for KDE Store)                 |
 

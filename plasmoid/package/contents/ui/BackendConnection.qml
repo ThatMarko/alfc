@@ -5,14 +5,13 @@ import QtQml
 import QtWebSockets
 
 import org.kde.plasma.plasmoid
+import "UrlUtils.js" as UrlUtils
 
 Item {
     id: root
 
-    readonly property string url: {
-        const configuredUrl = (Plasmoid.configuration.serverUrl || "").trim()
-        return configuredUrl.length > 0 ? configuredUrl : "ws://localhost:5522/ws"
-    }
+    readonly property string url: UrlUtils.normalizedServerUrl(
+        Plasmoid.configuration.serverUrl)
     readonly property bool isConnected: socket.status === WebSocket.Open
     readonly property bool isConnecting: socket.status === WebSocket.Connecting
     readonly property bool hasState: latestState != null
@@ -76,8 +75,14 @@ Item {
         clearCachedData()
         keepaliveTimer.stop()
         freshnessTimer.stop()
+        restartSocket()
+    }
+
+    function restartSocket() {
         socket.active = false
-        socket.active = true
+        Qt.callLater(() => {
+            socket.active = true
+        })
     }
 
     function nextRequestId(prefix) {
@@ -231,8 +236,7 @@ Item {
             console.info("BackendConnection: Reconnecting...")
             root.reconnectDelay = Math.min(root.reconnectDelay * 2, 30000)
             root.lastPongTime = 0
-            socket.active = false
-            socket.active = true
+            root.restartSocket()
         }
     }
 

@@ -5,6 +5,7 @@ import QtQuick
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
+import "UrlUtils.js" as UrlUtils
 
 PlasmoidItem {
     id: root
@@ -16,14 +17,9 @@ PlasmoidItem {
     )
     readonly property bool iconOnlyCompact: !root.isPlanar
         && (root.inTray || Plasmoid.configuration.compactShowIcon)
-    readonly property string webUiUrl: {
-        const wsUrl = (Plasmoid.configuration.serverUrl || "ws://localhost:5522/ws").trim()
-        const baseUrl = wsUrl.replace(/\/ws\/?$/, "")
-
-        return baseUrl
-            .replace(/^wss:\/\//, "https://")
-            .replace(/^ws:\/\//, "http://")
-    }
+    readonly property string webUiUrl: UrlUtils.deriveWebUiUrl(
+        Plasmoid.configuration.serverUrl,
+        Plasmoid.configuration.webUiUrl)
     readonly property int warningTemp: Plasmoid.configuration.warningTemp
     readonly property bool hasState: backendConnection.hasState
     readonly property bool protocolCompatible: backendConnection.protocolCompatible
@@ -174,6 +170,10 @@ PlasmoidItem {
     }
 
     function openWebUi() {
+        if (root.webUiUrl.length === 0) {
+            return
+        }
+
         Qt.openUrlExternally(root.webUiUrl)
     }
 
@@ -230,6 +230,7 @@ PlasmoidItem {
         PlasmaCore.Action {
             text: i18nc("@action", "Open Web UI")
             icon.name: "internet-web-browser"
+            enabled: root.webUiUrl.length > 0
             onTriggered: root.openWebUi()
         },
         PlasmaCore.Action {

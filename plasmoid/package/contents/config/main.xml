@@ -9,6 +9,10 @@
       <label>Server URL</label>
       <default>ws://localhost:5522/ws</default>
     </entry>
+    <entry name="webUiUrl" type="String">
+      <label>Web interface URL</label>
+      <default></default>
+    </entry>
     <entry name="warningTemp" type="Int">
       <label>Warning temperature threshold (Celsius)</label>
       <default>90</default>
