@@ -116,6 +116,7 @@ Item {
     Accessible.name: Plasmoid.title
     Accessible.description: plasmoidItem.toolTipSubText ?? ""
     Accessible.role: Accessible.Button
+    Accessible.onPressAction: Plasmoid.activated()
 
     implicitWidth: iconOnly
         ? compactPanelExtent

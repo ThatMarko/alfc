@@ -122,7 +122,9 @@ PlasmoidItem {
         }
 
         if (!backendConnection.isConnected) {
-            return i18n("Disconnected")
+            return backendConnection.lastError.length > 0
+                ? i18n("Disconnected: %1", backendConnection.lastError)
+                : i18n("Disconnected")
         }
 
         if (!backendConnection.hasState) {

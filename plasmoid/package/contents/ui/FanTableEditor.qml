@@ -410,16 +410,8 @@ ColumnLayout {
         }
     }
 
-    PlasmaComponents.Label {
-        visible: root.statusMessage.length > 0
-        text: root.statusMessage
-        color: root.statusTone === "error"
-            ? Kirigami.Theme.negativeTextColor
-            : (root.statusTone === "success"
-                ? Kirigami.Theme.positiveTextColor
-                : Kirigami.Theme.disabledTextColor)
-        font: Kirigami.Theme.smallFont
-        wrapMode: Text.WordWrap
-        Layout.fillWidth: true
+    InlineStatusMessage {
+        messageText: root.statusMessage
+        tone: root.statusTone
     }
 }
