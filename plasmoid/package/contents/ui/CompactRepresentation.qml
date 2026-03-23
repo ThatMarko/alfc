@@ -33,7 +33,8 @@ Item {
         : ""
     readonly property bool verticalPanel: Plasmoid.formFactor === PlasmaCore.Types.Vertical
         && !iconOnly
-    readonly property int panelIconSize: Math.round(Kirigami.Units.gridUnit * 1.2)
+    readonly property int panelIconSize: Math.round(
+        Kirigami.Units.iconSizes.smallMedium)
     readonly property int compactPanelExtent: panelIconSize + Kirigami.Units.smallSpacing * 2
     readonly property int horizontalPanelPreferredWidth: Kirigami.Units.gridUnit * 12
     readonly property int horizontalPanelPreferredHeight: compactPanelExtent

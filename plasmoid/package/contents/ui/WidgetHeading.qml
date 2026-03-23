@@ -28,7 +28,9 @@ PlasmaExtras.PlasmoidHeading {
         }
 
         PlasmaComponents.ToolButton {
+            Accessible.name: i18n("Open web interface")
             icon.name: "internet-web-browser"
+            enabled: headingRoot.webUiUrl.length > 0
             onClicked: Qt.openUrlExternally(headingRoot.webUiUrl)
             PlasmaComponents.ToolTip {
                 text: i18n("Open the web interface")
@@ -41,12 +43,21 @@ PlasmaExtras.PlasmoidHeading {
             visible: visibleActions > 0
             checked: configMenu.status !== PlasmaExtras.Menu.Closed
             property int visibleActions: menuItemFactory.count
-            property QtObject singleAction: visibleActions === 1
-                ? menuItemFactory.object.action
-                : null
+            function resolveSingleAction() {
+                if (visibleActions !== 1) {
+                    return null
+                }
+
+                const menuItem = menuItemFactory.objectAt(0)
+                return menuItem ? menuItem.action : null
+            }
+            property QtObject singleAction: resolveSingleAction()
             icon.name: "open-menu-symbolic"
             checkable: visibleActions > 1
             contentItem.opacity: visibleActions > 1
+            Accessible.name: singleAction
+                ? singleAction.text
+                : i18nd("libplasma6", "More actions")
 
             Kirigami.Icon {
                 parent: actionsButton
@@ -132,6 +143,7 @@ PlasmaExtras.PlasmoidHeading {
             visible: internalAction !== null
             text: internalAction?.text ?? ""
             display: T.AbstractButton.IconOnly
+            Accessible.name: text
 
             PlasmaComponents.ToolTip {
                 text: configureButton.text

@@ -87,6 +87,13 @@ PlasmaExtras.Representation {
     readonly property bool fixedBusy: pendingFixedRequestId.length > 0
     readonly property bool boostBusy: pendingBoostRequestId.length > 0
     readonly property bool tuningBusy: pendingTuneRequestId.length > 0
+    readonly property bool canSyncFixedDraft: !speedSlider.pressed
+        && !speedField.activeFocus
+        && !fixedBusy
+    readonly property bool canSyncPl1Draft: !pl1Field.activeFocus
+        && !tuningBusy
+    readonly property bool canSyncPl2Draft: !pl2Field.activeFocus
+        && !tuningBusy
     readonly property string selectedMode: modeSelectionOverride.length > 0
         ? modeSelectionOverride
         : (fixedModeEnabled ? "fixed" : "auto")
@@ -154,15 +161,15 @@ PlasmaExtras.Representation {
 
         fullRoot.syncModeSelection()
 
-        if (!speedSlider.pressed && !speedField.activeFocus && !fixedBusy) {
+        if (fullRoot.canSyncFixedDraft) {
             fullRoot.draftFixedPercentage = fullRoot.safeState.fixedPercentage
         }
 
-        if (!pl1Field.activeFocus && !tuningBusy) {
+        if (fullRoot.canSyncPl1Draft) {
             fullRoot.draftPl1 = fullRoot.safeState.pl1
         }
 
-        if (!pl2Field.activeFocus && !tuningBusy) {
+        if (fullRoot.canSyncPl2Draft) {
             fullRoot.draftPl2 = fullRoot.safeState.pl2
         }
     }
@@ -406,6 +413,8 @@ PlasmaExtras.Representation {
                             && !fullRoot.modeBusy
                         Layout.fillWidth: true
                         QQC2.ButtonGroup.group: modeButtonGroup
+                        Accessible.name: i18n("Auto fan mode")
+                        Accessible.description: i18n("Use the stored CPU and GPU fan curves.")
                         onClicked: fullRoot.requestMode("auto")
                     }
 
@@ -418,6 +427,8 @@ PlasmaExtras.Representation {
                             && !fullRoot.modeBusy
                         Layout.fillWidth: true
                         QQC2.ButtonGroup.group: modeButtonGroup
+                        Accessible.name: i18n("Fixed fan mode")
+                        Accessible.description: i18n("Lock the fans to a fixed output percentage.")
                         onClicked: fullRoot.requestMode("fixed")
                     }
                 }
@@ -458,6 +469,8 @@ PlasmaExtras.Representation {
                             enabled: fullRoot.hasState
                                 && fullRoot.fanControlAvailable
                                 && !fullRoot.fixedBusy
+                            Accessible.name: i18n("Fixed fan speed")
+                            Accessible.description: i18n("Choose the fixed fan speed percentage.")
 
                             Binding on value {
                                 value: fullRoot.draftFixedPercentage
@@ -473,6 +486,8 @@ PlasmaExtras.Representation {
 
                             Layout.preferredWidth: Kirigami.Units.gridUnit * 4
                             horizontalAlignment: Text.AlignHCenter
+                            Accessible.name: i18n("Fixed fan speed percentage")
+                            Accessible.description: i18n("Enter a fixed fan speed from 0 to 100 percent.")
                             validator: IntValidator {
                                 bottom: 0
                                 top: 100
@@ -500,6 +515,8 @@ PlasmaExtras.Representation {
                             enabled: fullRoot.hasState
                                 && fullRoot.fanControlAvailable
                                 && !fullRoot.fixedBusy
+                            Accessible.name: i18n("Apply fixed fan speed")
+                            Accessible.description: i18n("Send the selected fixed fan speed to the backend.")
                             onClicked: fullRoot.pendingFixedRequestId =
                                 fullRoot.backend.setFixedPercentage(
                                     fullRoot.draftFixedPercentage)
@@ -539,6 +556,8 @@ PlasmaExtras.Representation {
                         checked: fullRoot.hasState
                             && fullRoot.safeState.gpuBoost === true
                         enabled: !fullRoot.boostBusy
+                        Accessible.name: i18n("GPU boost")
+                        Accessible.description: i18n("Enable or disable GPU boost on supported systems.")
                         onClicked: {
                             fullRoot.pendingBoostRequestId =
                                 fullRoot.backend.setGpuBoost(checked)
@@ -581,6 +600,8 @@ PlasmaExtras.Representation {
                             id: pl1Field
 
                             Layout.fillWidth: true
+                            Accessible.name: i18n("PL1 power limit")
+                            Accessible.description: i18n("Enter the long-duration CPU power limit in watts.")
                             validator: IntValidator {
                                 bottom: 0
                                 top: 200
@@ -609,6 +630,8 @@ PlasmaExtras.Representation {
                             id: pl2Field
 
                             Layout.fillWidth: true
+                            Accessible.name: i18n("PL2 power limit")
+                            Accessible.description: i18n("Enter the short-duration CPU power limit in watts.")
                             validator: IntValidator {
                                 bottom: 0
                                 top: 200
@@ -633,6 +656,8 @@ PlasmaExtras.Representation {
                                 ? i18n("Applying…")
                                 : i18n("Apply")
                             enabled: !fullRoot.tuningBusy
+                            Accessible.name: i18n("Apply CPU power limits")
+                            Accessible.description: i18n("Send the configured PL1 and PL2 values to the backend.")
                             onClicked: fullRoot.pendingTuneRequestId =
                                 fullRoot.backend.applyTune(
                                     fullRoot.draftPl1,

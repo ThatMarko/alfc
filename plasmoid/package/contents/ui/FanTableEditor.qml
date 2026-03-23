@@ -93,6 +93,28 @@ ColumnLayout {
         return root.currentTab === 0 ? cpuModel : gpuModel
     }
 
+    function activeCurveLabel() {
+        return root.currentTab === 0 ? i18n("CPU") : i18n("GPU")
+    }
+
+    function pointTemperatureAccessibleName(index) {
+        return i18n("%1 fan curve point %2 temperature",
+            root.activeCurveLabel(),
+            index + 1)
+    }
+
+    function pointSpeedAccessibleName(index) {
+        return i18n("%1 fan curve point %2 speed",
+            root.activeCurveLabel(),
+            index + 1)
+    }
+
+    function pointRemoveAccessibleName(index) {
+        return i18n("Remove %1 fan curve point %2",
+            root.activeCurveLabel(),
+            index + 1)
+    }
+
     function markDirty() {
         root.dirty = true
 
@@ -245,6 +267,8 @@ ColumnLayout {
             checkable: true
             checked: root.currentTab === 0
             QQC2.ButtonGroup.group: tabButtonGroup
+            Accessible.name: i18n("CPU fan curve")
+            Accessible.description: i18n("Edit the CPU fan curve.")
             onClicked: root.currentTab = 0
             Layout.fillWidth: true
         }
@@ -254,6 +278,8 @@ ColumnLayout {
             checkable: true
             checked: root.currentTab === 1
             QQC2.ButtonGroup.group: tabButtonGroup
+            Accessible.name: i18n("GPU fan curve")
+            Accessible.description: i18n("Edit the GPU fan curve.")
             onClicked: root.currentTab = 1
             Layout.fillWidth: true
         }
@@ -322,6 +348,9 @@ ColumnLayout {
                         text: row.temp.toString()
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 5
                         horizontalAlignment: Text.AlignHCenter
+                        Accessible.name: root.pointTemperatureAccessibleName(
+                            row.index)
+                        Accessible.description: i18n("Enter a temperature from 0 to 110 degrees Celsius.")
                         validator: IntValidator {
                             bottom: 0
                             top: 110
@@ -341,6 +370,9 @@ ColumnLayout {
                         text: row.speed.toString()
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 5
                         horizontalAlignment: Text.AlignHCenter
+                        Accessible.name: root.pointSpeedAccessibleName(
+                            row.index)
+                        Accessible.description: i18n("Enter a fan speed from 0 to 100 percent.")
                         validator: IntValidator {
                             bottom: 0
                             top: 100
@@ -359,6 +391,9 @@ ColumnLayout {
                     PlasmaComponents.Button {
                         icon.name: "list-remove"
                         enabled: root.activeModel().count > 1
+                        Accessible.name: root.pointRemoveAccessibleName(
+                            row.index)
+                        Accessible.description: i18n("Remove this point from the active fan curve.")
                         onClicked: root.removeRow(row.index)
                         PlasmaComponents.ToolTip.text: i18n("Remove point")
                         PlasmaComponents.ToolTip.visible: hovered
@@ -388,6 +423,7 @@ ColumnLayout {
             text: i18n("Add Point")
             icon.name: "list-add"
             enabled: root.loaded
+            Accessible.description: i18n("Add a new point to the active fan curve.")
             onClicked: root.addRow()
         }
 
@@ -395,6 +431,7 @@ ColumnLayout {
             text: i18n("Reload")
             icon.name: "view-refresh"
             enabled: root.backend != null && root.backend.hasState
+            Accessible.description: i18n("Discard unsaved changes and reload the stored fan curves.")
             onClicked: root.syncFromBackend(true)
         }
 
@@ -406,6 +443,7 @@ ColumnLayout {
             text: root.saving ? i18n("Saving…") : i18n("Apply Curves")
             icon.name: "dialog-ok"
             enabled: root.loaded && !root.saving
+            Accessible.description: i18n("Validate the CPU and GPU fan curves and save them.")
             onClicked: root.validateAndSave()
         }
     }

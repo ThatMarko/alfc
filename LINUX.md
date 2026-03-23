@@ -1,7 +1,7 @@
 # Aorus Laptop Fan Control (alfc) - Linux Guide
 
 Linux pros - feel free to contribute either to the following guide or automating the
-workflow! 🙂 (See notes in the Wishlist section though.)
+workflow! :) (See notes in the Wishlist section though.)
 
 ## IMPORTANT
 
@@ -28,6 +28,13 @@ sudo make dkms-install
 sudo modprobe acpi_call
 ```
 
+On Arch-based distros, you can install it from the repos instead:
+
+```bash
+sudo pacman -S acpi_call-dkms
+sudo modprobe acpi_call
+```
+
 #### Troubleshooting `acpi_call` installation
 
 At least on Mint, I never needed the following but...
@@ -42,44 +49,77 @@ At least on Mint, I never needed the following but...
 
 Put `acpi_call` into `/etc/modules-load.d/acpi_call.conf`. See the [Arch wiki](https://wiki.archlinux.org/title/Kernel_module#Automatic_module_loading_with_systemd) for details.
 
+```bash
+echo 'acpi_call' | sudo tee /etc/modules-load.d/acpi_call.conf
+```
+
 **OpenRC** (Alpine, Artix, Gentoo, etc.):
 
 Add `acpi_call` to `/etc/modules` (one module name per line). On Gentoo, use `/etc/conf.d/modules` instead.
 
 ## Installation
 
+### Arch Linux (AUR)
+
+```bash
+yay -S alfc-bin
+sudo systemctl enable --now alfc
+```
+
+### Manual (all distros)
+
 - Grab the latest alfc Linux release
-- Extract it to wherever you want the tool to live
-- Run `sudo ./install.sh`.
+- Extract it anywhere (e.g. `~/Downloads`)
+- Run `sudo ./install.sh`
 
-  The installer auto-detects your init system (systemd or OpenRC) and creates the appropriate service.
+The installer:
 
-- Go to `http://localhost:5522` to configure things.
+1. Copies files to `/opt/alfc`
+2. Creates a symlink at `/usr/bin/alfc`
+3. Auto-detects your init system (systemd or OpenRC) and creates the appropriate service
+4. Preserves your existing config on upgrades
+
+Go to `http://localhost:5522` to configure things.
 
 ### Run without installing a service
 
-- Run `sudo ./run.sh`.
-- Stop it with `Ctrl+C`.
-
-### Installation troubleshooting
-
-**systemd**: If you get an error like `bin/sh: no command service`, try:
-
-```
-sudo systemctl enable alfc
-sudo systemctl start alfc
+```bash
+sudo ./run.sh
 ```
 
-**OpenRC**: If the service doesn't start, try:
+Stop it with `Ctrl+C`.
 
-```
-sudo rc-update add alfc default
-sudo rc-service alfc start
-```
+### Upgrade
+
+Run `sudo ./install.sh` again from a new release. Your fan curves and config are preserved automatically.
 
 ### Uninstall
 
-- Run `sudo ./uninstall.sh`.
+```bash
+sudo /opt/alfc/uninstall.sh
+```
+
+This removes the service, installed files, and the `/usr/bin/alfc` symlink. Your config is preserved at `/opt/alfc/alfc.config.json` unless you pass `--purge`:
+
+```bash
+sudo /opt/alfc/uninstall.sh --purge
+```
+
+### Troubleshooting
+
+**Service won't start**: Check logs with `journalctl -u alfc -f`.
+
+**203/EXEC error**: The binary can't be executed. Verify it exists and is executable:
+
+```bash
+ls -la /opt/alfc/alfc
+```
+
+**acpi_call not found at runtime**: Make sure the kernel module is loaded:
+
+```bash
+lsmod | grep acpi_call
+```
 
 ## KDE Plasma 6 Widget (Optional)
 
@@ -94,21 +134,21 @@ If you're running KDE Plasma 6, you can install the native Plasma widget for sys
 ### Install
 
 ```bash
-./plasmoid/install.sh
+/opt/alfc/plasmoid/install.sh
 ```
 
 Or manually:
 
 ```bash
-kpackagetool6 --type Plasma/Applet --install plasmoid/package
+kpackagetool6 --type Plasma/Applet --install /opt/alfc/plasmoid/package
 ```
 
-After installing, right-click your panel → Add Widgets → search for "Aorus".
+After installing, right-click your panel -> Add Widgets -> search for "Aorus".
 
 ### Upgrade
 
 ```bash
-./plasmoid/install.sh
+/opt/alfc/plasmoid/install.sh
 ```
 
 The script detects an existing install and upgrades automatically.
@@ -116,7 +156,7 @@ The script detects an existing install and upgrades automatically.
 ### Uninstall
 
 ```bash
-./plasmoid/uninstall.sh
+/opt/alfc/plasmoid/uninstall.sh
 ```
 
 ### Testing / Development
