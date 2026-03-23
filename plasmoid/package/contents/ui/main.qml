@@ -5,6 +5,7 @@ import QtQuick
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
+import "." as ALFC
 import "UrlUtils.js" as UrlUtils
 
 PlasmoidItem {
@@ -16,11 +17,11 @@ PlasmoidItem {
         & PlasmaCore.Types.ContainmentForcesSquarePlasmoids
     )
     readonly property bool iconOnlyCompact: !root.isPlanar
-        && (root.inTray || Plasmoid.configuration.compactShowIcon)
+        && (root.inTray || ALFC.WidgetSettings.compactShowIcon)
     readonly property string webUiUrl: UrlUtils.deriveWebUiUrl(
-        Plasmoid.configuration.serverUrl,
-        Plasmoid.configuration.webUiUrl)
-    readonly property int warningTemp: Plasmoid.configuration.warningTemp
+        ALFC.WidgetSettings.serverUrl,
+        "")
+    readonly property int warningTemp: ALFC.WidgetSettings.warningTemp
     readonly property bool hasState: backendConnection.hasState
     readonly property bool protocolCompatible: backendConnection.protocolCompatible
     readonly property string protocolVersion: backendConnection.protocolVersion

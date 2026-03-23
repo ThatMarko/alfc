@@ -52,7 +52,7 @@ The script detects an existing install and upgrades automatically.
 Right-click the widget → Configure → General:
 
 - **Server URL**: WebSocket endpoint (default: `ws://localhost:5522/ws`)
-- **Web interface URL**: Optional explicit browser URL override. Leave empty to derive it from the server URL.
+- **Web interface**: Derived from the server URL and shown for reference.
 - **Warning temperature**: Threshold for warning colors/status.
 - **Panel display**: Choose icon-only compact mode instead of the text layout.
 
