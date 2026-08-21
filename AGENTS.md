@@ -43,7 +43,7 @@ alfc/
 ## CONVENTIONS
 
 - **Monorepo**: Bun workspaces (`frontend`, `server`)
-- **Bun 1.3+** required
+- **Bun 1.4+** required
 - **ESM imports**: Extensionless relative imports (Bun `moduleResolution: "bundler"` convention). Use `node:` prefix for Node built-in modules.
 - **No explicit `any`**: ESLint warns on `@typescript-eslint/no-explicit-any`. One known exception in `common/types.ts` (protocol data field).
 - **Underscore prefix**: Unused vars must use `_` prefix
