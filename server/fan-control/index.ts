@@ -65,8 +65,13 @@ export async function restoreAutoFanControl() {
 }
 
 async function getCallInt(methodId: string, methodName: string) {
-  const result = await getCall(methodId, methodName);
-  return isNaN(result) ? 200 : result;
+  try {
+    const result = await getCall(methodId, methodName);
+    return isNaN(result) ? 200 : result;
+  } catch (error) {
+    console.warn(`[FanControl] ${methodName} failed:`, error);
+    return 200;
+  }
 }
 
 function initFanControl() {

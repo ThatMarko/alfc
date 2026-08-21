@@ -62,6 +62,22 @@ function ensureLibraryOpen() {
   }
 }
 
+function runWmiCall<T>(callback: () => T): Promise<T> {
+  try {
+    return Promise.resolve(callback());
+  } catch (error) {
+    return Promise.reject(error);
+  }
+}
+
+function getRequiredDataArgument(methodName: string, args: Args): number {
+  if (args.Data === undefined) {
+    throw new TypeError(`WMI '${methodName}' requires a Data argument`);
+  }
+
+  return getUint8Argument(methodName, args.Data);
+}
+
 export async function wmiInit() {
   ensureLibraryOpen();
 
@@ -86,9 +102,9 @@ export async function wmiInit() {
 }
 
 export function setCall(_: string, methodName: string, args: Args) {
-  return Promise.resolve().then(() => {
+  return runWmiCall(() => {
     ensureLibraryOpen();
-    const argValue = getUint8Argument(methodName, args.Data ?? 0);
+    const argValue = getRequiredDataArgument(methodName, args);
     const result = wmiLibrary.symbols.wmi_set(
       getMethodPointer(methodName),
       argValue,
@@ -100,7 +116,7 @@ export function setCall(_: string, methodName: string, args: Args) {
 }
 
 export function getCall(_: string, methodName: string, args?: Args) {
-  return Promise.resolve().then(() => {
+  return runWmiCall(() => {
     ensureLibraryOpen();
     const argValue =
       args?.Data === undefined

@@ -280,4 +280,20 @@ describe("fan-control", () => {
     mockedGetCall.mockResolvedValue(NaN);
     await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
   });
+
+  it("should use highest fan speed when temperature reads reject", async () => {
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    fanControl();
+
+    mockedGetCall.mockRejectedValue(new Error("WMI read failed"));
+    await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
+
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("failed"),
+      expect.any(Error),
+    );
+    warning.mockRestore();
+  });
 });
