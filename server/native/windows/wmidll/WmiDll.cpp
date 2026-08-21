@@ -100,7 +100,10 @@ static HRESULT GetClassDefAndInstancePath(
     BSTR *pObjectPath
 ) {
     BSTR bstrClass = SysAllocString(className);
-    if (!bstrClass) return E_OUTOFMEMORY;
+    if (!bstrClass) {
+        SetLastErr("SysAllocString failed for WMI class %ls", className);
+        return E_OUTOFMEMORY;
+    }
 
     HRESULT hr = g_pSvc->GetObject(bstrClass, 0, nullptr, ppClassDef, nullptr);
     if (FAILED(hr)) {
@@ -307,7 +310,8 @@ __declspec(dllexport) int wmi_get(
     VariantInit(&varVal);
     int count = 0;
 
-    while (pOutParams->Next(0, &propName, &varVal, nullptr, nullptr) == WBEM_S_NO_ERROR) {
+    HRESULT nextHr;
+    while ((nextHr = pOutParams->Next(0, &propName, &varVal, nullptr, nullptr)) == WBEM_S_NO_ERROR) {
         if (count < MAX_RESULTS) {
             VARIANT varDouble;
             VariantInit(&varDouble);
@@ -325,6 +329,11 @@ __declspec(dllexport) int wmi_get(
 
     pOutParams->EndEnumeration();
     pOutParams->Release();
+
+    if (nextHr != WBEM_S_FALSE) {
+        SetLastErr("Enumerating output from %s failed: 0x%08lX", method_name, nextHr);
+        return -1;
+    }
 
     *out_count = count;
     return 0;
