@@ -3,10 +3,10 @@ import { getCall, setCall } from "../native/index";
 import { state } from "../state/index";
 import { publishActivity } from "../websocket/index";
 
-export const WAIT_RAMP_DOWN_CYCLES = 6;
+export const WAIT_RAMP_DOWN_CYCLES = 30;
 export const WAIT_RAMP_UP_CYCLES = 1;
-export const CYCLE_DURATION = 10_000;
-const TEMP_POLL_INTERVAL = 2000;
+export const CYCLE_DURATION = 2_000;
+const TEMP_POLL_INTERVAL = 500;
 
 let autoFanInterval: ReturnType<typeof setInterval> | null = null;
 let reinitInterval: ReturnType<typeof setInterval> | null = null;

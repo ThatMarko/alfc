@@ -233,6 +233,17 @@ describe("fan-control", () => {
     expect(cycles - WAIT_RAMP_UP_CYCLES).toBeLessThan(1);
   });
 
+  it("ramps to full speed promptly during a sudden thermal spike", async () => {
+    fanControl();
+    await waitUntilFanPercent(firstSpeed(state.cpuFanTable));
+
+    mockTemperatures(30, 90);
+    vi.clearAllMocks();
+
+    const cycles = await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
+    expect(cycles).toBeLessThanOrEqual(6);
+  });
+
   it("should handle fan table changes", async () => {
     fanControl();
 
