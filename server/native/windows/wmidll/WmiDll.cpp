@@ -15,6 +15,8 @@
 static wchar_t *Utf8ToWide(const char *str);
 static void SetLastErr(const char *fmt, ...);
 
+extern "C" __declspec(dllexport) void wmi_cleanup(void);
+
 struct BstrCacheEntry {
     char key[128];
     BSTR bstr;
@@ -24,6 +26,11 @@ static BstrCacheEntry g_bstrCache[MAX_BSTR_CACHE];
 static int g_bstrCacheCount = 0;
 
 static BSTR GetCachedBSTR(const char *method_name) {
+    if (!method_name) {
+        SetLastErr("Method name is null");
+        return nullptr;
+    }
+
     for (int i = 0; i < g_bstrCacheCount; i++) {
         if (strcmp(g_bstrCache[i].key, method_name) == 0) {
             return g_bstrCache[i].bstr;
@@ -93,7 +100,10 @@ static HRESULT GetClassDefAndInstancePath(
     BSTR *pObjectPath
 ) {
     BSTR bstrClass = SysAllocString(className);
-    if (!bstrClass) return E_OUTOFMEMORY;
+    if (!bstrClass) {
+        SetLastErr("SysAllocString failed for WMI class %ls", className);
+        return E_OUTOFMEMORY;
+    }
 
     HRESULT hr = g_pSvc->GetObject(bstrClass, 0, nullptr, ppClassDef, nullptr);
     if (FAILED(hr)) {
@@ -139,6 +149,12 @@ static HRESULT GetClassDefAndInstancePath(
 
     *pObjectPath = SysAllocString(varPath.bstrVal);
     VariantClear(&varPath);
+    if (!*pObjectPath) {
+        (*ppClassDef)->Release();
+        *ppClassDef = nullptr;
+        SetLastErr("SysAllocString failed for %ls instance path", className);
+        return E_OUTOFMEMORY;
+    }
     return S_OK;
 }
 
@@ -179,6 +195,11 @@ __declspec(dllexport) int wmi_init(void) {
 
     {
         BSTR bstrNs = SysAllocString(L"ROOT\\WMI");
+        if (!bstrNs) {
+            hr = E_OUTOFMEMORY;
+            SetLastErr("SysAllocString failed for WMI namespace");
+            goto fail;
+        }
         hr = g_pLoc->ConnectServer(bstrNs, nullptr, nullptr, nullptr, 0, nullptr, nullptr, &g_pSvc);
         SysFreeString(bstrNs);
     }
@@ -216,6 +237,11 @@ __declspec(dllexport) int wmi_get(
     double *out_results,
     int *out_count
 ) {
+    if (!method_name || !out_results || !out_count) {
+        SetLastErr("wmi_get received a null argument");
+        return -1;
+    }
+
     if (!g_pSvc || !g_pGetClassDef || !g_getObjectPath) {
         SetLastErr("WMI not initialized");
         return -1;
@@ -284,7 +310,8 @@ __declspec(dllexport) int wmi_get(
     VariantInit(&varVal);
     int count = 0;
 
-    while (pOutParams->Next(0, &propName, &varVal, nullptr, nullptr) == WBEM_S_NO_ERROR) {
+    HRESULT nextHr;
+    while ((nextHr = pOutParams->Next(0, &propName, &varVal, nullptr, nullptr)) == WBEM_S_NO_ERROR) {
         if (count < MAX_RESULTS) {
             VARIANT varDouble;
             VariantInit(&varDouble);
@@ -303,11 +330,21 @@ __declspec(dllexport) int wmi_get(
     pOutParams->EndEnumeration();
     pOutParams->Release();
 
+    if (nextHr != WBEM_S_FALSE) {
+        SetLastErr("Enumerating output from %s failed: 0x%08lX", method_name, nextHr);
+        return -1;
+    }
+
     *out_count = count;
     return 0;
 }
 
 __declspec(dllexport) int wmi_set(const char *method_name, int arg_value) {
+    if (!method_name) {
+        SetLastErr("wmi_set received a null method name");
+        return -1;
+    }
+
     if (!g_pSvc || !g_pSetClassDef || !g_setObjectPath) {
         SetLastErr("WMI not initialized");
         return -1;
