@@ -1,34 +1,37 @@
 # Bun and Plasma Port: Branch Review
 
-This review compares the `work` branch at `72c6160` with the supplied main-branch
-review dated 2026-08-21. The local repository has no `main`/`master` reference or
-remote, so the supplied review is the source of truth for the current main
-baseline. The older local commit `5bd77bb` is useful for history, but it must not
-be treated as current main.
+This review evaluates the change on top of repository main commit `72c6160`
+(`chore: validate WMI FFI on Bun 1.4`). The separately supplied review dated
+2026-08-21 describes a different or older repository state: for example, it says
+main uses Bun 1.3.9 and a Windows WMI helper process, while `72c6160` already uses
+Bun 1.4.0 and `WmiDll.dll`. It is therefore treated as an external historical
+baseline, not as the Git baseline for this change.
 
 ## Executive assessment
 
-The port is feature-complete enough for release-candidate testing, but it is not
-hardware-validated enough for a release. The Plasma architecture and service
-lifecycle are broadly aligned with main. The largest branch-specific change is
-the Windows WMI transport: this branch replaced the helper process described in
-the main review with an in-process C++ COM DLL loaded through `bun:ffi`.
+The port at `72c6160` is feature-complete enough for release-candidate testing,
+but the supplied evidence does not establish that it is hardware-validated
+enough for a release. The in-process C++ COM DLL loaded through `bun:ffi`, the
+10-second fan-control cadence, and the relaxed Plasma timers are already part of
+main. They are current release risks to validate, not changes introduced by this
+review branch.
 
-That replacement may reduce latency, memory use, and process-management failure
-modes, but it also invalidates any Windows soak-test evidence collected for the
-helper-process implementation. Treat Windows hardware validation as a fresh
-release gate.
+## Actual branch diff from main
 
-## Differences from the supplied main baseline
+The only code/configuration change made by this review branch is to replace the
+root `--workspaces` script calls with explicit `frontend` and `server` filters.
+This preserves the main-branch behavior requested in the supplied review and
+prevents a root script from selecting itself when script names overlap.
 
-| Area                | Supplied main baseline                   | This branch                                                            | Consequence                                                                                                                |
-| ------------------- | ---------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Bun                 | 1.3.9 in package metadata and workflows  | 1.4.0 in package metadata and workflows                                | Run the entire clean-install suite on Bun 1.4.0 and do not merge if the lockfile changes.                                  |
-| Workspace scripts   | Explicit `frontend` and `server` filters | Had root `--workspaces` calls                                          | Fixed in this review to avoid recursively invoking a root script with the same name.                                       |
-| Windows WMI         | Helper process                           | `WmiDll.dll` through `bun:ffi`                                         | Requires new lifecycle, error-path, repeated-init, and hardware tests.                                                     |
-| Windows native CI   | Helper build requested as a next step    | MSVC build job for `WmiDll.dll` already exists                         | The build half is complete; hardware-independent behavior tests are still missing.                                         |
-| Plasma timers       | Bounded reconnect and watchdog           | Longer 30-second reconnect cap, 20-second ping, and 60-second watchdog | Validate disconnect detection and recovery on both oldest and newest supported Plasma 6.                                   |
-| Fan-control cadence | Not identified as a port delta           | 10-second decision cycle with running-sum averaging                    | Recheck thermal response under sudden CPU/GPU load; this is safety-relevant behavior, not only a performance optimization. |
+## Differences between actual main and the supplied external baseline
+
+| Area                | Supplied external baseline              | Actual main at `72c6160`                                        | Planning consequence                                                                                                   |
+| ------------------- | --------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Bun                 | 1.3.9 in package metadata and workflows | 1.4.0 in package metadata and workflows                         | Validate with Bun 1.4.0; this is already a main requirement, not a branch upgrade.                                     |
+| Windows WMI         | Helper process                          | `WmiDll.dll` through `bun:ffi`                                  | Existing helper-process results do not validate current main, but the transport is not a change in this review branch. |
+| Windows native CI   | Helper build requested as a next step   | MSVC build job for `WmiDll.dll` already exists                  | Native compilation coverage exists; hardware-independent runtime-contract tests are still missing.                     |
+| Plasma timers       | Bounded reconnect and watchdog          | 30-second reconnect cap, 20-second ping, and 60-second watchdog | Validate disconnect detection and recovery; the timer values are already on main.                                      |
+| Fan-control cadence | Not identified as a port delta          | 10-second decision cycle with running-sum averaging             | Recheck thermal response under sudden CPU/GPU load as a current-main release gate, not as a branch regression.         |
 
 ## Release gates, in order
 
@@ -65,8 +68,8 @@ On each supported Windows generation available, repeatedly switch fixed and
 automatic modes, exercise GPU boost, and introduce service stop/restart cycles.
 Confirm BIOS automatic fan control after normal stop, forced termination,
 logoff, reboot, and shutdown. Review both ALFC/WinSW logs and observed fan
-behavior. The direct-FFI transport makes results from the helper-process branch
-non-transferable.
+behavior. Results collected for the older helper-process implementation are not
+transferable to current main.
 
 ### 4. Run the Linux service matrix
 
@@ -100,7 +103,7 @@ second, and React last, with a clean validation run for each change.
 
 ## Merge recommendation
 
-Do not merge for release yet. The branch is ready for CI and test-harness work,
-followed by Windows, Linux, and Plasma soak testing. Merge only after the direct
-WMI DLL contract and the slower fan-control cadence have explicit evidence; they
-are the two material risks not covered by the supplied main-branch review.
+The workspace-script correction is suitable to merge independently. Do not cut a
+release from current main until the direct WMI DLL contract and the slower
+fan-control cadence have explicit evidence; they are current-main validation
+gaps that the supplied external review does not cover.
