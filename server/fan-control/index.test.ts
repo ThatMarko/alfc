@@ -251,6 +251,7 @@ describe("fan-control", () => {
     expect(cycles).toBeLessThanOrEqual(6);
   });
 
+<<<<<<< HEAD
   it("does not overlap temperature collection cycles", async () => {
     mockedGetCall.mockImplementation(() => new Promise(() => undefined));
 
@@ -260,6 +261,8 @@ describe("fan-control", () => {
     expect(mockedGetCall).toHaveBeenCalledTimes(1);
   });
 
+=======
+>>>>>>> origin/feat/wmi-ffi
   it("should handle fan table changes", async () => {
     fanControl();
 
