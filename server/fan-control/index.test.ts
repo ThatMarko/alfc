@@ -44,8 +44,9 @@ function mockTemperatures(cpu: number, gpu: number) {
 
 async function waitUntilFanPercent(fanPercent: number) {
   let advancedTime = 0;
+  const timeout = 5 * 60_000;
 
-  while (true) {
+  while (advancedTime <= timeout) {
     try {
       expect(mockedSetCall).toHaveBeenLastCalledWith(
         expect.any(String),
@@ -62,6 +63,10 @@ async function waitUntilFanPercent(fanPercent: number) {
     await vi.advanceTimersByTimeAsync(10);
     advancedTime += 10;
   }
+
+  throw new Error(
+    `Fan did not reach ${fanPercent}% within ${timeout / 1000} seconds`,
+  );
 }
 
 describe("fan-control", () => {
