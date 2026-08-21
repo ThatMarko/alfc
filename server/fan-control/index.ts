@@ -3,10 +3,10 @@ import { getCall, setCall } from "../native/index";
 import { state } from "../state/index";
 import { publishActivity } from "../websocket/index";
 
-export const WAIT_RAMP_DOWN_CYCLES = 6;
+export const WAIT_RAMP_DOWN_CYCLES = 30;
 export const WAIT_RAMP_UP_CYCLES = 1;
-export const CYCLE_DURATION = 10_000;
-const TEMP_POLL_INTERVAL = 2000;
+export const CYCLE_DURATION = 2_000;
+const TEMP_POLL_INTERVAL = 500;
 
 let autoFanInterval: ReturnType<typeof setInterval> | null = null;
 let reinitInterval: ReturnType<typeof setInterval> | null = null;
@@ -193,87 +193,97 @@ export function fanControl() {
   let currRampUpCycle = 1;
   let prevCPUFanTable = state.cpuFanTable;
   let prevGPUFanTable = state.gpuFanTable;
+  let isCycleRunning = false;
   autoFanInterval = setInterval(async () => {
-    if (isFanControlShuttingDown || runId !== fanControlRunId) {
-      cleanupFanControlIntervals();
+    if (isCycleRunning) {
       return;
     }
 
-    // Interrupt if switching to fixed fan speed
-    if (state.doFixedSpeed) {
-      cleanupFanControlIntervals();
-      setFixedFan(state.fixedPercentage);
-      return;
-    }
+    isCycleRunning = true;
+    try {
+      if (isFanControlShuttingDown || runId !== fanControlRunId) {
+        cleanupFanControlIntervals();
+        return;
+      }
 
-    // Collect average temperature throughout CYCLE_DURATION
-    const averages = await collectAverageTemps(runId);
-    if (!averages || isFanControlShuttingDown || runId !== fanControlRunId) {
-      return;
-    }
+      // Interrupt if switching to fixed fan speed
+      if (state.doFixedSpeed) {
+        cleanupFanControlIntervals();
+        setFixedFan(state.fixedPercentage);
+        return;
+      }
 
-    const { avgCPUTemp, avgGPUTemp } = averages;
+      // Collect average temperature throughout CYCLE_DURATION
+      const averages = await collectAverageTemps(runId);
+      if (!averages || isFanControlShuttingDown || runId !== fanControlRunId) {
+        return;
+      }
 
-    const highestMatchCPU = findHighestMatch(avgCPUTemp, state.cpuFanTable);
-    const highestMatchGPU = findHighestMatch(avgGPUTemp, state.gpuFanTable);
+      const { avgCPUTemp, avgGPUTemp } = averages;
 
-    // Target speed is whichever one of the two is higher because
-    // of the mostly shared heat pipes.
-    const target = Math.max(highestMatchCPU[1], highestMatchGPU[1]);
-    let gradientTarget;
+      const highestMatchCPU = findHighestMatch(avgCPUTemp, state.cpuFanTable);
+      const highestMatchGPU = findHighestMatch(avgGPUTemp, state.gpuFanTable);
 
-    if (
-      prevCPUFanTable !== state.cpuFanTable ||
-      prevGPUFanTable !== state.gpuFanTable
-    ) {
-      // When tables change, do nothing in this cycle but reset fans to the
-      // lowest percentage currently in state.
-      appliedPercentage = resetFanSpeed();
-      prevCPUFanTable = state.cpuFanTable;
-      prevGPUFanTable = state.gpuFanTable;
-      currRampDownCycle = 1;
-      currRampUpCycle = 1;
-    } else if (appliedPercentage < target) {
-      if (currRampUpCycle === WAIT_RAMP_UP_CYCLES) {
-        gradientTarget = getGradientTarget(
-          appliedPercentage === -1
-            ? (state.cpuFanTable[0]?.[1] ?? 0)
-            : appliedPercentage,
-          target,
-        );
-        setFixedFan(gradientTarget);
+      // Target speed is whichever one of the two is higher because
+      // of the mostly shared heat pipes.
+      const target = Math.max(highestMatchCPU[1], highestMatchGPU[1]);
+      let gradientTarget;
 
+      if (
+        prevCPUFanTable !== state.cpuFanTable ||
+        prevGPUFanTable !== state.gpuFanTable
+      ) {
+        // When tables change, do nothing in this cycle but reset fans to the
+        // lowest percentage currently in state.
+        appliedPercentage = resetFanSpeed();
+        prevCPUFanTable = state.cpuFanTable;
+        prevGPUFanTable = state.gpuFanTable;
         currRampDownCycle = 1;
         currRampUpCycle = 1;
-        appliedPercentage = gradientTarget;
-      } else {
-        currRampUpCycle++;
-      }
-    } else if (target < appliedPercentage) {
-      // Make fan behavior less erratic by waiting a few cycles until we
-      // ramp down.
-      if (currRampDownCycle === WAIT_RAMP_DOWN_CYCLES) {
-        gradientTarget = getGradientTarget(appliedPercentage, target);
-        setFixedFan(gradientTarget);
+      } else if (appliedPercentage < target) {
+        if (currRampUpCycle === WAIT_RAMP_UP_CYCLES) {
+          gradientTarget = getGradientTarget(
+            appliedPercentage === -1
+              ? (state.cpuFanTable[0]?.[1] ?? 0)
+              : appliedPercentage,
+            target,
+          );
+          setFixedFan(gradientTarget);
 
+          currRampDownCycle = 1;
+          currRampUpCycle = 1;
+          appliedPercentage = gradientTarget;
+        } else {
+          currRampUpCycle++;
+        }
+      } else if (target < appliedPercentage) {
+        // Make fan behavior less erratic by waiting a few cycles until we
+        // ramp down.
+        if (currRampDownCycle === WAIT_RAMP_DOWN_CYCLES) {
+          gradientTarget = getGradientTarget(appliedPercentage, target);
+          setFixedFan(gradientTarget);
+
+          currRampDownCycle = 1;
+          currRampUpCycle = 1;
+          appliedPercentage = gradientTarget;
+        } else {
+          currRampDownCycle++;
+        }
+      } else {
+        // Need to reset if e.g. ramp down phase is
+        // interrupted by CPU getting hot again or getting cold again.
         currRampDownCycle = 1;
         currRampUpCycle = 1;
-        appliedPercentage = gradientTarget;
-      } else {
-        currRampDownCycle++;
       }
-    } else {
-      // Need to reset if e.g. ramp down phase is
-      // interrupted by CPU getting hot again or getting cold again.
-      currRampDownCycle = 1;
-      currRampUpCycle = 1;
-    }
 
-    publishActivity({
-      appliedSpeed: appliedPercentage === -1 ? null : appliedPercentage,
-      avgCPUTemp,
-      avgGPUTemp,
-      target,
-    });
+      publishActivity({
+        appliedSpeed: appliedPercentage === -1 ? null : appliedPercentage,
+        avgCPUTemp,
+        avgGPUTemp,
+        target,
+      });
+    } finally {
+      isCycleRunning = false;
+    }
   }, CYCLE_DURATION);
 }

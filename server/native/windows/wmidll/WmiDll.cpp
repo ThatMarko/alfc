@@ -11,6 +11,7 @@
 
 #define MAX_RESULTS 16
 #define MAX_BSTR_CACHE 32
+#define WMI_ENUM_TIMEOUT_MS 5000
 
 static wchar_t *Utf8ToWide(const char *str);
 static void SetLastErr(const char *fmt, ...);
@@ -124,8 +125,15 @@ static HRESULT GetClassDefAndInstancePath(
 
     IWbemClassObject *pInstance = nullptr;
     ULONG returned = 0;
-    hr = pEnum->Next(WBEM_INFINITE, 1, &pInstance, &returned);
+    hr = pEnum->Next(WMI_ENUM_TIMEOUT_MS, 1, &pInstance, &returned);
     pEnum->Release();
+
+    if (hr == WBEM_S_TIMEDOUT) {
+        (*ppClassDef)->Release();
+        *ppClassDef = nullptr;
+        SetLastErr("Timed out enumerating instances for %ls", className);
+        return WBEM_E_TIMED_OUT;
+    }
 
     if (FAILED(hr) || returned == 0) {
         (*ppClassDef)->Release();
@@ -256,6 +264,12 @@ __declspec(dllexport) int wmi_get(
     HRESULT hr;
 
     if (arg_value >= 0) {
+        if (arg_value > 0xFF) {
+            SetLastErr("Data argument for %s is outside uint8 range: %d",
+                       method_name, arg_value);
+            return -1;
+        }
+
         IWbemClassObject *pInParamsDef = nullptr;
         hr = g_pGetClassDef->GetMethod(bstrMethod, 0, &pInParamsDef, nullptr);
         if (FAILED(hr)) {
@@ -272,8 +286,8 @@ __declspec(dllexport) int wmi_get(
 
         VARIANT varArg;
         VariantInit(&varArg);
-        varArg.vt = VT_I4;
-        varArg.lVal = arg_value;
+        varArg.vt = VT_UI1;
+        varArg.bVal = static_cast<BYTE>(arg_value);
         hr = pInParams->Put(L"Data", 0, &varArg, 0);
         VariantClear(&varArg);
         if (FAILED(hr)) {
@@ -350,6 +364,12 @@ __declspec(dllexport) int wmi_set(const char *method_name, int arg_value) {
         return -1;
     }
 
+    if (arg_value < 0 || arg_value > 0xFF) {
+        SetLastErr("Data argument for %s is outside uint8 range: %d",
+                   method_name, arg_value);
+        return -1;
+    }
+
     BSTR bstrMethod = GetCachedBSTR(method_name);
     if (!bstrMethod) return -1;
 
@@ -370,8 +390,8 @@ __declspec(dllexport) int wmi_set(const char *method_name, int arg_value) {
 
     VARIANT varArg;
     VariantInit(&varArg);
-    varArg.vt = VT_I4;
-    varArg.lVal = arg_value;
+    varArg.vt = VT_UI1;
+    varArg.bVal = static_cast<BYTE>(arg_value);
     hr = pInParams->Put(L"Data", 0, &varArg, 0);
     VariantClear(&varArg);
     if (FAILED(hr)) {

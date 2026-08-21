@@ -3,6 +3,7 @@ import { state } from "../state/index";
 import {
   fanControl,
   fanPercentToSpeed,
+  cleanupFanControlIntervals,
   CYCLE_DURATION,
   WAIT_RAMP_UP_CYCLES,
   WAIT_RAMP_DOWN_CYCLES,
@@ -44,8 +45,9 @@ function mockTemperatures(cpu: number, gpu: number) {
 
 async function waitUntilFanPercent(fanPercent: number) {
   let advancedTime = 0;
+  const timeout = 5 * 60_000;
 
-  while (true) {
+  while (advancedTime <= timeout) {
     try {
       expect(mockedSetCall).toHaveBeenLastCalledWith(
         expect.any(String),
@@ -62,6 +64,10 @@ async function waitUntilFanPercent(fanPercent: number) {
     await vi.advanceTimersByTimeAsync(10);
     advancedTime += 10;
   }
+
+  throw new Error(
+    `Fan did not reach ${fanPercent}% within ${timeout / 1000} seconds`,
+  );
 }
 
 describe("fan-control", () => {
@@ -87,6 +93,7 @@ describe("fan-control", () => {
     // stop auto control loop
     state.doFixedSpeed = true;
     await vi.advanceTimersByTimeAsync(CYCLE_DURATION);
+    cleanupFanControlIntervals();
 
     vi.useRealTimers();
   });
@@ -231,6 +238,26 @@ describe("fan-control", () => {
     expectedPercentage = targetPercentage;
     cycles = await waitUntilFanPercent(expectedPercentage);
     expect(cycles - WAIT_RAMP_UP_CYCLES).toBeLessThan(1);
+  });
+
+  it("ramps to full speed promptly during a sudden thermal spike", async () => {
+    fanControl();
+    await waitUntilFanPercent(firstSpeed(state.cpuFanTable));
+
+    mockTemperatures(30, 90);
+    vi.clearAllMocks();
+
+    const cycles = await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
+    expect(cycles).toBeLessThanOrEqual(6);
+  });
+
+  it("does not overlap temperature collection cycles", async () => {
+    mockedGetCall.mockImplementation(() => new Promise(() => undefined));
+
+    fanControl();
+    await vi.advanceTimersByTimeAsync(3 * CYCLE_DURATION);
+
+    expect(mockedGetCall).toHaveBeenCalledTimes(1);
   });
 
   it("should handle fan table changes", async () => {
