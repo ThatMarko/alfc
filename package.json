@@ -15,12 +15,12 @@
     "server"
   ],
   "scripts": {
-    "build": "bun run --parallel --workspaces build",
-    "start": "bun run --parallel --workspaces start",
+    "build": "bun run --parallel --filter frontend --filter server build",
+    "start": "bun run --parallel --filter frontend --filter server start",
     "lint": "eslint .",
     "prepare": "husky",
     "test": "vitest",
-    "type-check": "bun run --workspaces type-check",
+    "type-check": "bun run --filter frontend --filter server type-check",
     "del:tscache": "del-cli \"**/*.tsbuildinfo\" \"!**/node_modules/**\"",
     "all-checks": "bun run lint && bun run type-check && bun run test && bun run build"
   },
