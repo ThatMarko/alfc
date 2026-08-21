@@ -83,7 +83,7 @@ If you want to keep using the color profiles:
 
 ## Development notes
 
-Requires [Bun](https://bun.sh) 1.3.9+.
+Requires [Bun](https://bun.sh) 1.4.0+.
 
 `sudo bun run start` — Frontend at `:3000`, server at `:5522`.
 
