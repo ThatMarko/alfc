@@ -369,38 +369,46 @@ PlasmaExtras.Representation {
 
                     MetricTile {
                         label: i18n("CPU")
-                        value: fullRoot.hasActivity
+                        value: fullRoot.hasTelemetrySnapshot
                             ? i18n("%1\u00B0C", Math.round(fullRoot.safeActivity.avgCPUTemp))
                             : "--"
                         valueColor: fullRoot.hasActivity
                             ? fullRoot.tempColor(
                                 Math.round(fullRoot.safeActivity.avgCPUTemp))
                             : Kirigami.Theme.disabledTextColor
-                        subtitle: i18n("Average temperature")
+                        subtitle: fullRoot.hasActivity
+                            ? i18n("Average temperature")
+                            : (fullRoot.staleActivity
+                                ? i18n("Stale (%1s ago)", fullRoot.staleActivitySeconds)
+                                : i18n("Average temperature"))
                     }
 
                     MetricTile {
                         label: i18n("GPU")
-                        value: fullRoot.hasActivity
+                        value: fullRoot.hasTelemetrySnapshot
                             ? i18n("%1\u00B0C", Math.round(fullRoot.safeActivity.avgGPUTemp))
                             : "--"
                         valueColor: fullRoot.hasActivity
                             ? fullRoot.tempColor(
                                 Math.round(fullRoot.safeActivity.avgGPUTemp))
                             : Kirigami.Theme.disabledTextColor
-                        subtitle: i18n("Average temperature")
+                        subtitle: fullRoot.hasActivity
+                            ? i18n("Average temperature")
+                            : (fullRoot.staleActivity
+                                ? i18n("Stale (%1s ago)", fullRoot.staleActivitySeconds)
+                                : i18n("Average temperature"))
                     }
 
                     MetricTile {
                         label: i18n("Fan")
-                        value: fullRoot.hasActivity
+                        value: fullRoot.hasTelemetrySnapshot
                             ? (fullRoot.safeActivity.appliedSpeed != null
                                 ? i18n("%1%", Math.round(fullRoot.safeActivity.appliedSpeed))
                                 : i18n("Pending"))
                             : (fullRoot.fixedModeEnabled
                                 ? i18n("%1%", fullRoot.safeState.fixedPercentage)
                                 : "--")
-                        subtitle: fullRoot.hasActivity
+                        subtitle: fullRoot.hasTelemetrySnapshot
                             ? i18n("Target %1%", Math.round(fullRoot.safeActivity.target))
                             : i18n("Current output")
                     }

@@ -156,6 +156,10 @@ PlasmoidItem {
             return i18n("Connected, waiting for telemetry")
         }
 
+        if (activity == null) {
+            return i18n("Connected, waiting for telemetry")
+        }
+
         const fanText = activity.appliedSpeed != null
             ? i18n("%1%", Math.round(activity.appliedSpeed))
             : "--"
