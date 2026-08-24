@@ -16,7 +16,7 @@ alfc/
 ├── common/          # Shared TypeScript types + protocol docs
 ├── frontend/        # React web UI (Vite, @emotion/react)
 ├── plasmoid/        # KDE Plasma 6 widget (QML)
-│   └── package/contents/ui/  # 11 QML + 1 JS files: main, compact, full, backend, fan editor, config, metric tile, section card, heading, settings, inline msg, url utils
+│   └── package/contents/ui/  # 11 pure QML files: main, compact, full, backend, fan editor, config, settings, metric tile, section card, heading, inline msg
 ├── server/          # Bun backend
 │   ├── fan-control/ # Core fan logic + tests
 │   ├── native/      # Platform-specific (linux/windows)

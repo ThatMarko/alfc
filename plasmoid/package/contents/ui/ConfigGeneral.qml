@@ -5,23 +5,28 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.plasmoid
-import "UrlUtils.js" as UrlUtils
 
 Item {
     id: root
+
+    property string title: i18n("General")
 
     property alias cfg_serverUrl: serverUrlField.text
     property alias cfg_webUiUrl: webUiUrlField.text
     property alias cfg_warningTemp: warningTempSpinBox.value
     property alias cfg_compactShowIcon: compactShowIconCheck.checked
 
-    readonly property string serverUrlDefaultText: UrlUtils.defaultServerUrl
+    WidgetSettings {
+        id: settings
+    }
+
+    readonly property string serverUrlDefaultText: settings.defaultServerUrl
     readonly property string trimmedServerUrl: String(serverUrlField.text ?? "").trim()
     readonly property string trimmedWebUiUrl: String(webUiUrlField.text ?? "").trim()
     readonly property bool hasCustomServerUrl: trimmedServerUrl.length > 0
-    readonly property bool serverUrlValid: UrlUtils.isValidWebSocketUrl(trimmedServerUrl)
-    readonly property bool webUiUrlValid: UrlUtils.isValidHttpUrl(trimmedWebUiUrl)
-    readonly property string derivedWebUiUrl: UrlUtils.deriveWebUiUrl(
+    readonly property bool serverUrlValid: settings.isValidWebSocketUrl(trimmedServerUrl)
+    readonly property bool webUiUrlValid: settings.isValidHttpUrl(trimmedWebUiUrl)
+    readonly property string derivedWebUiUrl: settings.deriveWebUiUrl(
         hasCustomServerUrl ? trimmedServerUrl : serverUrlDefaultText,
         trimmedWebUiUrl)
 
