@@ -48,10 +48,10 @@ PlasmaExtras.PlasmoidHeading {
                     return null
                 }
 
-                const menuItem = menuItemFactory.objectAt(0)
+                const menuItem = menuItemFactory.objectAt(0) as PlasmaExtras.MenuItem
                 return menuItem ? menuItem.action : null
             }
-            property QtObject singleAction: resolveSingleAction()
+            property PlasmaCore.Action singleAction: resolveSingleAction()
             icon.name: "open-menu-symbolic"
             checkable: visibleActions > 1
             contentItem.opacity: visibleActions > 1
@@ -108,7 +108,7 @@ PlasmaExtras.PlasmoidHeading {
                 }
 
                 delegate: PlasmaExtras.MenuItem {
-                    required property QtObject modelData
+                    required property PlasmaCore.Action modelData
 
                     action: modelData
                 }

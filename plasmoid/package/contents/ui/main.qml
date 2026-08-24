@@ -30,15 +30,15 @@ PlasmoidItem {
     readonly property int telemetryAgeSeconds: hasTelemetrySnapshot
         ? Math.ceil(backendConnection.activityAgeMs / 1000)
         : 0
-    readonly property var state: hasState ? backendConnection.latestState : null
+    readonly property var backendState: hasState ? backendConnection.latestState : null
     readonly property var activity: hasActivity ? backendConnection.latestActivity : null
     readonly property var telemetryActivity: hasTelemetrySnapshot
         ? backendConnection.latestActivity
         : null
-    readonly property bool fanControlAvailable: state == null
-        || state.isFanControlAvailable !== false
-    readonly property bool isFixedMode: state != null
-        && state.doFixedSpeed === true
+    readonly property bool fanControlAvailable: backendState == null
+        || backendState.isFanControlAvailable !== false
+    readonly property bool isFixedMode: backendState != null
+        && backendState.doFixedSpeed === true
     readonly property bool isOverheating: telemetryActivity != null
         && (Math.round(telemetryActivity.avgCPUTemp) >= warningTemp
             || Math.round(telemetryActivity.avgGPUTemp) >= warningTemp)
