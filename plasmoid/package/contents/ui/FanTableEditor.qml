@@ -215,11 +215,29 @@ ColumnLayout {
         setStatus(i18n("Saving curves…"), "neutral")
     }
 
+    function abortPendingSave() {
+        if (root.pendingRequestId.length === 0) {
+            return
+        }
+
+        root.pendingRequestId = ""
+        root.saving = false
+        root.setStatus(
+            i18n("Connection lost before the fan curves were saved."),
+            "error")
+    }
+
     Connections {
         target: root.backend
 
         function onLatestStateChanged() {
             root.syncFromBackend(false)
+        }
+
+        function onIsConnectedChanged() {
+            if (root.backend != null && !root.backend.isConnected) {
+                root.abortPendingSave()
+            }
         }
 
         function onRequestFinished(requestId, ok, errorMessage, _message) {
