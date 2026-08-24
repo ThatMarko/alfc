@@ -6,14 +6,14 @@ Works in **panel**, **system tray**, and **desktop widget** modes with context-a
 
 ## Features
 
-- **System tray**: Icon with dynamic status — hides into overflow when disconnected, blinks when overheating (≥90°C).
-- **Panel**: Text-based compact view showing CPU/GPU temps and fan speed at a glance.
+- **System tray**: Icon-only compact view with a live status badge and popup controls.
+- **Panel**: Responsive compact view showing CPU/GPU temps, mode, and stale/offline state at a glance.
 - **Desktop widget**: Full view rendered directly on the desktop with configurable background.
-- **Rich tooltip**: Mini dashboard on hover — connection status, temps (colored red at ≥90°C), fan speed, and current mode.
-- **Right-click menu**: Quick actions — switch between auto/fixed fan mode, open web UI.
+- **Tooltip**: Connection summary with live or stale telemetry details.
+- **Right-click menu**: Quick actions — switch between auto/fixed fan mode, reconnect the backend, open the web UI, or configure the widget.
 - **Full popup**: Complete fan control — mode toggle, fixed speed slider, fan curve editor, GPU boost, CPU tuning (PL1/PL2).
 - **Live data**: WebSocket connection with keepalive ping/pong and automatic reconnection.
-- **Accessibility**: Screen reader annotations throughout (`Accessible.role`, `Accessible.name`).
+- **Accessibility**: Keyboard activation in compact mode and explicit screen reader labels for the popup controls.
 
 ## Installation
 
@@ -52,6 +52,9 @@ The script detects an existing install and upgrades automatically.
 Right-click the widget → Configure → General:
 
 - **Server URL**: WebSocket endpoint (default: `ws://localhost:5522/ws`)
+- **Web interface**: Derived from the server URL and shown for reference.
+- **Warning temperature**: Threshold for warning colors/status.
+- **Panel display**: Choose icon-only compact mode instead of the text layout.
 
 ## Structure
 
@@ -61,15 +64,19 @@ package/
 ├── contents/
 │   ├── config/
 │   │   ├── config.qml               # Config dialog structure
-│   │   └── main.xml                  # KConfigXT schema (server URL)
+│   │   └── main.xml                  # KConfigXT schema
 │   └── ui/
 │       ├── main.qml                  # Entry point: context detection, status, tooltip, context menu
 │       ├── CompactRepresentation.qml # Icon (tray) or text label (panel)
 │       ├── FullRepresentation.qml    # Complete fan control popup/desktop view
-│       ├── ToolTipView.qml           # Rich tooltip mini-dashboard
 │       ├── BackendConnection.qml     # WebSocket client with keepalive and reconnection
 │       ├── FanTableEditor.qml        # CPU/GPU fan curve editor with validation
-│       └── ConfigGeneral.qml         # Server URL configuration page
+│       ├── ConfigGeneral.qml         # Widget configuration page
+│       ├── InlineStatusMessage.qml   # Shared inline status feedback
+│       ├── MetricTile.qml            # Overview stat card
+│       ├── SectionCard.qml           # Full-view section wrapper
+│       ├── UrlUtils.js               # Shared URL defaults and derivation
+│       └── WidgetHeading.qml         # Popup/desktop heading with actions
 ```
 
 ## Development

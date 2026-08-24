@@ -1,380 +1,781 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
+import QtQuick.Controls as QQC2
 import QtQuick.Layouts
+
+import org.kde.kirigami as Kirigami
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.plasma.plasmoid
-import org.kde.kirigami as Kirigami
 
 PlasmaExtras.Representation {
     id: fullRoot
+
     required property var backend
     required property string webUiUrl
+    required property bool isPlanar
+    required property int warningTemp
 
-    // ── Helper Properties (reduce repetitive null-guard chains) ────
-    readonly property bool connected: backend && backend.isConnected
-    readonly property var activity: connected && backend.latestActivity ? backend.latestActivity : null
-    readonly property var state: connected && backend.latestState ? backend.latestState : null
-    readonly property bool hasActivity: activity != null && activity.avgCPUTemp !== undefined
-    readonly property bool hasState: state != null && state.protocolVersion !== undefined
+    readonly property bool connected: backend != null && backend.isConnected
+    readonly property bool connecting: backend != null && backend.isConnecting
+    readonly property bool hasState: backend != null && backend.hasState
+    readonly property bool hasActivity: backend != null && backend.hasFreshActivity
+    readonly property bool hasTelemetrySnapshot: backend != null && backend.hasActivity
+    readonly property bool staleActivity: hasTelemetrySnapshot
+        && !backend.hasFreshActivity
+    readonly property int staleActivitySeconds: staleActivity
+        ? Math.ceil(backend.activityAgeMs / 1000)
+        : 0
+    readonly property bool protocolCompatible: backend == null
+        || backend.protocolCompatible !== false
+    readonly property string protocolVersion: backend != null
+        && typeof backend.protocolVersion === "string"
+        ? backend.protocolVersion
+        : ""
+    readonly property string connectionSummaryText: {
+        if (!connected) {
+            return connecting
+                ? i18n("Connecting")
+                : i18n("Disconnected")
+        }
+
+        if (!hasState) {
+            return i18n("Connected, waiting for state")
+        }
+
+        if (!protocolCompatible) {
+            return i18n("Unsupported backend protocol %1",
+                protocolVersion)
+        }
+
+        if (hasActivity) {
+            return i18n("Live telemetry")
+        }
+
+        if (staleActivity) {
+            return i18n("Telemetry stale")
+        }
+
+        return i18n("Connected, waiting for telemetry")
+    }
+    readonly property var state: hasState ? backend.latestState : null
+    readonly property var activity: hasTelemetrySnapshot
+        ? backend.latestActivity
+        : null
+    readonly property var safeState: hasState ? backend.latestState : ({
+        doFixedSpeed: false,
+        fixedPercentage: draftFixedPercentage,
+        gpuBoost: false,
+        isGpuBoostAvailable: false,
+        isCpuTuningAvailable: false,
+        pl1: draftPl1,
+        pl2: draftPl2
+    })
+    readonly property var safeActivity: hasTelemetrySnapshot ? backend.latestActivity : ({
+        avgCPUTemp: 0,
+        avgGPUTemp: 0,
+        appliedSpeed: null,
+        target: 0
+    })
+    readonly property bool fixedModeEnabled: hasState
+        && safeState.doFixedSpeed === true
+    readonly property bool fanControlAvailable: hasState
+        ? safeState.isFanControlAvailable !== false
+        : true
+    readonly property bool modeBusy: pendingModeRequestId.length > 0
+    readonly property bool fixedBusy: pendingFixedRequestId.length > 0
+    readonly property bool boostBusy: pendingBoostRequestId.length > 0
+    readonly property bool tuningBusy: pendingTuneRequestId.length > 0
+    readonly property bool canSyncFixedDraft: !speedSlider.pressed
+        && !speedField.activeFocus
+        && !fixedBusy
+    readonly property bool canSyncPl1Draft: !pl1Field.activeFocus
+        && !tuningBusy
+    readonly property bool canSyncPl2Draft: !pl2Field.activeFocus
+        && !tuningBusy
+    readonly property string selectedMode: modeSelectionOverride.length > 0
+        ? modeSelectionOverride
+        : (fixedModeEnabled ? "fixed" : "auto")
+    readonly property color connectionSummaryColor: {
+        if (!connected) {
+            return connecting
+                ? Kirigami.Theme.disabledTextColor
+                : Kirigami.Theme.negativeTextColor
+        }
+
+        if (!hasState || !protocolCompatible) {
+            return Kirigami.Theme.negativeTextColor
+        }
+
+        if (hasActivity) {
+            return Kirigami.Theme.positiveTextColor
+        }
+
+        if (staleActivity) {
+            return Kirigami.Theme.neutralTextColor
+        }
+
+        return Kirigami.Theme.disabledTextColor
+    }
+
+    property int draftFixedPercentage: 50
+    property int draftPl1: 37
+    property int draftPl2: 106
+    property string pendingModeRequestId: ""
+    property string pendingFixedRequestId: ""
+    property string pendingBoostRequestId: ""
+    property string pendingTuneRequestId: ""
+    property string modeSelectionOverride: ""
+    property string feedbackText: ""
+    property string feedbackTone: ""
 
     collapseMarginsHint: true
-    Layout.minimumWidth: Kirigami.Units.gridUnit * 22
-    Layout.minimumHeight: Kirigami.Units.gridUnit * 24
-    Layout.preferredWidth: Layout.minimumWidth
-    Layout.preferredHeight: Layout.minimumHeight
+    Layout.minimumWidth: Kirigami.Units.gridUnit * (isPlanar ? 30 : 24)
+    Layout.minimumHeight: Kirigami.Units.gridUnit * (isPlanar ? 30 : 24)
+    Layout.preferredWidth: Kirigami.Units.gridUnit * (isPlanar ? 34 : 26)
+    Layout.preferredHeight: Kirigami.Units.gridUnit * (isPlanar ? 36 : 30)
 
-    header: PlasmaExtras.PlasmoidHeading {
-        RowLayout {
-            anchors.fill: parent
+    function tempColor(value) {
+        if (value >= fullRoot.warningTemp) {
+            return Kirigami.Theme.negativeTextColor
+        }
+        if (value >= fullRoot.warningTemp - 10) {
+            return Kirigami.Theme.neutralTextColor
+        }
+        return Kirigami.Theme.textColor
+    }
 
-            Kirigami.Heading {
-                level: 2
-                text: i18n("Aorus Laptop Fan Control")
-                Layout.fillWidth: true
+    function setFeedback(message, tone) {
+        fullRoot.feedbackText = message
+        fullRoot.feedbackTone = tone
+
+        if (tone === "success") {
+            feedbackTimer.restart()
+        } else {
+            feedbackTimer.stop()
+        }
+    }
+
+    function syncDraftsFromState() {
+        if (!fullRoot.hasState) {
+            fullRoot.modeSelectionOverride = ""
+            return
+        }
+
+        fullRoot.syncModeSelection()
+
+        if (fullRoot.canSyncFixedDraft && typeof fullRoot.safeState.fixedPercentage === "number") {
+            fullRoot.draftFixedPercentage = fullRoot.safeState.fixedPercentage
+        }
+
+        if (fullRoot.canSyncPl1Draft && typeof fullRoot.safeState.pl1 === "number") {
+            fullRoot.draftPl1 = fullRoot.safeState.pl1
+        }
+
+        if (fullRoot.canSyncPl2Draft && typeof fullRoot.safeState.pl2 === "number") {
+            fullRoot.draftPl2 = fullRoot.safeState.pl2
+        }
+    }
+
+    function syncModeSelection() {
+        if (!fullRoot.hasState) {
+            fullRoot.modeSelectionOverride = ""
+            return
+        }
+
+        if (fullRoot.modeSelectionOverride === "fixed"
+                && fullRoot.fixedModeEnabled) {
+            fullRoot.modeSelectionOverride = ""
+        } else if (fullRoot.modeSelectionOverride === "auto"
+                && !fullRoot.fixedModeEnabled) {
+            fullRoot.modeSelectionOverride = ""
+        }
+    }
+
+    function requestMode(mode) {
+        if (!fullRoot.hasState || !fullRoot.fanControlAvailable
+                || fullRoot.modeBusy) {
+            return
+        }
+
+        fullRoot.modeSelectionOverride = mode
+        fullRoot.pendingModeRequestId =
+            fullRoot.backend.setFixedMode(mode === "fixed")
+    }
+
+    function abortPendingRequests() {
+        const hadPending = fullRoot.modeBusy
+            || fullRoot.fixedBusy
+            || fullRoot.boostBusy
+            || fullRoot.tuningBusy
+
+        if (!hadPending) {
+            return
+        }
+
+        fullRoot.pendingModeRequestId = ""
+        fullRoot.pendingFixedRequestId = ""
+        fullRoot.pendingBoostRequestId = ""
+        fullRoot.pendingTuneRequestId = ""
+        fullRoot.modeSelectionOverride = ""
+        fullRoot.setFeedback(
+            i18n("Connection lost before the previous request completed."),
+            "error")
+    }
+
+    QQC2.ButtonGroup {
+        id: modeButtonGroup
+    }
+
+    header: WidgetHeading {
+        webUiUrl: fullRoot.webUiUrl
+    }
+
+    Timer {
+        id: feedbackTimer
+
+        interval: 2500
+        onTriggered: {
+            fullRoot.feedbackText = ""
+            fullRoot.feedbackTone = ""
+        }
+    }
+
+    Connections {
+        target: fullRoot.backend
+
+        function onLatestStateChanged() {
+            fullRoot.syncDraftsFromState()
+        }
+
+        function onIsConnectedChanged() {
+            if (!fullRoot.connected) {
+                fullRoot.abortPendingRequests()
+            }
+        }
+
+        function onRequestFinished(requestId, ok, errorMessage, message) {
+            if (requestId === fullRoot.pendingModeRequestId) {
+                fullRoot.pendingModeRequestId = ""
+                if (!ok) {
+                    fullRoot.modeSelectionOverride = ""
+                }
+                fullRoot.setFeedback(
+                    ok
+                        ? i18n("Mode updated")
+                        : i18n("Failed to update mode: %1", errorMessage),
+                    ok ? "success" : "error"
+                )
+                return
             }
 
-            PlasmaComponents.ToolButton {
-                icon.name: "internet-web-browser"
-                PlasmaComponents.ToolTip.text: i18n("Open Web UI")
-                PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
-                PlasmaComponents.ToolTip.visible: hovered
-                onClicked: Qt.openUrlExternally(fullRoot.webUiUrl)
+            if (requestId === fullRoot.pendingFixedRequestId) {
+                fullRoot.pendingFixedRequestId = ""
+                fullRoot.setFeedback(
+                    ok
+                        ? i18n("Fixed speed saved")
+                        : i18n("Failed to save fixed speed: %1", errorMessage),
+                    ok ? "success" : "error"
+                )
+                return
+            }
+
+            if (requestId === fullRoot.pendingTuneRequestId) {
+                fullRoot.pendingTuneRequestId = ""
+                fullRoot.setFeedback(
+                    ok
+                        ? i18n("CPU limits applied")
+                        : i18n("Failed to apply CPU limits: %1", errorMessage),
+                    ok ? "success" : "error"
+                )
+                return
+            }
+
+            if (requestId === fullRoot.pendingBoostRequestId) {
+                fullRoot.pendingBoostRequestId = ""
+                fullRoot.setFeedback(
+                    ok
+                        ? i18n("GPU boost updated")
+                        : i18n("Failed to update GPU boost: %1", errorMessage),
+                    ok ? "success" : "error"
+                )
             }
         }
     }
 
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Kirigami.Units.largeSpacing
-        spacing: Kirigami.Units.largeSpacing
+    Component.onCompleted: syncDraftsFromState()
+
+    PlasmaComponents.ScrollView {
+        id: scrollView
+
         visible: fullRoot.connected
+            && fullRoot.hasState
+            && fullRoot.protocolCompatible
+        anchors.fill: parent
+        clip: true
+        QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
-        PlasmaComponents.Label {
-            text: i18n("Connected")
-            color: Kirigami.Theme.positiveTextColor
-            font.bold: true
-            Layout.alignment: Qt.AlignHCenter
-        }
-
-        // Activity Section
-        GridLayout {
-            columns: 2
-            columnSpacing: Kirigami.Units.largeSpacing
-            rowSpacing: Kirigami.Units.smallSpacing
-            Layout.fillWidth: true
-            visible: fullRoot.hasActivity
-
-            PlasmaComponents.Label { text: i18n("CPU Temp:") }
-            PlasmaComponents.Label { text: fullRoot.activity ? i18n("%1°C", Math.round(fullRoot.activity.avgCPUTemp)) : "--" }
-
-            PlasmaComponents.Label { text: i18n("GPU Temp:") }
-            PlasmaComponents.Label { text: fullRoot.activity ? i18n("%1°C", Math.round(fullRoot.activity.avgGPUTemp)) : "--" }
-
-            PlasmaComponents.Label { text: i18n("Fan Speed:") }
-            PlasmaComponents.Label { text: fullRoot.activity && fullRoot.activity.appliedSpeed != null ? i18n("%1%", Math.round(fullRoot.activity.appliedSpeed)) : "--" }
-
-            PlasmaComponents.Label { text: i18n("Target:") }
-            PlasmaComponents.Label { text: fullRoot.activity && fullRoot.activity.target !== undefined ? i18n("%1%", Math.round(fullRoot.activity.target)) : "--" }
-        }
-
-        PlasmaComponents.Label {
-            visible: fullRoot.connected && !fullRoot.hasActivity
-            text: i18n("Waiting for activity data…")
-            Layout.alignment: Qt.AlignHCenter
-            font.italic: true
-            color: Kirigami.Theme.disabledTextColor
-        }
-
-        // State Section
-        GridLayout {
-            columns: 2
-            columnSpacing: Kirigami.Units.largeSpacing
-            rowSpacing: Kirigami.Units.smallSpacing
-            Layout.fillWidth: true
-            visible: fullRoot.hasState
-
-            PlasmaComponents.Label { text: i18n("Protocol:") }
-            PlasmaComponents.Label { text: fullRoot.state ? fullRoot.state.protocolVersion : "--" }
-
-            PlasmaComponents.Label { text: i18n("Mode:") }
-            PlasmaComponents.Label { text: fullRoot.state && fullRoot.state.doFixedSpeed !== undefined ? (fullRoot.state.doFixedSpeed ? i18n("Fixed") : i18n("Curve")) : "--" }
-
-            PlasmaComponents.Label { text: i18n("Fixed Speed:") }
-            PlasmaComponents.Label { text: fullRoot.state && fullRoot.state.fixedPercentage !== undefined ? i18n("%1%", fullRoot.state.fixedPercentage) : "--" }
-
-            PlasmaComponents.Label { text: i18n("PL1:") }
-            PlasmaComponents.Label { text: fullRoot.state && fullRoot.state.pl1 !== undefined ? i18n("%1 W", fullRoot.state.pl1) : "--" }
-
-            PlasmaComponents.Label { text: i18n("PL2:") }
-            PlasmaComponents.Label { text: fullRoot.state && fullRoot.state.pl2 !== undefined ? i18n("%1 W", fullRoot.state.pl2) : "--" }
-
-            PlasmaComponents.Label { text: i18n("GPU Boost:") }
-            PlasmaComponents.Label { text: fullRoot.state && fullRoot.state.gpuBoost !== undefined ? (fullRoot.state.gpuBoost ? i18n("On") : i18n("Off")) : "--" }
-        }
-
-        PlasmaComponents.Label {
-            visible: fullRoot.connected && !fullRoot.hasState
-            text: i18n("Waiting for state data…")
-            Layout.alignment: Qt.AlignHCenter
-            font.italic: true
-            color: Kirigami.Theme.disabledTextColor
-        }
-
-        // Controls Section
         ColumnLayout {
-            Layout.fillWidth: true
-            visible: fullRoot.state != null
+            width: scrollView.availableWidth
             spacing: Kirigami.Units.largeSpacing
 
-            // Mode Toggle & Fixed Speed
-            ColumnLayout {
+            Item {
                 Layout.fillWidth: true
-                spacing: Kirigami.Units.largeSpacing
+                implicitHeight: statusLabel.implicitHeight
 
-                // Mode Toggle
+                PlasmaComponents.Label {
+                    id: statusLabel
+
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    text: fullRoot.connectionSummaryText
+                    color: fullRoot.connectionSummaryColor
+                    font: Kirigami.Theme.smallFont
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            InlineStatusMessage {
+                messageText: fullRoot.feedbackText
+                tone: fullRoot.feedbackTone
+            }
+
+            Kirigami.InlineMessage {
+                visible: fullRoot.staleActivity
+                    && fullRoot.connected
+                    && fullRoot.hasState
+                    && fullRoot.protocolCompatible
+                type: Kirigami.MessageType.Warning
+                text: i18n("Telemetry last updated %1 seconds ago. ALFC reconnects automatically, but you can retry now if the values stay stale.",
+                    fullRoot.staleActivitySeconds)
+                Layout.fillWidth: true
+                actions: Kirigami.Action {
+                    icon.name: "view-refresh"
+                    text: i18nc("@action:button", "Reconnect")
+                    onTriggered: fullRoot.backend?.reconnect()
+                }
+            }
+
+            SectionCard {
+                title: i18n("Overview")
+                subtitle: i18n("Temperatures and fan targets stay in sync with the web UI and other connected clients.")
+
+                GridLayout {
+                    columns: fullRoot.isPlanar ? 4 : 2
+                    columnSpacing: Kirigami.Units.mediumSpacing
+                    rowSpacing: Kirigami.Units.mediumSpacing
+                    Layout.fillWidth: true
+
+                    MetricTile {
+                        label: i18n("CPU")
+                        value: fullRoot.hasTelemetrySnapshot
+                            ? i18n("%1\u00B0C", Math.round(fullRoot.safeActivity.avgCPUTemp))
+                            : "--"
+                        valueColor: fullRoot.hasActivity
+                            ? fullRoot.tempColor(
+                                Math.round(fullRoot.safeActivity.avgCPUTemp))
+                            : Kirigami.Theme.disabledTextColor
+                        subtitle: fullRoot.hasActivity
+                            ? i18n("Average temperature")
+                            : (fullRoot.staleActivity
+                                ? i18n("Stale (%1s ago)", fullRoot.staleActivitySeconds)
+                                : i18n("Average temperature"))
+                    }
+
+                    MetricTile {
+                        label: i18n("GPU")
+                        value: fullRoot.hasTelemetrySnapshot
+                            ? i18n("%1\u00B0C", Math.round(fullRoot.safeActivity.avgGPUTemp))
+                            : "--"
+                        valueColor: fullRoot.hasActivity
+                            ? fullRoot.tempColor(
+                                Math.round(fullRoot.safeActivity.avgGPUTemp))
+                            : Kirigami.Theme.disabledTextColor
+                        subtitle: fullRoot.hasActivity
+                            ? i18n("Average temperature")
+                            : (fullRoot.staleActivity
+                                ? i18n("Stale (%1s ago)", fullRoot.staleActivitySeconds)
+                                : i18n("Average temperature"))
+                    }
+
+                    MetricTile {
+                        label: i18n("Fan")
+                        value: fullRoot.hasTelemetrySnapshot
+                            ? (fullRoot.safeActivity.appliedSpeed != null
+                                ? i18n("%1%", Math.round(fullRoot.safeActivity.appliedSpeed))
+                                : i18n("Pending"))
+                            : (fullRoot.fixedModeEnabled
+                                ? i18n("%1%", fullRoot.safeState.fixedPercentage)
+                                : "--")
+                        subtitle: fullRoot.hasTelemetrySnapshot
+                            ? i18n("Target %1%", Math.round(fullRoot.safeActivity.target))
+                            : i18n("Current output")
+                    }
+
+                    MetricTile {
+                        label: i18n("Mode")
+                        value: fullRoot.hasState
+                            ? (fullRoot.fanControlAvailable
+                                ? (fullRoot.fixedModeEnabled
+                                    ? i18n("Fixed")
+                                    : i18n("Auto"))
+                                : i18n("Unavailable"))
+                            : "--"
+                        subtitle: fullRoot.hasState
+                            ? (fullRoot.fanControlAvailable
+                                ? (fullRoot.fixedModeEnabled
+                                    ? i18n("Stored speed %1%",
+                                        fullRoot.safeState.fixedPercentage)
+                                    : i18n("Curve control active"))
+                                : i18n("Backend connected without fan control"))
+                            : i18n("Waiting for state")
+                    }
+                }
+            }
+
+            SectionCard {
+                title: i18n("Quick Control")
+                subtitle: i18n("Switch modes quickly on the desktop or from the popup without opening the browser UI.")
+
                 RowLayout {
-                    Layout.alignment: Qt.AlignHCenter
-                    spacing: Kirigami.Units.largeSpacing
+                    visible: fullRoot.fanControlAvailable
+                    Layout.fillWidth: true
+                    spacing: 0
 
-                    PlasmaComponents.Label {
-                        text: i18n("Mode:")
-                        font.bold: true
+                    PlasmaComponents.Button {
+                        text: i18n("Auto")
+                        checkable: true
+                        checked: fullRoot.selectedMode === "auto"
+                        enabled: fullRoot.hasState
+                            && fullRoot.fanControlAvailable
+                            && !fullRoot.modeBusy
+                        Layout.fillWidth: true
+                        QQC2.ButtonGroup.group: modeButtonGroup
+                        Accessible.name: i18n("Auto fan mode")
+                        Accessible.description: i18n("Use the stored CPU and GPU fan curves.")
+                        onClicked: fullRoot.requestMode("auto")
                     }
 
-                    PlasmaComponents.Label { text: i18n("Auto") }
-
-                    PlasmaComponents.Switch {
-                        checked: fullRoot.state && fullRoot.state.doFixedSpeed === true
-                        onToggled: {
-                            backend.send({
-                                kind: "dofixedspeed",
-                                methodId: "ui-toggle",
-                                methodName: "setMode",
-                                data: checked
-                            })
-                        }
+                    PlasmaComponents.Button {
+                        text: i18n("Fixed")
+                        checkable: true
+                        checked: fullRoot.selectedMode === "fixed"
+                        enabled: fullRoot.hasState
+                            && fullRoot.fanControlAvailable
+                            && !fullRoot.modeBusy
+                        Layout.fillWidth: true
+                        QQC2.ButtonGroup.group: modeButtonGroup
+                        Accessible.name: i18n("Fixed fan mode")
+                        Accessible.description: i18n("Lock the fans to a fixed output percentage.")
+                        onClicked: fullRoot.requestMode("fixed")
                     }
-
-                    PlasmaComponents.Label { text: i18n("Fixed") }
                 }
 
-                // Fixed Speed Control
-                ColumnLayout {
+                PlasmaComponents.Label {
+                    text: !fullRoot.fanControlAvailable
+                        ? i18n("Fan control is not available on this system.")
+                        : (fullRoot.fixedModeEnabled
+                            ? i18n("Fixed mode is active. Temperatures continue to update, but the fan output stays locked.")
+                            : i18n("Auto mode follows the stored CPU/GPU curves below."))
+                    color: Kirigami.Theme.disabledTextColor
+                    font: Kirigami.Theme.smallFont
+                    wrapMode: Text.WordWrap
                     Layout.fillWidth: true
-                    opacity: fullRoot.state && fullRoot.state.doFixedSpeed === true ? 1.0 : 0.0
-                    visible: opacity > 0
-                    Behavior on opacity { NumberAnimation { duration: Kirigami.Units.longDuration } }
+                }
+
+                ColumnLayout {
+                    visible: fullRoot.fanControlAvailable
+                    Layout.fillWidth: true
+                    enabled: fullRoot.hasState
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Kirigami.Units.largeSpacing
+                        spacing: Kirigami.Units.smallSpacing
 
-                        PlasmaComponents.Label { text: i18n("Fixed Speed:") }
+                        PlasmaComponents.Label {
+                            text: i18n("Fixed speed")
+                            Layout.preferredWidth: Kirigami.Units.gridUnit * 6
+                        }
 
                         PlasmaComponents.Slider {
                             id: speedSlider
+
                             Layout.fillWidth: true
                             from: 0
                             to: 100
                             stepSize: 1
+                            enabled: fullRoot.hasState
+                                && fullRoot.fanControlAvailable
+                                && !fullRoot.fixedBusy
+                            Accessible.name: i18n("Fixed fan speed")
+                            Accessible.description: i18n("Choose the fixed fan speed percentage.")
 
                             Binding on value {
-                                value: fullRoot.state && fullRoot.state.fixedPercentage !== undefined ? fullRoot.state.fixedPercentage : 0
-                                when: !speedSlider.pressed && fullRoot.state != null
+                                value: fullRoot.draftFixedPercentage
+                                when: !speedSlider.pressed
                                 restoreMode: Binding.RestoreBinding
                             }
 
-                            onPressedChanged: {
-                                if (!pressed) {
-                                    applySpeed(value)
-                                }
-                            }
+                            onMoved: fullRoot.draftFixedPercentage = Math.round(value)
                         }
 
                         PlasmaComponents.TextField {
                             id: speedField
-                            text: Math.round(speedSlider.value).toString()
-                            Layout.preferredWidth: Kirigami.Units.gridUnit * 3
-                            horizontalAlignment: Text.AlignRight
-                            validator: IntValidator { bottom: 0; top: 100 }
 
-                            onAccepted: {
-                                var val = parseInt(text)
-                                if (!isNaN(val)) {
-                                    if (val < 0) val = 0;
-                                    if (val > 100) val = 100;
-                                    speedSlider.value = val
-                                    applySpeed(val)
-                                    focus = false
+                            Layout.preferredWidth: Kirigami.Units.gridUnit * 4
+                            horizontalAlignment: Text.AlignHCenter
+                            Accessible.name: i18n("Fixed fan speed percentage")
+                            Accessible.description: i18n("Enter a fixed fan speed from 0 to 100 percent.")
+                            validator: IntValidator {
+                                bottom: 0
+                                top: 100
+                            }
+
+                            Binding on text {
+                                value: fullRoot.draftFixedPercentage.toString()
+                                when: !speedField.activeFocus
+                                restoreMode: Binding.RestoreBinding
+                            }
+
+                            onTextEdited: {
+                                const value = parseInt(text, 10)
+                                if (!Number.isNaN(value)) {
+                                    fullRoot.draftFixedPercentage =
+                                        Math.max(0, Math.min(100, value))
+                                }
+                            }
+
+                            onEditingFinished: {
+                                const value = parseInt(text, 10)
+                                if (!Number.isNaN(value)) {
+                                    fullRoot.draftFixedPercentage =
+                                        Math.max(0, Math.min(100, value))
                                 }
                             }
                         }
 
-                        PlasmaComponents.Label { text: i18n("%") }
+                        PlasmaComponents.Button {
+                            text: fullRoot.fixedBusy
+                                ? i18n("Saving…")
+                                : i18n("Apply")
+                            enabled: fullRoot.hasState
+                                && fullRoot.fanControlAvailable
+                                && !fullRoot.fixedBusy
+                            Accessible.name: i18n("Apply fixed fan speed")
+                            Accessible.description: i18n("Send the selected fixed fan speed to the backend.")
+                            onClicked: fullRoot.pendingFixedRequestId =
+                                fullRoot.backend.setFixedPercentage(
+                                    fullRoot.draftFixedPercentage)
+                        }
                     }
+                }
+            }
+
+            SectionCard {
+                visible: fullRoot.fanControlAvailable
+                title: i18n("Fan Curves")
+                subtitle: i18n("Edit the stored CPU and GPU fan curves. The higher target always wins because both fans share heat pipes.")
+
+                FanTableEditor {
+                    backend: fullRoot.backend
+                    Layout.fillWidth: true
+                    Layout.minimumHeight: Kirigami.Units.gridUnit
+                        * (fullRoot.isPlanar ? 15 : 12)
+                }
+            }
+
+            SectionCard {
+                title: i18n("Advanced")
+                subtitle: i18n("Optional platform features that depend on what the backend reports for this machine.")
+
+                RowLayout {
+                    visible: fullRoot.hasState
+                        && fullRoot.safeState.isGpuBoostAvailable === true
+                    Layout.fillWidth: true
 
                     PlasmaComponents.Label {
-                        id: statusLabel
-                        text: ""
-                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-                        font.family: Kirigami.Theme.smallFont.family
-                        font.italic: true
-                        Layout.alignment: Qt.AlignRight
-                        visible: text !== ""
+                        text: i18n("GPU boost")
+                        Layout.fillWidth: true
                     }
 
-                    Timer {
-                        id: statusTimer
-                        interval: 2000
-                        onTriggered: statusLabel.text = ""
+                    PlasmaComponents.Switch {
+                        checked: fullRoot.hasState
+                            && fullRoot.safeState.gpuBoost === true
+                        enabled: !fullRoot.boostBusy
+                        Accessible.name: i18n("GPU boost")
+                        Accessible.description: i18n("Enable or disable GPU boost on supported systems.")
+                        onClicked: {
+                            fullRoot.pendingBoostRequestId =
+                                fullRoot.backend.setGpuBoost(checked)
+                        }
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    visible: fullRoot.hasState
+                        && fullRoot.safeState.isGpuBoostAvailable === false
+                    text: i18n("GPU boost is not available on this system.")
+                    color: Kirigami.Theme.disabledTextColor
+                    font: Kirigami.Theme.smallFont
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                ColumnLayout {
+                    visible: fullRoot.hasState
+                        && fullRoot.safeState.isCpuTuningAvailable === true
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    PlasmaComponents.Label {
+                        text: i18n("CPU power limits (watts)")
+                        font.bold: true
+                        Layout.fillWidth: true
                     }
 
-                    function applySpeed(val) {
-                        statusLabel.text = i18n("Applying…")
-                        statusLabel.color = Kirigami.Theme.neutralTextColor
-                        backend.send({
-                            kind: "fixedpercentage",
-                            methodId: "ui-fixed-speed",
-                            methodName: "setSpeed",
-                            data: val
-                        })
-                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Kirigami.Units.smallSpacing
 
-                    Connections {
-                        target: backend
-                        function onMessageReceived(msg) {
-                            if (msg.methodId === "ui-fixed-speed") {
-                                if (msg.kind === "success" || msg.kind === "state") {
-                                    statusLabel.text = i18n("Saved")
-                                    statusLabel.color = Kirigami.Theme.positiveTextColor
-                                    statusTimer.restart()
-                                } else if (msg.kind === "error") {
-                                    statusLabel.text = i18n("Error: %1", msg.data || i18n("Unknown"))
-                                    statusLabel.color = Kirigami.Theme.negativeTextColor
+                        PlasmaComponents.Label {
+                            text: i18n("PL1")
+                            Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                        }
+
+                        PlasmaComponents.TextField {
+                            id: pl1Field
+
+                            Layout.fillWidth: true
+                            Accessible.name: i18n("PL1 power limit")
+                            Accessible.description: i18n("Enter the long-duration CPU power limit in watts.")
+                            validator: IntValidator {
+                                bottom: 0
+                                top: 200
+                            }
+
+                            Binding on text {
+                                value: fullRoot.draftPl1.toString()
+                                when: !pl1Field.activeFocus
+                                restoreMode: Binding.RestoreBinding
+                            }
+
+                            onTextEdited: {
+                                const value = parseInt(text, 10)
+                                if (!Number.isNaN(value)) {
+                                    fullRoot.draftPl1 = Math.max(0, Math.min(200, value))
+                                }
+                            }
+
+                            onEditingFinished: {
+                                const value = parseInt(text, 10)
+                                if (!Number.isNaN(value)) {
+                                    fullRoot.draftPl1 = Math.max(0, Math.min(200, value))
                                 }
                             }
                         }
+
+                        PlasmaComponents.Label {
+                            text: i18n("PL2")
+                            Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                        }
+
+                        PlasmaComponents.TextField {
+                            id: pl2Field
+
+                            Layout.fillWidth: true
+                            Accessible.name: i18n("PL2 power limit")
+                            Accessible.description: i18n("Enter the short-duration CPU power limit in watts.")
+                            validator: IntValidator {
+                                bottom: 0
+                                top: 200
+                            }
+
+                            Binding on text {
+                                value: fullRoot.draftPl2.toString()
+                                when: !pl2Field.activeFocus
+                                restoreMode: Binding.RestoreBinding
+                            }
+
+                            onTextEdited: {
+                                const value = parseInt(text, 10)
+                                if (!Number.isNaN(value)) {
+                                    fullRoot.draftPl2 = Math.max(0, Math.min(200, value))
+                                }
+                            }
+
+                            onEditingFinished: {
+                                const value = parseInt(text, 10)
+                                if (!Number.isNaN(value)) {
+                                    fullRoot.draftPl2 = Math.max(0, Math.min(200, value))
+                                }
+                            }
+                        }
+
+                        PlasmaComponents.Button {
+                            text: fullRoot.tuningBusy
+                                ? i18n("Applying…")
+                                : i18n("Apply")
+                            enabled: !fullRoot.tuningBusy
+                            Accessible.name: i18n("Apply CPU power limits")
+                            Accessible.description: i18n("Send the configured PL1 and PL2 values to the backend.")
+                            onClicked: fullRoot.pendingTuneRequestId =
+                                fullRoot.backend.applyTune(
+                                    fullRoot.draftPl1,
+                                    fullRoot.draftPl2)
+                        }
                     }
                 }
-
-                // Fan Curve Editor
-                FanTableEditor {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.minimumHeight: Kirigami.Units.gridUnit * 11
-                    visible: fullRoot.state && fullRoot.state.doFixedSpeed === false
-                    backend: backend
-                }
-            }
-
-            // GPU Boost
-            RowLayout {
-                visible: fullRoot.state && fullRoot.state.isGpuBoostAvailable === true
-                Layout.fillWidth: true
 
                 PlasmaComponents.Label {
-                    text: i18n("GPU Boost:")
+                    visible: fullRoot.hasState
+                        && fullRoot.safeState.isCpuTuningAvailable === false
+                    text: i18n("CPU tuning is not available on this system.")
+                    color: Kirigami.Theme.disabledTextColor
+                    font: Kirigami.Theme.smallFont
+                    wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
-
-                PlasmaComponents.Switch {
-                    checked: fullRoot.state && fullRoot.state.gpuBoost === true
-                    onToggled: {
-                        backend.send({
-                            kind: "set",
-                            methodId: "ui-toggle-boost",
-                            methodName: "SetAIBoostStatus",
-                            data: { Data: checked ? 1 : 0 }
-                        });
-                    }
-                }
-            }
-
-            // CPU Tuning
-            ColumnLayout {
-                visible: fullRoot.state && fullRoot.state.isCpuTuningAvailable === true
-                Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-
-                PlasmaComponents.Label {
-                    text: i18n("CPU Tuning (Watts)")
-                    font.bold: true
-                }
-
-                GridLayout {
-                    columns: 2
-                    columnSpacing: Kirigami.Units.largeSpacing
-                    rowSpacing: Kirigami.Units.smallSpacing
-                    Layout.fillWidth: true
-
-                    PlasmaComponents.Label { text: i18n("PL1:") }
-                    PlasmaComponents.TextField {
-                        id: pl1Field
-                        validator: IntValidator { bottom: 0; top: 200 }
-                        Layout.fillWidth: true
-
-                        Binding on text {
-                            value: fullRoot.state && fullRoot.state.pl1 !== undefined ? fullRoot.state.pl1.toString() : "0"
-                            when: !pl1Field.activeFocus
-                            restoreMode: Binding.RestoreBinding
-                        }
-                    }
-
-                    PlasmaComponents.Label { text: i18n("PL2:") }
-                    PlasmaComponents.TextField {
-                        id: pl2Field
-                        validator: IntValidator { bottom: 0; top: 200 }
-                        Layout.fillWidth: true
-
-                        Binding on text {
-                            value: fullRoot.state && fullRoot.state.pl2 !== undefined ? fullRoot.state.pl2.toString() : "0"
-                            when: !pl2Field.activeFocus
-                            restoreMode: Binding.RestoreBinding
-                        }
-                    }
-                }
-
-                PlasmaComponents.Button {
-                    text: i18n("Apply Limits")
-                    Layout.alignment: Qt.AlignRight
-                    onClicked: {
-                        var p1 = parseInt(pl1Field.text);
-                        var p2 = parseInt(pl2Field.text);
-                        if (!isNaN(p1) && !isNaN(p2)) {
-                            backend.send({
-                                kind: "tune",
-                                methodId: "ui-tune",
-                                methodName: "tune",
-                                data: { pl1: p1, pl2: p2 }
-                            });
-                        }
-                    }
-                }
-            }
-
-            PlasmaComponents.Label {
-                visible: fullRoot.state && fullRoot.state.isCpuTuningAvailable === false
-                text: i18n("CPU Tuning unavailable (Intel XTU issue?)")
-                font.italic: true
-                color: Kirigami.Theme.disabledTextColor
-                Layout.alignment: Qt.AlignHCenter
             }
         }
-
-        Item { Layout.fillHeight: true } // Spacer
     }
 
     PlasmaExtras.PlaceholderMessage {
-        visible: !fullRoot.connected
-        iconName: "network-disconnect"
-        text: backend ? (backend.lastError ? i18n("Disconnected: %1", backend.lastError) : i18n("Disconnected")) : i18n("No Backend")
-        width: parent.width - Kirigami.Units.gridUnit * 2
+        visible: !scrollView.visible
         anchors.centerIn: parent
-
+        width: parent.width - Kirigami.Units.gridUnit * 2
+        iconName: !fullRoot.connected
+            ? "network-disconnect-symbolic"
+            : (!fullRoot.hasState
+                ? "view-refresh-symbolic"
+                : "dialog-error-symbolic")
+        text: fullRoot.backend != null && fullRoot.backend.lastError.length > 0
+            ? i18n("Disconnected: %1", fullRoot.backend.lastError)
+            : (!fullRoot.connected
+                ? (fullRoot.connecting
+                    ? i18n("Connecting to the ALFC backend")
+                    : i18n("Waiting for the ALFC backend"))
+                : (!fullRoot.hasState
+                    ? i18n("Connected to the ALFC backend, waiting for the initial state snapshot")
+                    : i18n("Unsupported backend protocol %1. This widget supports ALFC 1.x.",
+                        fullRoot.protocolVersion)))
         helpfulAction: Kirigami.Action {
-            icon.name: "configure"
-            text: i18n("Configure Server URL")
-            onTriggered: Plasmoid.internalAction("configure").trigger()
+            icon.name: !fullRoot.connected || !fullRoot.hasState
+                ? "view-refresh"
+                : "configure"
+            text: !fullRoot.connected || !fullRoot.hasState
+                ? i18nc("@action:button", "Reconnect")
+                : i18n("Configure Widget")
+            onTriggered: {
+                if (!fullRoot.connected || !fullRoot.hasState) {
+                    fullRoot.backend?.reconnect()
+                } else {
+                    const action = Plasmoid.internalAction("configure")
+                    if (action) {
+                        action.trigger()
+                    }
+                }
+            }
         }
     }
 }

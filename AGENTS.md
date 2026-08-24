@@ -81,8 +81,8 @@ cd server/native/wmiapi && dotnet publish -c Release
 cd server/native/cpuoc-dotnet && dotnet publish -c Release -r win-x64
 
 # Service Management (Linux)
-sudo ./install.sh         # Install as system service
-sudo ./uninstall.sh       # Remove service
+sudo ./install.sh         # Install to /opt/alfc as system service
+sudo /opt/alfc/uninstall.sh  # Remove service and installed files
 
 # Plasmoid
 kpackagetool6 --type Plasma/Applet --install plasmoid/package    # Install

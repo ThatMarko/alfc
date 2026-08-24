@@ -8,6 +8,7 @@ type ACPIModule = {
     methodName: string,
     args?: Args,
   ) => Promise<number>;
+  isAvailable?: () => Promise<boolean>;
   setCall: (methodId: string, methodName: string, args: Args) => Promise<void>;
   wmiInit: () => Promise<void>;
 };
@@ -27,8 +28,30 @@ const cpuocModule: CPUOCModule = await (isLinux
   ? import("./linux/cpuoc")
   : import("./windows/cpuoc"));
 
-const { getCall, wmiInit, setCall } = acpiModule;
+const { getCall: getCallNative, wmiInit, setCall: setCallNative } = acpiModule;
 const { tuneInit, tune: tuneNative } = cpuocModule;
+
+let acpiCallQueue: Promise<void> = Promise.resolve();
+
+function enqueueAcpiCall<T>(operation: () => Promise<T>) {
+  // Both backends expose a single request channel (`/proc/acpi/call` on Linux,
+  // stdin/stdout for the Windows helper), so overlapping requests can corrupt
+  // responses or starve telemetry. Keep all ACPI/WMI calls in order.
+  const result = acpiCallQueue.then(operation, operation);
+  acpiCallQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+function getCall(methodId: string, methodName: string, args?: Args) {
+  return enqueueAcpiCall(() => getCallNative(methodId, methodName, args));
+}
+
+function setCall(methodId: string, methodName: string, args: Args) {
+  return enqueueAcpiCall(() => setCallNative(methodId, methodName, args));
+}
 
 function tune() {
   return tuneNative(state.pl1, state.pl2);
@@ -51,7 +74,22 @@ async function logWithFlush(message: string) {
 }
 
 async function initNativeServices() {
-  if (!isLinux) {
+  if (typeof acpiModule.isAvailable === "function") {
+    try {
+      state.isFanControlAvailable = await promiseWithTimeout(
+        acpiModule.isAvailable(),
+      );
+      if (!state.isFanControlAvailable) {
+        console.warn("[Native] Fan control backend is not available.");
+      }
+    } catch (e) {
+      console.warn(
+        "[Native] Fan control backend availability check failed.",
+        e,
+      );
+      state.isFanControlAvailable = false;
+    }
+  } else if (!isLinux) {
     try {
       await logWithFlush(
         "[Native] Initializing WMI... (If stuck here, there might be a temporary problem with WMI that requires a reboot.)",
@@ -72,6 +110,8 @@ async function initNativeServices() {
     } catch (e) {
       console.warn("[Native] CPU tuning initialization failed.", e);
     }
+  } else {
+    state.isFanControlAvailable = true;
   }
 
   if (state.isFanControlAvailable !== false) {

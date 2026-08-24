@@ -4,8 +4,8 @@ After=network.target systemd-modules-load.service
 
 [Service]
 Type=simple
-WorkingDirectory=/usr/lib/alfc
-ExecStart=/usr/lib/alfc/alfc
+WorkingDirectory=@@INSTALL_DIR@@
+ExecStart=@@INSTALL_DIR@@/alfc
 Environment=NODE_ENV=production
 Restart=always
 RestartSec=5
@@ -15,7 +15,7 @@ StandardError=journal
 # Hardening — restrict what the root service can access
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/proc/acpi/call /usr/lib/alfc
+ReadWritePaths=-/proc/acpi/call @@INSTALL_DIR@@ -/sys/devices/virtual/powercap
 PrivateTmp=true
 NoNewPrivileges=true
 
