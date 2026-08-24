@@ -560,6 +560,7 @@ ColumnLayout {
                             bottom: 0
                             top: 110
                         }
+                        inputMethodHints: Qt.ImhDigitsOnly
                         onTextEdited: {
                             const value = parseInt(text, 10)
                             if (!Number.isNaN(value)) {

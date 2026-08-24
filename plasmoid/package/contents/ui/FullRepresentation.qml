@@ -663,6 +663,7 @@ PlasmaExtras.Representation {
                                 bottom: 0
                                 top: 200
                             }
+                            inputMethodHints: Qt.ImhDigitsOnly
 
                             Binding on text {
                                 value: fullRoot.draftPl1.toString()
@@ -709,6 +710,7 @@ PlasmaExtras.Representation {
                                 bottom: 0
                                 top: 200
                             }
+                            inputMethodHints: Qt.ImhDigitsOnly
 
                             Binding on text {
                                 value: fullRoot.draftPl2.toString()

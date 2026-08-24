@@ -158,6 +158,8 @@ PlasmoidItem {
         backendConnection.setFixedMode(!root.isFixedMode)
     }
 
+    Plasmoid.onSecondaryActivated: root.toggleFanMode()
+
     function openConfiguration() {
         const action = Plasmoid.internalAction("configure")
         if (action) {
