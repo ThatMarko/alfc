@@ -200,6 +200,26 @@ PlasmaExtras.Representation {
             fullRoot.backend.setFixedMode(mode === "fixed")
     }
 
+    function abortPendingRequests() {
+        const hadPending = fullRoot.modeBusy
+            || fullRoot.fixedBusy
+            || fullRoot.boostBusy
+            || fullRoot.tuningBusy
+
+        if (!hadPending) {
+            return
+        }
+
+        fullRoot.pendingModeRequestId = ""
+        fullRoot.pendingFixedRequestId = ""
+        fullRoot.pendingBoostRequestId = ""
+        fullRoot.pendingTuneRequestId = ""
+        fullRoot.modeSelectionOverride = ""
+        fullRoot.setFeedback(
+            i18n("Connection lost before the previous request completed."),
+            "error")
+    }
+
     QQC2.ButtonGroup {
         id: modeButtonGroup
     }
@@ -223,6 +243,12 @@ PlasmaExtras.Representation {
 
         function onLatestStateChanged() {
             fullRoot.syncDraftsFromState()
+        }
+
+        function onIsConnectedChanged() {
+            if (!fullRoot.connected) {
+                fullRoot.abortPendingRequests()
+            }
         }
 
         function onRequestFinished(requestId, ok, errorMessage, message) {

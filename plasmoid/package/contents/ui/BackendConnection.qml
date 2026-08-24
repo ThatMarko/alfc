@@ -1,18 +1,14 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQml
 import QtWebSockets
-
-import org.kde.plasma.plasmoid
-import "." as ALFC
-import "UrlUtils.js" as UrlUtils
 
 Item {
     id: root
 
-    readonly property string url: UrlUtils.normalizedServerUrl(
-        ALFC.WidgetSettings.serverUrl)
+    required property string serverUrl
+
+    readonly property string url: serverUrl
     readonly property bool isConnected: socket.status === WebSocket.Open
     readonly property bool isConnecting: socket.status === WebSocket.Connecting
     readonly property bool hasState: latestState != null
