@@ -48,43 +48,8 @@ PlasmoidItem {
         | PlasmaCore.Types.ConfigurableBackground
     activationTogglesExpanded: true
 
-    function switchSizeFromSize(formFactor, compactMax, fullMin) {
-        // Match KDE's shipped widgets: desktop applets render the full
-        // representation directly instead of switching by size.
-        if (root.isPlanar) {
-            return -1
-        }
-
-        if (Plasmoid.formFactor === formFactor) {
-            return 1
-        }
-
-        if (!Number.isFinite(compactMax)) {
-            compactMax = Kirigami.Units.iconSizes.enormous - 1
-        }
-
-        if (fullMin <= 0) {
-            fullMin = Kirigami.Units.iconSizes.enormous - 1
-        }
-
-        return Math.max(compactMax, fullMin)
-    }
-
-    function layoutValue(item, propertyName, fallbackValue) {
-        if (!item || !item.Layout) {
-            return fallbackValue
-        }
-
-        const value = item.Layout[propertyName]
-        return value !== undefined && value !== null ? value : fallbackValue
-    }
-
-    switchWidth: switchSizeFromSize(PlasmaCore.Types.Horizontal,
-        layoutValue(compactRepresentationItem, "maximumWidth", Infinity),
-        layoutValue(fullRepresentationItem, "minimumWidth", -1))
-    switchHeight: switchSizeFromSize(PlasmaCore.Types.Vertical,
-        layoutValue(compactRepresentationItem, "maximumHeight", Infinity),
-        layoutValue(fullRepresentationItem, "minimumHeight", -1))
+    switchWidth: root.isPlanar ? -1 : Kirigami.Units.iconSizes.enormous
+    switchHeight: root.isPlanar ? -1 : Kirigami.Units.iconSizes.enormous
 
     Plasmoid.status: {
         if (root.hasState && !root.protocolCompatible) {

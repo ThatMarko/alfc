@@ -494,7 +494,9 @@ PlasmaExtras.Representation {
                         spacing: Kirigami.Units.smallSpacing
 
                         PlasmaComponents.Label {
-                            text: i18n("Fixed speed")
+                            text: fullRoot.fixedModeEnabled
+                                ? i18n("Fixed speed")
+                                : i18n("Fixed preset")
                             Layout.preferredWidth: Kirigami.Units.gridUnit * 6
                         }
 
@@ -543,6 +545,14 @@ PlasmaExtras.Representation {
                                 if (!Number.isNaN(value)) {
                                     fullRoot.draftFixedPercentage =
                                         Math.max(0, Math.min(100, value))
+                                }
+                            }
+
+                            onAccepted: {
+                                if (fullRoot.hasState && fullRoot.fanControlAvailable && !fullRoot.fixedBusy) {
+                                    fullRoot.pendingFixedRequestId =
+                                        fullRoot.backend.setFixedPercentage(
+                                            fullRoot.draftFixedPercentage)
                                 }
                             }
 
@@ -667,6 +677,15 @@ PlasmaExtras.Representation {
                                 }
                             }
 
+                            onAccepted: {
+                                if (!fullRoot.tuningBusy) {
+                                    fullRoot.pendingTuneRequestId =
+                                        fullRoot.backend.applyTune(
+                                            fullRoot.draftPl1,
+                                            fullRoot.draftPl2)
+                                }
+                            }
+
                             onEditingFinished: {
                                 const value = parseInt(text, 10)
                                 if (!Number.isNaN(value)) {
@@ -701,6 +720,15 @@ PlasmaExtras.Representation {
                                 const value = parseInt(text, 10)
                                 if (!Number.isNaN(value)) {
                                     fullRoot.draftPl2 = Math.max(0, Math.min(200, value))
+                                }
+                            }
+
+                            onAccepted: {
+                                if (!fullRoot.tuningBusy) {
+                                    fullRoot.pendingTuneRequestId =
+                                        fullRoot.backend.applyTune(
+                                            fullRoot.draftPl1,
+                                            fullRoot.draftPl2)
                                 }
                             }
 
