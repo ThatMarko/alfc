@@ -387,35 +387,39 @@ ColumnLayout {
                     return paddingTop + plotHeight - ((clamped - minSpeed) / (maxSpeed - minSpeed)) * plotHeight
                 }
 
-                ctx.strokeStyle = Qt.alpha(Kirigami.Theme.textColor, 0.08)
+                ctx.strokeStyle = Qt.alpha(Kirigami.Theme.textColor, 0.06)
                 ctx.lineWidth = 1
-                ctx.fillStyle = Qt.alpha(Kirigami.Theme.disabledTextColor, 0.8)
+                ctx.fillStyle = Qt.alpha(Kirigami.Theme.disabledTextColor, 0.85)
                 ctx.font = "10px sans-serif"
                 ctx.textAlign = "right"
                 ctx.textBaseline = "middle"
 
-                const speedLevels = [0, 50, 100]
+                const speedLevels = [0, 25, 50, 75, 100]
                 for (let i = 0; i < speedLevels.length; i++) {
                     const spd = speedLevels[i]
                     const y = yForSpeed(spd)
                     ctx.beginPath()
                     ctx.moveTo(paddingLeft, y)
                     ctx.lineTo(paddingLeft + plotWidth, y)
+                    ctx.strokeStyle = Qt.alpha(Kirigami.Theme.textColor, spd === 0 || spd === 100 ? 0.12 : 0.05)
                     ctx.stroke()
-                    ctx.fillText(spd + "%", paddingLeft - 4, y)
+                    if (spd % 50 === 0) {
+                        ctx.fillText(spd + "%", paddingLeft - 4, y)
+                    }
                 }
 
                 ctx.textAlign = "center"
                 ctx.textBaseline = "top"
-                const tempMarks = [30, 60, 90]
+                const tempMarks = [30, 50, 70, 90]
                 for (let i = 0; i < tempMarks.length; i++) {
                     const tmp = tempMarks[i]
                     const x = xForTemp(tmp)
                     ctx.beginPath()
                     ctx.moveTo(x, paddingTop)
                     ctx.lineTo(x, paddingTop + plotHeight)
+                    ctx.strokeStyle = Qt.alpha(Kirigami.Theme.textColor, 0.05)
                     ctx.stroke()
-                    ctx.fillText(tmp + "°", x, paddingTop + plotHeight + 4)
+                    ctx.fillText(tmp + "\u00B0", x, paddingTop + plotHeight + 4)
                 }
 
                 const count = curveCanvas.model ? curveCanvas.model.count : 0

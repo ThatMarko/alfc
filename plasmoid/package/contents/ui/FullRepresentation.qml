@@ -119,6 +119,9 @@ PlasmaExtras.Representation {
         return Kirigami.Theme.disabledTextColor
     }
 
+    readonly property bool isWide: fullRoot.width >= Kirigami.Units.gridUnit * 36
+        || (isPlanar && fullRoot.width >= Kirigami.Units.gridUnit * 30)
+
     property int draftFixedPercentage: 50
     property int draftPl1: 37
     property int draftPl2: 106
@@ -131,10 +134,10 @@ PlasmaExtras.Representation {
     property string feedbackTone: ""
 
     collapseMarginsHint: true
-    Layout.minimumWidth: Kirigami.Units.gridUnit * (isPlanar ? 30 : 24)
-    Layout.minimumHeight: Kirigami.Units.gridUnit * (isPlanar ? 30 : 24)
-    Layout.preferredWidth: Kirigami.Units.gridUnit * (isPlanar ? 34 : 26)
-    Layout.preferredHeight: Kirigami.Units.gridUnit * (isPlanar ? 36 : 30)
+    Layout.minimumWidth: Kirigami.Units.gridUnit * (isPlanar ? 24 : 22)
+    Layout.minimumHeight: Kirigami.Units.gridUnit * (isPlanar ? 24 : 22)
+    Layout.preferredWidth: Kirigami.Units.gridUnit * (isPlanar ? 44 : 26)
+    Layout.preferredHeight: Kirigami.Units.gridUnit * (isPlanar ? 30 : 32)
 
     function tempColor(value) {
         if (value >= fullRoot.warningTemp) {
@@ -316,11 +319,18 @@ PlasmaExtras.Representation {
         clip: true
         QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
-        ColumnLayout {
+        GridLayout {
+            id: contentGrid
+
             width: scrollView.availableWidth
-            spacing: Kirigami.Units.largeSpacing
+            columns: fullRoot.isWide ? 2 : 1
+            columnSpacing: Kirigami.Units.largeSpacing
+            rowSpacing: Kirigami.Units.largeSpacing
 
             Item {
+                Layout.column: 0
+                Layout.row: 0
+                Layout.columnSpan: fullRoot.isWide ? 2 : 1
                 Layout.fillWidth: true
                 implicitHeight: statusLabel.implicitHeight
 
@@ -337,11 +347,17 @@ PlasmaExtras.Representation {
             }
 
             InlineStatusMessage {
+                Layout.column: 0
+                Layout.row: 1
+                Layout.columnSpan: fullRoot.isWide ? 2 : 1
                 messageText: fullRoot.feedbackText
                 tone: fullRoot.feedbackTone
             }
 
             Kirigami.InlineMessage {
+                Layout.column: 0
+                Layout.row: 2
+                Layout.columnSpan: fullRoot.isWide ? 2 : 1
                 visible: fullRoot.staleActivity
                     && fullRoot.connected
                     && fullRoot.hasState
@@ -358,11 +374,17 @@ PlasmaExtras.Representation {
             }
 
             SectionCard {
+                id: overviewCard
+                Layout.column: 0
+                Layout.row: 3
+                Layout.fillWidth: true
+                Layout.preferredWidth: fullRoot.isWide ? Kirigami.Units.gridUnit * 18 : -1
+
                 title: i18n("Overview")
                 subtitle: i18n("Temperatures and fan targets stay in sync with the web UI and other connected clients.")
 
                 GridLayout {
-                    columns: fullRoot.isPlanar ? 4 : 2
+                    columns: fullRoot.isPlanar && !fullRoot.isWide ? 4 : 2
                     columnSpacing: Kirigami.Units.mediumSpacing
                     rowSpacing: Kirigami.Units.mediumSpacing
                     Layout.fillWidth: true
@@ -435,6 +457,12 @@ PlasmaExtras.Representation {
             }
 
             SectionCard {
+                id: quickControlCard
+                Layout.column: 0
+                Layout.row: 4
+                Layout.fillWidth: true
+                Layout.preferredWidth: fullRoot.isWide ? Kirigami.Units.gridUnit * 18 : -1
+
                 title: i18n("Quick Control")
                 subtitle: i18n("Switch modes quickly on the desktop or from the popup without opening the browser UI.")
 
@@ -533,6 +561,7 @@ PlasmaExtras.Representation {
                                 bottom: 0
                                 top: 100
                             }
+                            inputMethodHints: Qt.ImhDigitsOnly
 
                             Binding on text {
                                 value: fullRoot.draftFixedPercentage.toString()
@@ -583,19 +612,34 @@ PlasmaExtras.Representation {
             }
 
             SectionCard {
+                id: fanCurvesCard
                 visible: fullRoot.fanControlAvailable
+                Layout.column: fullRoot.isWide ? 1 : 0
+                Layout.row: fullRoot.isWide ? 3 : 5
+                Layout.rowSpan: fullRoot.isWide ? 3 : 1
+                Layout.fillWidth: true
+                Layout.fillHeight: fullRoot.isWide
+                Layout.preferredWidth: fullRoot.isWide ? Kirigami.Units.gridUnit * 22 : -1
+
                 title: i18n("Fan Curves")
                 subtitle: i18n("Edit the stored CPU and GPU fan curves. The higher target always wins because both fans share heat pipes.")
 
                 FanTableEditor {
                     backend: fullRoot.backend
                     Layout.fillWidth: true
+                    Layout.fillHeight: fullRoot.isWide
                     Layout.minimumHeight: Kirigami.Units.gridUnit
-                        * (fullRoot.isPlanar ? 15 : 12)
+                        * (fullRoot.isPlanar ? 16 : 12)
                 }
             }
 
             SectionCard {
+                id: advancedCard
+                Layout.column: 0
+                Layout.row: fullRoot.isWide ? 5 : 6
+                Layout.fillWidth: true
+                Layout.preferredWidth: fullRoot.isWide ? Kirigami.Units.gridUnit * 18 : -1
+
                 title: i18n("Advanced")
                 subtitle: i18n("Optional platform features that depend on what the backend reports for this machine.")
 
