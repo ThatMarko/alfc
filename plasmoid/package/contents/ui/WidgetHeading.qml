@@ -68,7 +68,7 @@ PlasmaExtras.PlasmoidHeading {
                 source: actionsButton.singleAction !== null
                     ? actionsButton.singleAction.icon
                     : ""
-                visible: actionsButton.singleAction
+                visible: actionsButton.singleAction !== null
             }
 
             onToggled: {

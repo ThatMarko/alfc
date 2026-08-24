@@ -417,8 +417,17 @@ ColumnLayout {
                 const points = []
                 for (let i = 0; i < count; i++) {
                     const row = curveCanvas.model.get(i)
-                    points.push({ temp: parseInt(row.temp, 10), speed: parseInt(row.speed, 10) })
+                    if (!row) continue
+                    const tempVal = parseInt(row.temp, 10)
+                    const speedVal = parseInt(row.speed, 10)
+                    if (!Number.isNaN(tempVal) && !Number.isNaN(speedVal)) {
+                        points.push({
+                            temp: tempVal,
+                            speed: Math.max(0, Math.min(100, speedVal))
+                        })
+                    }
                 }
+                if (points.length === 0) return
                 points.sort((a, b) => a.temp - b.temp)
 
                 ctx.beginPath()

@@ -230,7 +230,6 @@ Item {
                 interval: 250
                 onTriggered: {
                     compactRoot.plasmoidItem.expanded = true
-                    activationArea.wasExpanded = true
                 }
             }
         }
