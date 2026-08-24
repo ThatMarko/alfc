@@ -15,7 +15,7 @@ StandardError=journal
 # Hardening — restrict what the root service can access
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/proc/acpi/call @@INSTALL_DIR@@ -/sys/devices/virtual/powercap
+ReadWritePaths=-/proc/acpi/call @@INSTALL_DIR@@ -/sys/devices/virtual/powercap
 PrivateTmp=true
 NoNewPrivileges=true
 
