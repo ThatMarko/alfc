@@ -39,9 +39,9 @@ PlasmoidItem {
         || state.isFanControlAvailable !== false
     readonly property bool isFixedMode: state != null
         && state.doFixedSpeed === true
-    readonly property bool isOverheating: activity != null
-        && (Math.round(activity.avgCPUTemp) >= warningTemp
-            || Math.round(activity.avgGPUTemp) >= warningTemp)
+    readonly property bool isOverheating: telemetryActivity != null
+        && (Math.round(telemetryActivity.avgCPUTemp) >= warningTemp
+            || Math.round(telemetryActivity.avgGPUTemp) >= warningTemp)
 
     Plasmoid.title: i18n("Aorus Laptop Fan Control")
     Plasmoid.backgroundHints: PlasmaCore.Types.DefaultBackground

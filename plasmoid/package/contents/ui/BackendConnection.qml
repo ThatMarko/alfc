@@ -195,6 +195,9 @@ Item {
 
             try {
                 const data = JSON.parse(message)
+                if (!data || typeof data !== "object") {
+                    return
+                }
                 root.messageReceived(data)
 
                 if (data.kind === "state") {

@@ -165,15 +165,15 @@ PlasmaExtras.Representation {
 
         fullRoot.syncModeSelection()
 
-        if (fullRoot.canSyncFixedDraft) {
+        if (fullRoot.canSyncFixedDraft && typeof fullRoot.safeState.fixedPercentage === "number") {
             fullRoot.draftFixedPercentage = fullRoot.safeState.fixedPercentage
         }
 
-        if (fullRoot.canSyncPl1Draft) {
+        if (fullRoot.canSyncPl1Draft && typeof fullRoot.safeState.pl1 === "number") {
             fullRoot.draftPl1 = fullRoot.safeState.pl1
         }
 
-        if (fullRoot.canSyncPl2Draft) {
+        if (fullRoot.canSyncPl2Draft && typeof fullRoot.safeState.pl2 === "number") {
             fullRoot.draftPl2 = fullRoot.safeState.pl2
         }
     }

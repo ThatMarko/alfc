@@ -47,11 +47,18 @@ ColumnLayout {
     function populateModel(model, table) {
         model.clear()
 
+        if (!Array.isArray(table)) {
+            return
+        }
+
         for (let index = 0; index < table.length; index += 1) {
-            model.append({
-                temp: table[index][0],
-                speed: table[index][1]
-            })
+            const entry = table[index]
+            if (Array.isArray(entry) && entry.length >= 2) {
+                model.append({
+                    temp: Math.round(entry[0]),
+                    speed: Math.round(entry[1])
+                })
+            }
         }
     }
 
