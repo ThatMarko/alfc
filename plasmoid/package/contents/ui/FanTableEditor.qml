@@ -312,6 +312,176 @@ ColumnLayout {
         Layout.fillWidth: true
     }
 
+    Rectangle {
+        id: curveGraphContainer
+
+        visible: root.loaded
+        Layout.fillWidth: true
+        Layout.preferredHeight: Kirigami.Units.gridUnit * 7
+        radius: Kirigami.Units.smallSpacing
+        color: Qt.alpha(Kirigami.Theme.backgroundColor, 0.6)
+        border.width: 1
+        border.color: Qt.alpha(Kirigami.Theme.textColor, 0.08)
+        clip: true
+
+        readonly property real liveTemp: root.backend != null && root.backend.hasFreshActivity && root.backend.latestActivity != null
+            ? Math.round(root.currentTab === 0 ? root.backend.latestActivity.avgCPUTemp : root.backend.latestActivity.avgGPUTemp)
+            : -1
+
+        Canvas {
+            id: curveCanvas
+
+            anchors.fill: parent
+            anchors.margins: Kirigami.Units.smallSpacing
+
+            readonly property var model: root.activeModel()
+            readonly property real liveTemperature: curveGraphContainer.liveTemp
+
+            onModelChanged: requestPaint()
+            onLiveTemperatureChanged: requestPaint()
+
+            Connections {
+                target: root
+                function onCurrentTabChanged() { curveCanvas.requestPaint() }
+                function onDirtyChanged() { curveCanvas.requestPaint() }
+                function onLoadedChanged() { curveCanvas.requestPaint() }
+            }
+
+            Connections {
+                target: Kirigami.Theme
+                function onHighlightColorChanged() { curveCanvas.requestPaint() }
+                function onTextColorChanged() { curveCanvas.requestPaint() }
+            }
+
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+
+                const paddingLeft = 32
+                const paddingRight = 14
+                const paddingTop = 12
+                const paddingBottom = 20
+
+                const plotWidth = Math.max(10, width - paddingLeft - paddingRight)
+                const plotHeight = Math.max(10, height - paddingTop - paddingBottom)
+
+                const minTemp = 20
+                const maxTemp = 105
+                const minSpeed = 0
+                const maxSpeed = 100
+
+                function xForTemp(t) {
+                    const clamped = Math.max(minTemp, Math.min(maxTemp, t))
+                    return paddingLeft + ((clamped - minTemp) / (maxTemp - minTemp)) * plotWidth
+                }
+
+                function yForSpeed(s) {
+                    const clamped = Math.max(minSpeed, Math.min(maxSpeed, s))
+                    return paddingTop + plotHeight - ((clamped - minSpeed) / (maxSpeed - minSpeed)) * plotHeight
+                }
+
+                ctx.strokeStyle = Qt.alpha(Kirigami.Theme.textColor, 0.08)
+                ctx.lineWidth = 1
+                ctx.fillStyle = Qt.alpha(Kirigami.Theme.disabledTextColor, 0.8)
+                ctx.font = "10px sans-serif"
+                ctx.textAlign = "right"
+                ctx.textBaseline = "middle"
+
+                const speedLevels = [0, 50, 100]
+                for (let i = 0; i < speedLevels.length; i++) {
+                    const spd = speedLevels[i]
+                    const y = yForSpeed(spd)
+                    ctx.beginPath()
+                    ctx.moveTo(paddingLeft, y)
+                    ctx.lineTo(paddingLeft + plotWidth, y)
+                    ctx.stroke()
+                    ctx.fillText(spd + "%", paddingLeft - 4, y)
+                }
+
+                ctx.textAlign = "center"
+                ctx.textBaseline = "top"
+                const tempMarks = [30, 60, 90]
+                for (let i = 0; i < tempMarks.length; i++) {
+                    const tmp = tempMarks[i]
+                    const x = xForTemp(tmp)
+                    ctx.beginPath()
+                    ctx.moveTo(x, paddingTop)
+                    ctx.lineTo(x, paddingTop + plotHeight)
+                    ctx.stroke()
+                    ctx.fillText(tmp + "°", x, paddingTop + plotHeight + 4)
+                }
+
+                const count = curveCanvas.model ? curveCanvas.model.count : 0
+                if (count === 0) return
+
+                const points = []
+                for (let i = 0; i < count; i++) {
+                    const row = curveCanvas.model.get(i)
+                    points.push({ temp: parseInt(row.temp, 10), speed: parseInt(row.speed, 10) })
+                }
+                points.sort((a, b) => a.temp - b.temp)
+
+                ctx.beginPath()
+                const startX = xForTemp(points[0].temp)
+                const startY = yForSpeed(points[0].speed)
+                const baselineY = yForSpeed(0)
+
+                ctx.moveTo(startX, baselineY)
+                ctx.lineTo(startX, startY)
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(xForTemp(points[i].temp), yForSpeed(points[i].speed))
+                }
+                const lastX = xForTemp(points[points.length - 1].temp)
+                ctx.lineTo(lastX, baselineY)
+                ctx.closePath()
+
+                const grad = ctx.createLinearGradient(0, paddingTop, 0, paddingTop + plotHeight)
+                grad.addColorStop(0, Qt.alpha(Kirigami.Theme.highlightColor, 0.25))
+                grad.addColorStop(1, Qt.alpha(Kirigami.Theme.highlightColor, 0.03))
+                ctx.fillStyle = grad
+                ctx.fill()
+
+                ctx.beginPath()
+                ctx.moveTo(startX, startY)
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(xForTemp(points[i].temp), yForSpeed(points[i].speed))
+                }
+                ctx.strokeStyle = Kirigami.Theme.highlightColor
+                ctx.lineWidth = 2.5
+                ctx.stroke()
+
+                for (let i = 0; i < points.length; i++) {
+                    const px = xForTemp(points[i].temp)
+                    const py = yForSpeed(points[i].speed)
+                    ctx.beginPath()
+                    ctx.arc(px, py, 4, 0, Math.PI * 2)
+                    ctx.fillStyle = Kirigami.Theme.backgroundColor
+                    ctx.fill()
+                    ctx.strokeStyle = Kirigami.Theme.highlightColor
+                    ctx.lineWidth = 2
+                    ctx.stroke()
+                }
+
+                if (curveCanvas.liveTemperature >= minTemp && curveCanvas.liveTemperature <= maxTemp) {
+                    const tx = xForTemp(curveCanvas.liveTemperature)
+                    ctx.beginPath()
+                    ctx.setLineDash([3, 3])
+                    ctx.moveTo(tx, paddingTop)
+                    ctx.lineTo(tx, paddingTop + plotHeight)
+                    ctx.strokeStyle = Kirigami.Theme.neutralTextColor
+                    ctx.lineWidth = 1.5
+                    ctx.stroke()
+                    ctx.setLineDash([])
+
+                    ctx.beginPath()
+                    ctx.arc(tx, paddingTop + 3, 3, 0, Math.PI * 2)
+                    ctx.fillStyle = Kirigami.Theme.neutralTextColor
+                    ctx.fill()
+                }
+            }
+        }
+    }
+
     RowLayout {
         visible: root.loaded
         Layout.fillWidth: true
@@ -344,6 +514,7 @@ ColumnLayout {
         Layout.fillHeight: true
         Layout.minimumHeight: Kirigami.Units.gridUnit * 10
         clip: true
+        QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
         ColumnLayout {
             width: fanTableScroll.availableWidth

@@ -137,9 +137,13 @@ PlasmaExtras.Representation {
     Layout.preferredHeight: Kirigami.Units.gridUnit * (isPlanar ? 36 : 30)
 
     function tempColor(value) {
-        return value >= fullRoot.warningTemp
-            ? Kirigami.Theme.negativeTextColor
-            : Kirigami.Theme.textColor
+        if (value >= fullRoot.warningTemp) {
+            return Kirigami.Theme.negativeTextColor
+        }
+        if (value >= fullRoot.warningTemp - 10) {
+            return Kirigami.Theme.neutralTextColor
+        }
+        return Kirigami.Theme.textColor
     }
 
     function setFeedback(message, tone) {
@@ -310,6 +314,7 @@ PlasmaExtras.Representation {
             && fullRoot.protocolCompatible
         anchors.fill: parent
         clip: true
+        QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
         ColumnLayout {
             width: scrollView.availableWidth

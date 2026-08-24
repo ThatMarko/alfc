@@ -1,6 +1,6 @@
 .pragma library
 
-var defaultServerUrl = "ws://localhost:5522/ws"
+const defaultServerUrl = "ws://localhost:5522/ws"
 
 function trimString(value) {
     return String(value ?? "").trim()

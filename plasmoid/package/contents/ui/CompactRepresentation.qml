@@ -58,9 +58,13 @@ Item {
     readonly property bool fanControlAvailable: hasState
         ? safeState.isFanControlAvailable !== false
         : true
-    readonly property bool isWarning: hasTelemetrySnapshot
+    readonly property bool isCritical: hasTelemetrySnapshot
         && (Math.round(safeActivity.avgCPUTemp) >= warningTemp
             || Math.round(safeActivity.avgGPUTemp) >= warningTemp)
+    readonly property bool isWarm: hasTelemetrySnapshot && !isCritical
+        && (Math.round(safeActivity.avgCPUTemp) >= warningTemp - 10
+            || Math.round(safeActivity.avgGPUTemp) >= warningTemp - 10)
+    readonly property bool isWarning: isCritical || isWarm
     readonly property bool showHorizontalPanelDetails: !iconOnly
         && !verticalPanel
         && width >= horizontalPanelDetailsWidth
@@ -139,9 +143,10 @@ Item {
             ? verticalPanelPreferredHeight
             : horizontalPanelPreferredHeight)
 
-    Layout.fillHeight: true
-    Layout.minimumWidth: compactPanelExtent
-    Layout.minimumHeight: compactPanelExtent
+    Layout.fillHeight: !verticalPanel
+    Layout.fillWidth: verticalPanel
+    Layout.minimumWidth: verticalPanel ? -1 : compactPanelExtent
+    Layout.minimumHeight: verticalPanel ? compactPanelExtent : -1
     Layout.preferredWidth: iconOnly
         ? compactPanelExtent
         : (verticalPanel
@@ -152,16 +157,12 @@ Item {
         : (verticalPanel
             ? verticalPanelPreferredHeight
             : horizontalPanelPreferredHeight)
-    Layout.maximumWidth: iconOnly
-        ? compactPanelExtent
-        : (verticalPanel
-            ? verticalPanelPreferredWidth
-            : horizontalPanelPreferredWidth)
-    Layout.maximumHeight: iconOnly
-        ? compactPanelExtent
-        : (verticalPanel
-            ? verticalPanelPreferredHeight
-            : horizontalPanelPreferredHeight)
+    Layout.maximumWidth: verticalPanel
+        ? Infinity
+        : (iconOnly ? compactPanelExtent : horizontalPanelPreferredWidth)
+    Layout.maximumHeight: verticalPanel
+        ? (iconOnly ? compactPanelExtent : verticalPanelPreferredHeight)
+        : Infinity
 
     function handlePointerActivation(button) {
         if (button === Qt.MiddleButton) {
@@ -242,14 +243,16 @@ Item {
             width: Kirigami.Units.smallSpacing * 2
             height: width
             radius: width / 2
-            color: compactRoot.isWarning
+            color: compactRoot.isCritical
                 || (compactRoot.hasState && !compactRoot.protocolCompatible)
                 ? Kirigami.Theme.negativeTextColor
-                : (compactRoot.staleActivity
+                : (compactRoot.isWarm
                     ? Kirigami.Theme.neutralTextColor
-                    : (compactRoot.isDisconnected
-                    ? Kirigami.Theme.disabledTextColor
-                    : Kirigami.Theme.positiveTextColor))
+                    : (compactRoot.staleActivity
+                        ? Kirigami.Theme.neutralTextColor
+                        : (compactRoot.isDisconnected
+                        ? Kirigami.Theme.disabledTextColor
+                        : Kirigami.Theme.positiveTextColor)))
             border.width: 1
             border.color: Qt.alpha(Kirigami.Theme.backgroundColor, 0.85)
         }
@@ -328,9 +331,11 @@ Item {
 
                     PlasmaComponents.Label {
                         text: compactRoot.secondaryText
-                        color: compactRoot.isWarning
+                        color: compactRoot.isCritical
                             ? Kirigami.Theme.negativeTextColor
-                            : Kirigami.Theme.disabledTextColor
+                            : (compactRoot.isWarm
+                                ? Kirigami.Theme.neutralTextColor
+                                : Kirigami.Theme.disabledTextColor)
                         font: Kirigami.Theme.smallFont
                         Layout.fillWidth: true
                         elide: Text.ElideRight
@@ -389,9 +394,11 @@ Item {
 
                 PlasmaComponents.Label {
                     text: compactRoot.secondaryText
-                    color: compactRoot.isWarning
+                    color: compactRoot.isCritical
                         ? Kirigami.Theme.negativeTextColor
-                        : Kirigami.Theme.disabledTextColor
+                        : (compactRoot.isWarm
+                            ? Kirigami.Theme.neutralTextColor
+                            : Kirigami.Theme.disabledTextColor)
                     font: Kirigami.Theme.smallFont
                     horizontalAlignment: Text.AlignHCenter
                     Layout.fillWidth: true

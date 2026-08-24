@@ -19,5 +19,7 @@ Kirigami.InlineMessage {
         ? Kirigami.MessageType.Error
         : (tone === "success"
             ? Kirigami.MessageType.Positive
-            : Kirigami.MessageType.Information)
+            : (tone === "warning" || tone === "neutral"
+                ? Kirigami.MessageType.Warning
+                : Kirigami.MessageType.Information))
 }
