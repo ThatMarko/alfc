@@ -6,7 +6,7 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.plasmoid
 
-Item {
+Kirigami.FormLayout {
     id: root
 
     property string title: i18n("General")
@@ -35,68 +35,52 @@ Item {
         hasCustomServerUrl ? trimmedServerUrl : serverUrlDefaultText,
         trimmedWebUiUrl)
 
-    width: parent ? parent.width : implicitWidth
-    height: parent ? parent.height : implicitHeight
-    implicitWidth: contentLayout.implicitWidth
-    implicitHeight: contentLayout.implicitHeight
+    Kirigami.InlineMessage {
+        Layout.fillWidth: true
+        visible: !root.serverUrlValid || !root.webUiUrlValid
+        type: Kirigami.MessageType.Error
+        text: !root.serverUrlValid
+            ? i18n("Server URL must start with ws:// or wss:// and end with /ws.")
+            : i18n("Web interface URL must start with http:// or https://.")
+    }
 
-    ColumnLayout {
-        id: contentLayout
+    QQC2.TextField {
+        id: serverUrlField
 
-        anchors.fill: parent
-        spacing: Kirigami.Units.largeSpacing
+        Kirigami.FormData.label: i18n("Server URL:")
+        placeholderText: root.serverUrlDefaultText
+        inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
+    }
 
-        Kirigami.InlineMessage {
-            Layout.fillWidth: true
-            visible: !root.serverUrlValid || !root.webUiUrlValid
-            type: Kirigami.MessageType.Error
-            text: !root.serverUrlValid
-                ? i18n("Server URL must start with ws:// or wss:// and end with /ws.")
-                : i18n("Web interface URL must start with http:// or https://.")
-        }
+    QQC2.TextField {
+        id: webUiUrlField
 
-        Kirigami.FormLayout {
-            Layout.fillWidth: true
+        Kirigami.FormData.label: i18n("Web interface URL:")
+        placeholderText: i18n("Derived automatically")
+        inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
+    }
 
-            QQC2.TextField {
-                id: serverUrlField
+    QQC2.SpinBox {
+        id: warningTempSpinBox
 
-                Kirigami.FormData.label: i18n("Server URL:")
-                placeholderText: root.serverUrlDefaultText
-                inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
-            }
+        Kirigami.FormData.label: i18n("Warning temperature (\u00B0C):")
+        from: 50
+        to: 110
+        stepSize: 5
+    }
 
-            QQC2.TextField {
-                id: webUiUrlField
+    QQC2.CheckBox {
+        id: compactShowIconCheck
 
-                Kirigami.FormData.label: i18n("Web interface URL:")
-                placeholderText: i18n("Derived automatically")
-                inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
-            }
+        Kirigami.FormData.label: i18n("Panel display:")
+        text: i18n("Show icon instead of text")
+    }
 
-            QQC2.SpinBox {
-                id: warningTempSpinBox
-
-                Kirigami.FormData.label: i18n("Warning temperature (\u00B0C):")
-                from: 50
-                to: 110
-                stepSize: 5
-            }
-
-            QQC2.CheckBox {
-                id: compactShowIconCheck
-
-                Kirigami.FormData.label: i18n("Panel display:")
-                text: i18n("Show icon instead of text")
-            }
-
-            QQC2.Label {
-                Kirigami.FormData.label: i18n("Resolved web interface:")
-                text: root.serverUrlValid && root.webUiUrlValid
-                    ? root.derivedWebUiUrl
-                    : i18n("Unavailable until the URLs are valid")
-                wrapMode: Text.WordWrap
-            }
-        }
+    QQC2.Label {
+        Kirigami.FormData.label: i18n("Resolved web interface:")
+        text: root.serverUrlValid && root.webUiUrlValid
+            ? root.derivedWebUiUrl
+            : i18n("Unavailable until the URLs are valid")
+        wrapMode: Text.WordWrap
     }
 }

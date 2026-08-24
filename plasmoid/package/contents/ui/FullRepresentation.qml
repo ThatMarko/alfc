@@ -384,7 +384,7 @@ PlasmaExtras.Representation {
                 subtitle: i18n("Temperatures and fan targets stay in sync with the web UI and other connected clients.")
 
                 GridLayout {
-                    columns: fullRoot.isPlanar && !fullRoot.isWide ? 4 : 2
+                    columns: overviewCard.width >= Kirigami.Units.gridUnit * 28 ? 4 : 2
                     columnSpacing: Kirigami.Units.mediumSpacing
                     rowSpacing: Kirigami.Units.mediumSpacing
                     Layout.fillWidth: true

@@ -20,7 +20,7 @@ Rectangle {
     border.color: Qt.alpha(Kirigami.Theme.textColor, 0.06)
 
     Layout.fillWidth: true
-    Layout.minimumWidth: Kirigami.Units.gridUnit * 7
+    Layout.minimumWidth: Kirigami.Units.gridUnit * 5
     implicitHeight: tileLayout.implicitHeight + Kirigami.Units.largeSpacing
 
     ColumnLayout {
