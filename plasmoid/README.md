@@ -75,6 +75,7 @@ package/
 │       ├── InlineStatusMessage.qml   # Shared inline status feedback
 │       ├── MetricTile.qml            # Overview stat card
 │       ├── SectionCard.qml           # Full-view section wrapper
+│       ├── WidgetSettings.qml        # Declarative settings adapter for Plasmoid.configuration
 │       ├── UrlUtils.js               # Shared URL defaults and derivation
 │       └── WidgetHeading.qml         # Popup/desktop heading with actions
 ```

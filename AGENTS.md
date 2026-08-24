@@ -16,7 +16,7 @@ alfc/
 ├── common/          # Shared TypeScript types + protocol docs
 ├── frontend/        # React web UI (Vite, @emotion/react)
 ├── plasmoid/        # KDE Plasma 6 widget (QML)
-│   └── package/contents/ui/  # 7 QML files: main, compact, full, tooltip, backend, fan editor, config
+│   └── package/contents/ui/  # 11 QML + 1 JS files: main, compact, full, backend, fan editor, config, metric tile, section card, heading, settings, inline msg, url utils
 ├── server/          # Bun backend
 │   ├── fan-control/ # Core fan logic + tests
 │   ├── native/      # Platform-specific (linux/windows)
@@ -43,7 +43,7 @@ alfc/
 ## CONVENTIONS
 
 - **Monorepo**: Bun workspaces (`frontend`, `server`)
-- **Bun 1.3+** required
+- **Bun 1.3+** required (1.4+ recommended)
 - **ESM imports**: Extensionless relative imports (Bun `moduleResolution: "bundler"` convention). Use `node:` prefix for Node built-in modules.
 - **No explicit `any`**: ESLint warns on `@typescript-eslint/no-explicit-any`. One known exception in `common/types.ts` (protocol data field).
 - **Underscore prefix**: Unused vars must use `_` prefix
@@ -74,7 +74,7 @@ bun run build             # Build all packages
 bun run all-checks        # Lint + type-check + test + build
 bun run lint              # ESLint (0 errors required, warnings OK)
 bun run type-check        # TypeScript (no emit, strict + noUncheckedIndexedAccess)
-bun run test              # Vitest (28 tests: server + frontend)
+bun run test              # Vitest (38 tests: server + frontend)
 
 # Windows Native Build
 cd server/native/wmiapi && dotnet publish -c Release
