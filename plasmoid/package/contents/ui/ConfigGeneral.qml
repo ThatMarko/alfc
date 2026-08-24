@@ -16,6 +16,11 @@ Item {
     property alias cfg_warningTemp: warningTempSpinBox.value
     property alias cfg_compactShowIcon: compactShowIconCheck.checked
 
+    property string cfg_serverUrlDefault: ""
+    property string cfg_webUiUrlDefault: ""
+    property int cfg_warningTempDefault: 90
+    property bool cfg_compactShowIconDefault: false
+
     WidgetSettings {
         id: settings
     }
