@@ -515,7 +515,12 @@ PlasmaExtras.Representation {
                 ColumnLayout {
                     visible: fullRoot.fanControlAvailable
                     Layout.fillWidth: true
-                    enabled: fullRoot.hasState
+                    enabled: fullRoot.hasState && fullRoot.fixedModeEnabled && !fullRoot.fixedBusy
+                    opacity: fullRoot.fixedModeEnabled ? 1.0 : 0.40
+
+                    Behavior on opacity {
+                        NumberAnimation { duration: Kirigami.Units.shortDuration }
+                    }
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -536,7 +541,7 @@ PlasmaExtras.Representation {
                             to: 100
                             stepSize: 1
                             enabled: fullRoot.hasState
-                                && fullRoot.fanControlAvailable
+                                && fullRoot.fixedModeEnabled
                                 && !fullRoot.fixedBusy
                             Accessible.name: i18n("Fixed fan speed")
                             Accessible.description: i18n("Choose the fixed fan speed percentage.")
@@ -578,7 +583,7 @@ PlasmaExtras.Representation {
                             }
 
                             onAccepted: {
-                                if (fullRoot.hasState && fullRoot.fanControlAvailable && !fullRoot.fixedBusy) {
+                                if (fullRoot.hasState && fullRoot.fanControlAvailable && fullRoot.fixedModeEnabled && !fullRoot.fixedBusy) {
                                     fullRoot.pendingFixedRequestId =
                                         fullRoot.backend.setFixedPercentage(
                                             fullRoot.draftFixedPercentage)
@@ -599,7 +604,7 @@ PlasmaExtras.Representation {
                                 ? i18n("Saving…")
                                 : i18n("Apply")
                             enabled: fullRoot.hasState
-                                && fullRoot.fanControlAvailable
+                                && fullRoot.fixedModeEnabled
                                 && !fullRoot.fixedBusy
                             Accessible.name: i18n("Apply fixed fan speed")
                             Accessible.description: i18n("Send the selected fixed fan speed to the backend.")
@@ -622,7 +627,9 @@ PlasmaExtras.Representation {
                 Layout.preferredWidth: fullRoot.isWide ? Kirigami.Units.gridUnit * 22 : -1
 
                 title: i18n("Fan Curves")
-                subtitle: i18n("Edit the stored CPU and GPU fan curves. The higher target always wins because both fans share heat pipes.")
+                subtitle: fullRoot.fixedModeEnabled
+                    ? i18n("Stored CPU and GPU curves (Bypassed while Fixed Mode is active).")
+                    : i18n("Edit the stored CPU and GPU fan curves. The higher target always wins because both fans share heat pipes.")
 
                 FanTableEditor {
                     backend: fullRoot.backend
