@@ -102,7 +102,6 @@ PlasmaExtras.PlasmoidHeading {
                 id: menuItemFactory
 
                 model: {
-                    configMenu.clearMenuItems()
                     const configureAction = Plasmoid.internalAction("configure")
                     return Plasmoid.contextualActions
                         .filter(action => action !== configureAction)
@@ -116,6 +115,10 @@ PlasmaExtras.PlasmoidHeading {
 
                 onObjectAdded: (_index, object) => {
                     configMenu.addMenuItem(object)
+                }
+
+                onObjectRemoved: (_index, object) => {
+                    configMenu.removeMenuItem(object)
                 }
             }
         }

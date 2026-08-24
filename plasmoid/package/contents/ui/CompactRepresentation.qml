@@ -163,10 +163,6 @@ Item {
             ? verticalPanelPreferredHeight
             : horizontalPanelPreferredHeight)
 
-    function rememberExpansionState() {
-        activationArea.wasExpanded = plasmoidItem.expanded
-    }
-
     function handlePointerActivation(button) {
         if (button === Qt.MiddleButton) {
             Plasmoid.secondaryActivated()
@@ -174,7 +170,7 @@ Item {
         }
 
         if (button === Qt.LeftButton) {
-            plasmoidItem.expanded = !activationArea.wasExpanded
+            Plasmoid.activated()
         }
     }
 
@@ -208,19 +204,11 @@ Item {
     MouseArea {
         id: activationArea
 
-        property bool wasExpanded: false
-
         anchors.fill: parent
         z: 100
         acceptedButtons: Qt.LeftButton | Qt.MiddleButton
         hoverEnabled: true
-        preventStealing: true
         cursorShape: Qt.PointingHandCursor
-        onPressedChanged: {
-            if (pressed) {
-                compactRoot.rememberExpansionState()
-            }
-        }
         onClicked: mouse => compactRoot.handlePointerActivation(mouse.button)
     }
 

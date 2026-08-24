@@ -10,49 +10,25 @@ import "UrlUtils.js" as UrlUtils
 Item {
     id: root
 
-    WidgetSettings {
-        id: widgetSettings
+    property alias cfg_serverUrl: serverUrlField.text
+    property alias cfg_webUiUrl: webUiUrlField.text
+    property alias cfg_warningTemp: warningTempSpinBox.value
+    property alias cfg_compactShowIcon: compactShowIconCheck.checked
 
-        settingsId: String(Plasmoid.id)
-    }
-
-    property string serverUrlDraft: widgetSettings.configuredServerUrl
-    property string webUiUrlDraft: widgetSettings.configuredWebUiUrl
-    property int warningTempDraft: widgetSettings.warningTemp
-    property bool compactShowIconDraft: widgetSettings.compactShowIcon
     readonly property string serverUrlDefaultText: UrlUtils.defaultServerUrl
-    readonly property string trimmedServerUrl: serverUrlDraft.trim()
-    readonly property string trimmedWebUiUrl: webUiUrlDraft.trim()
+    readonly property string trimmedServerUrl: String(serverUrlField.text ?? "").trim()
+    readonly property string trimmedWebUiUrl: String(webUiUrlField.text ?? "").trim()
     readonly property bool hasCustomServerUrl: trimmedServerUrl.length > 0
-    readonly property bool serverUrlValid: UrlUtils.isValidWebSocketUrl(
-        trimmedServerUrl)
-    readonly property bool webUiUrlValid: UrlUtils.isValidHttpUrl(
-        trimmedWebUiUrl)
+    readonly property bool serverUrlValid: UrlUtils.isValidWebSocketUrl(trimmedServerUrl)
+    readonly property bool webUiUrlValid: UrlUtils.isValidHttpUrl(trimmedWebUiUrl)
     readonly property string derivedWebUiUrl: UrlUtils.deriveWebUiUrl(
         hasCustomServerUrl ? trimmedServerUrl : serverUrlDefaultText,
         trimmedWebUiUrl)
-    readonly property bool unsavedChanges: root.serverUrlValid
-        && root.webUiUrlValid
-        && (trimmedServerUrl !== widgetSettings.configuredServerUrl
-            || trimmedWebUiUrl !== widgetSettings.configuredWebUiUrl
-            || warningTempDraft !== widgetSettings.warningTemp
-            || compactShowIconDraft !== widgetSettings.compactShowIcon)
 
     width: parent ? parent.width : implicitWidth
     height: parent ? parent.height : implicitHeight
     implicitWidth: contentLayout.implicitWidth
     implicitHeight: contentLayout.implicitHeight
-
-    function saveConfig() {
-        if (!root.serverUrlValid || !root.webUiUrlValid) {
-            return
-        }
-
-        widgetSettings.setConfiguredServerUrl(trimmedServerUrl)
-        widgetSettings.setConfiguredWebUiUrl(trimmedWebUiUrl)
-        widgetSettings.setWarningTemp(warningTempDraft)
-        widgetSettings.setCompactShowIcon(compactShowIconDraft)
-    }
 
     ColumnLayout {
         id: contentLayout
@@ -75,41 +51,33 @@ Item {
             QQC2.TextField {
                 id: serverUrlField
 
-                text: root.serverUrlDraft
                 Kirigami.FormData.label: i18n("Server URL:")
                 placeholderText: root.serverUrlDefaultText
                 inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
-                onTextChanged: root.serverUrlDraft = text
             }
 
             QQC2.TextField {
                 id: webUiUrlField
 
-                text: root.webUiUrlDraft
                 Kirigami.FormData.label: i18n("Web interface URL:")
                 placeholderText: i18n("Derived automatically")
                 inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
-                onTextChanged: root.webUiUrlDraft = text
             }
 
             QQC2.SpinBox {
                 id: warningTempSpinBox
 
-                value: root.warningTempDraft
                 Kirigami.FormData.label: i18n("Warning temperature (\u00B0C):")
                 from: 50
                 to: 110
                 stepSize: 5
-                onValueModified: root.warningTempDraft = value
             }
 
             QQC2.CheckBox {
                 id: compactShowIconCheck
 
-                checked: root.compactShowIconDraft
                 Kirigami.FormData.label: i18n("Panel display:")
                 text: i18n("Show icon instead of text")
-                onToggled: root.compactShowIconDraft = checked
             }
 
             QQC2.Label {

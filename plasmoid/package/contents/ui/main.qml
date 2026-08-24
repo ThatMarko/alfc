@@ -11,8 +11,6 @@ PlasmoidItem {
 
     WidgetSettings {
         id: widgetSettings
-
-        settingsId: String(Plasmoid.id)
     }
 
     readonly property bool isPlanar: Plasmoid.formFactor === PlasmaCore.Types.Planar

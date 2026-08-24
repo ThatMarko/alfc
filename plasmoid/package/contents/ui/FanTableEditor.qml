@@ -373,7 +373,13 @@ ColumnLayout {
                             bottom: 0
                             top: 110
                         }
-                        inputMethodHints: Qt.ImhDigitsOnly
+                        onTextEdited: {
+                            const value = parseInt(text, 10)
+                            if (!Number.isNaN(value)) {
+                                root.updateValue(root.activeModel(),
+                                    row.index, "temp", value)
+                            }
+                        }
 
                         onEditingFinished: {
                             const value = parseInt(text, 10)
@@ -396,6 +402,14 @@ ColumnLayout {
                             top: 100
                         }
                         inputMethodHints: Qt.ImhDigitsOnly
+
+                        onTextEdited: {
+                            const value = parseInt(text, 10)
+                            if (!Number.isNaN(value)) {
+                                root.updateValue(root.activeModel(),
+                                    row.index, "speed", value)
+                            }
+                        }
 
                         onEditingFinished: {
                             const value = parseInt(text, 10)

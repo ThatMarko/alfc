@@ -72,14 +72,15 @@ Item {
         clearCachedData()
         keepaliveTimer.stop()
         freshnessTimer.stop()
-        restartSocket()
+        socket.active = false
+        reconnectTimer.interval = 100
+        reconnectTimer.start()
     }
 
     function restartSocket() {
         socket.active = false
-        Qt.callLater(() => {
-            socket.active = true
-        })
+        reconnectTimer.interval = root.reconnectDelay
+        reconnectTimer.restart()
     }
 
     function nextRequestId(prefix) {
@@ -230,10 +231,10 @@ Item {
         repeat: false
 
         onTriggered: {
-            console.info("BackendConnection: Reconnecting...")
+            console.info("BackendConnection: Connecting...")
             root.reconnectDelay = Math.min(root.reconnectDelay * 2, 30000)
             root.lastPongTime = 0
-            root.restartSocket()
+            socket.active = true
         }
     }
 
@@ -270,11 +271,7 @@ Item {
             if (root.lastPongTime > 0
                     && Date.now() - root.lastPongTime > root.heartbeatTimeout) {
                 console.warn("BackendConnection: Pong timeout, forcing reconnect")
-                root.lastPongTime = 0
-                keepaliveTimer.stop()
-                freshnessTimer.stop()
-                socket.active = false
-                socket.active = true
+                root.reconnect()
             }
         }
     }
