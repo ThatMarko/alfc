@@ -530,6 +530,14 @@ PlasmaExtras.Representation {
                                 restoreMode: Binding.RestoreBinding
                             }
 
+                            onTextEdited: {
+                                const value = parseInt(text, 10)
+                                if (!Number.isNaN(value)) {
+                                    fullRoot.draftFixedPercentage =
+                                        Math.max(0, Math.min(100, value))
+                                }
+                            }
+
                             onEditingFinished: {
                                 const value = parseInt(text, 10)
                                 if (!Number.isNaN(value)) {
@@ -644,10 +652,17 @@ PlasmaExtras.Representation {
                                 restoreMode: Binding.RestoreBinding
                             }
 
+                            onTextEdited: {
+                                const value = parseInt(text, 10)
+                                if (!Number.isNaN(value)) {
+                                    fullRoot.draftPl1 = Math.max(0, Math.min(200, value))
+                                }
+                            }
+
                             onEditingFinished: {
                                 const value = parseInt(text, 10)
                                 if (!Number.isNaN(value)) {
-                                    fullRoot.draftPl1 = value
+                                    fullRoot.draftPl1 = Math.max(0, Math.min(200, value))
                                 }
                             }
                         }
@@ -674,10 +689,17 @@ PlasmaExtras.Representation {
                                 restoreMode: Binding.RestoreBinding
                             }
 
+                            onTextEdited: {
+                                const value = parseInt(text, 10)
+                                if (!Number.isNaN(value)) {
+                                    fullRoot.draftPl2 = Math.max(0, Math.min(200, value))
+                                }
+                            }
+
                             onEditingFinished: {
                                 const value = parseInt(text, 10)
                                 if (!Number.isNaN(value)) {
-                                    fullRoot.draftPl2 = value
+                                    fullRoot.draftPl2 = Math.max(0, Math.min(200, value))
                                 }
                             }
                         }
