@@ -1,8 +1,10 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Layouts
 
 import org.kde.kirigami as Kirigami
+import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
 
@@ -42,6 +44,19 @@ PlasmoidItem {
     readonly property bool isOverheating: telemetryActivity != null
         && (Math.round(telemetryActivity.avgCPUTemp) >= warningTemp
             || Math.round(telemetryActivity.avgGPUTemp) >= warningTemp)
+    readonly property bool isWarm: telemetryActivity != null && !root.isOverheating
+        && (Math.round(telemetryActivity.avgCPUTemp) >= warningTemp - 10
+            || Math.round(telemetryActivity.avgGPUTemp) >= warningTemp - 10)
+
+    function tempColor(value) {
+        if (value >= root.warningTemp) {
+            return Kirigami.Theme.negativeTextColor
+        }
+        if (value >= root.warningTemp - 10) {
+            return Kirigami.Theme.neutralTextColor
+        }
+        return Kirigami.Theme.textColor
+    }
 
     Plasmoid.title: i18n("Aorus Laptop Fan Control")
     Plasmoid.backgroundHints: PlasmaCore.Types.DefaultBackground
@@ -133,6 +148,96 @@ PlasmoidItem {
             Math.round(activity.avgCPUTemp),
             Math.round(activity.avgGPUTemp),
             fanText)
+    }
+
+    toolTipItem: Item {
+        implicitWidth: tipLayout.implicitWidth
+        implicitHeight: tipLayout.implicitHeight
+
+        ColumnLayout {
+            id: tipLayout
+            anchors.fill: parent
+            spacing: Kirigami.Units.smallSpacing
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: Plasmoid.title
+                    font.bold: true
+                    Layout.fillWidth: true
+                }
+
+                Rectangle {
+                    Layout.preferredWidth: Kirigami.Units.smallSpacing * 1.5
+                    Layout.preferredHeight: Layout.preferredWidth
+                    radius: Layout.preferredWidth / 2
+                    color: root.isOverheating
+                        ? Kirigami.Theme.negativeTextColor
+                        : (root.isWarm
+                            ? Kirigami.Theme.neutralTextColor
+                            : (backendConnection.isConnected
+                                ? Kirigami.Theme.positiveTextColor
+                                : Kirigami.Theme.disabledTextColor))
+                }
+            }
+
+            RowLayout {
+                visible: root.hasActivity
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.mediumSpacing
+
+                PlasmaComponents.Label {
+                    text: root.activity != null
+                        ? i18n("CPU: %1\u00B0C", Math.round(root.activity.avgCPUTemp))
+                        : ""
+                    color: root.activity != null
+                        ? root.tempColor(Math.round(root.activity.avgCPUTemp))
+                        : Kirigami.Theme.textColor
+                    font.bold: true
+                }
+
+                PlasmaComponents.Label {
+                    text: root.activity != null
+                        ? i18n("GPU: %1\u00B0C", Math.round(root.activity.avgGPUTemp))
+                        : ""
+                    color: root.activity != null
+                        ? root.tempColor(Math.round(root.activity.avgGPUTemp))
+                        : Kirigami.Theme.textColor
+                    font.bold: true
+                }
+
+                PlasmaComponents.Label {
+                    text: root.activity != null
+                        ? (root.activity.appliedSpeed != null
+                            ? i18n("Fan: %1%", Math.round(root.activity.appliedSpeed))
+                            : i18n("Target: %1%", Math.round(root.activity.target)))
+                        : ""
+                    color: Kirigami.Theme.textColor
+                }
+            }
+
+            PlasmaComponents.Label {
+                visible: !root.hasActivity
+                text: root.toolTipSubText
+                color: Kirigami.Theme.disabledTextColor
+                font: Kirigami.Theme.smallFont
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+
+            PlasmaComponents.Label {
+                text: root.isFixedMode
+                    ? i18n("Fixed Mode (%1%) \u2022 Middle-click to switch to Auto",
+                        root.backendState ? root.backendState.fixedPercentage : 50)
+                    : i18n("Auto Mode (Curves) \u2022 Middle-click to switch to Fixed")
+                color: Kirigami.Theme.disabledTextColor
+                font: Kirigami.Theme.smallFont
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
     }
 
     BackendConnection {
