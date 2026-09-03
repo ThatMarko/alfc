@@ -12,6 +12,9 @@ let autoFanInterval: ReturnType<typeof setInterval> | null = null;
 let reinitInterval: ReturnType<typeof setInterval> | null = null;
 let fanControlRunId = 0;
 let isFanControlShuttingDown = false;
+// Run id of the collection cycle currently in flight — module-scoped so
+// restarts share one guard instead of each closure getting its own.
+let activeCycleRunId: number | null = null;
 
 export function cleanupFanControlIntervals() {
   if (autoFanInterval) {
@@ -64,13 +67,35 @@ export async function restoreAutoFanControl() {
   await setCall("0x71", "SetAutoFanStatus", { Data: 1 });
 }
 
-async function getCallInt(methodId: string, methodName: string) {
+type SensorRead = number | "stale" | "failed";
+
+type TempCollection =
+  | { status: "collected"; avgCPUTemp: number; avgGPUTemp: number }
+  | { status: "failed" }
+  | { status: "stale" };
+
+// Checks staleness before every ACPI read: a cancelled run must stop issuing
+// calls. An already-pending read cannot be aborted from JS.
+async function readSensor(
+  runId: number,
+  methodId: string,
+  methodName: string,
+): Promise<SensorRead> {
+  if (
+    isFanControlShuttingDown ||
+    runId !== fanControlRunId ||
+    state.doFixedSpeed
+  ) {
+    return "stale";
+  }
+
   try {
     const result = await getCall(methodId, methodName);
-    return isNaN(result) ? 200 : result;
+    if (isNaN(result)) return "failed";
+    return result;
   } catch (error) {
     console.warn(`[FanControl] ${methodName} failed:`, error);
-    return 200;
+    return "failed";
   }
 }
 
@@ -96,7 +121,15 @@ function resetFanSpeed() {
   return speed;
 }
 
-async function collectAverageTemps(runId: number) {
+// Highest percentage across both tables — the fail-hot target when the
+// thermal state is unknown.
+function highestFanTarget() {
+  const cpuMax = state.cpuFanTable[state.cpuFanTable.length - 1]?.[1] ?? 0;
+  const gpuMax = state.gpuFanTable[state.gpuFanTable.length - 1]?.[1] ?? 0;
+  return Math.max(cpuMax, gpuMax);
+}
+
+async function collectAverageTemps(runId: number): Promise<TempCollection> {
   const samplesPerCycle = Math.round(
     (CYCLE_DURATION - TEMP_POLL_INTERVAL) / TEMP_POLL_INTERVAL,
   );
@@ -106,13 +139,16 @@ async function collectAverageTemps(runId: number) {
   let gpuSum = 0;
 
   for (let sample = 0; sample < samplesPerCycle; sample++) {
-    if (isFanControlShuttingDown || runId !== fanControlRunId) {
-      return null;
-    }
+    const cpuTemp = await readSensor(runId, "0xe1", "getCpuTemp");
+    if (typeof cpuTemp !== "number") return { status: cpuTemp };
 
-    cpuSum += await getCallInt("0xe1", "getCpuTemp");
-    const gpuTemp1 = await getCallInt("0xe2", "getGpuTemp1");
-    const gpuTemp2 = await getCallInt("0xe3", "getGpuTemp2");
+    const gpuTemp1 = await readSensor(runId, "0xe2", "getGpuTemp1");
+    if (typeof gpuTemp1 !== "number") return { status: gpuTemp1 };
+
+    const gpuTemp2 = await readSensor(runId, "0xe3", "getGpuTemp2");
+    if (typeof gpuTemp2 !== "number") return { status: gpuTemp2 };
+
+    cpuSum += cpuTemp;
     gpuSum += Math.max(gpuTemp1, gpuTemp2);
 
     if (sample < samplesPerCycle - 1) {
@@ -121,6 +157,7 @@ async function collectAverageTemps(runId: number) {
   }
 
   return {
+    status: "collected",
     avgCPUTemp: cpuSum / samplesPerCycle,
     avgGPUTemp: gpuSum / samplesPerCycle,
   };
@@ -198,33 +235,60 @@ export function fanControl() {
   let currRampUpCycle = 1;
   let prevCPUFanTable = state.cpuFanTable;
   let prevGPUFanTable = state.gpuFanTable;
-  let isCycleRunning = false;
   autoFanInterval = setInterval(async () => {
-    if (isCycleRunning) {
+    // Control-state transitions are serviced even while a collection cycle
+    // is in flight — otherwise a stalled read would permanently hide a
+    // fixed-speed switch or shutdown behind the cycle guard.
+    if (isFanControlShuttingDown || runId !== fanControlRunId) {
       return;
     }
 
-    isCycleRunning = true;
+    // Interrupt if switching to fixed fan speed
+    if (state.doFixedSpeed) {
+      cleanupFanControlIntervals();
+      setFixedFan(state.fixedPercentage);
+      return;
+    }
+
+    // Skip this tick while a cycle of the current run is still in flight.
+    // A cycle from a previous run cannot starve this one: it aborts at its
+    // next sensor read (see readSensor).
+    if (activeCycleRunId === runId) {
+      return;
+    }
+
+    activeCycleRunId = runId;
     try {
-      if (isFanControlShuttingDown || runId !== fanControlRunId) {
-        cleanupFanControlIntervals();
-        return;
-      }
-
-      // Interrupt if switching to fixed fan speed
-      if (state.doFixedSpeed) {
-        cleanupFanControlIntervals();
-        setFixedFan(state.fixedPercentage);
-        return;
-      }
-
       // Collect average temperature throughout CYCLE_DURATION
-      const averages = await collectAverageTemps(runId);
-      if (!averages || isFanControlShuttingDown || runId !== fanControlRunId) {
+      const collection = await collectAverageTemps(runId);
+      if (
+        collection.status === "stale" ||
+        isFanControlShuttingDown ||
+        runId !== fanControlRunId ||
+        state.doFixedSpeed
+      ) {
         return;
       }
 
-      const { avgCPUTemp, avgGPUTemp } = averages;
+      if (collection.status === "failed") {
+        // A failed read means the thermal state is unknown — fail hot with
+        // the highest shared target instead of diluting the failure into
+        // the cycle average.
+        const target = highestFanTarget();
+        setFixedFan(target);
+        appliedPercentage = target;
+        currRampDownCycle = 1;
+        currRampUpCycle = 1;
+        publishActivity({
+          appliedSpeed: target,
+          avgCPUTemp: 200,
+          avgGPUTemp: 200,
+          target,
+        });
+        return;
+      }
+
+      const { avgCPUTemp, avgGPUTemp } = collection;
 
       const highestMatchCPU = findHighestMatch(avgCPUTemp, state.cpuFanTable);
       const highestMatchGPU = findHighestMatch(avgGPUTemp, state.gpuFanTable);
@@ -288,7 +352,11 @@ export function fanControl() {
         target,
       });
     } finally {
-      isCycleRunning = false;
+      // Conditional so a cycle from an older run can't clear the guard of
+      // the run that replaced it.
+      if (activeCycleRunId === runId) {
+        activeCycleRunId = null;
+      }
     }
   }, CYCLE_DURATION);
 }
