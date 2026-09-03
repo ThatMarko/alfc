@@ -7,14 +7,16 @@ export const WAIT_RAMP_DOWN_CYCLES = 30;
 export const WAIT_RAMP_UP_CYCLES = 1;
 export const CYCLE_DURATION = 2_000;
 const TEMP_POLL_INTERVAL = 500;
+export const SENSOR_READ_TIMEOUT = 5_000;
 
 let autoFanInterval: ReturnType<typeof setInterval> | null = null;
 let reinitInterval: ReturnType<typeof setInterval> | null = null;
 let fanControlRunId = 0;
 let isFanControlShuttingDown = false;
-// Run id of the collection cycle currently in flight — module-scoped so
-// restarts share one guard instead of each closure getting its own.
-let activeCycleRunId: number | null = null;
+// Whether a collection cycle is currently in flight. Module-scoped and
+// shared across ALL runs so restarts can never overlap collections; a
+// wedged native read cannot hold it forever because every read times out.
+let isCycleInFlight = false;
 
 export function cleanupFanControlIntervals() {
   if (autoFanInterval) {
@@ -75,7 +77,9 @@ type TempCollection =
   | { status: "stale" };
 
 // Checks staleness before every ACPI read: a cancelled run must stop issuing
-// calls. An already-pending read cannot be aborted from JS.
+// calls. An already-pending read cannot be aborted from JS, so it is bounded
+// by a timeout instead — that also bounds how long a wedged read can hold
+// the shared cycle lock.
 async function readSensor(
   runId: number,
   methodId: string,
@@ -90,13 +94,32 @@ async function readSensor(
   }
 
   try {
-    const result = await getCall(methodId, methodName);
+    const result = await withReadTimeout(getCall(methodId, methodName));
     if (isNaN(result)) return "failed";
     return result;
   } catch (error) {
     console.warn(`[FanControl] ${methodName} failed:`, error);
     return "failed";
   }
+}
+
+function withReadTimeout(promise: Promise<number>) {
+  return new Promise<number>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Timed out after ${SENSOR_READ_TIMEOUT}ms`)),
+      SENSOR_READ_TIMEOUT,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function initFanControl() {
@@ -121,12 +144,18 @@ function resetFanSpeed() {
   return speed;
 }
 
-// Highest percentage across both tables — the fail-hot target when the
-// thermal state is unknown.
+// Highest percentage anywhere in both tables — the fail-hot target when the
+// thermal state is unknown. Speeds are not guaranteed to be monotonic (the
+// last row is not necessarily the maximum), so every entry is considered.
 function highestFanTarget() {
-  const cpuMax = state.cpuFanTable[state.cpuFanTable.length - 1]?.[1] ?? 0;
-  const gpuMax = state.gpuFanTable[state.gpuFanTable.length - 1]?.[1] ?? 0;
-  return Math.max(cpuMax, gpuMax);
+  let max = 0;
+  for (const entry of state.cpuFanTable) {
+    max = Math.max(max, entry[1]);
+  }
+  for (const entry of state.gpuFanTable) {
+    max = Math.max(max, entry[1]);
+  }
+  return max;
 }
 
 async function collectAverageTemps(runId: number): Promise<TempCollection> {
@@ -235,6 +264,9 @@ export function fanControl() {
   let currRampUpCycle = 1;
   let prevCPUFanTable = state.cpuFanTable;
   let prevGPUFanTable = state.gpuFanTable;
+  // Last successfully collected averages of this run — published instead of
+  // fabricated sentinel values when a later collection fails.
+  let lastAverages: { avgCPUTemp: number; avgGPUTemp: number } | null = null;
   autoFanInterval = setInterval(async () => {
     // Control-state transitions are serviced even while a collection cycle
     // is in flight — otherwise a stalled read would permanently hide a
@@ -250,14 +282,15 @@ export function fanControl() {
       return;
     }
 
-    // Skip this tick while a cycle of the current run is still in flight.
-    // A cycle from a previous run cannot starve this one: it aborts at its
-    // next sensor read (see readSensor).
-    if (activeCycleRunId === runId) {
+    // Skip this tick while any collection cycle is still in flight,
+    // including one from a previous run — collections must never overlap.
+    // A leftover cycle aborts at its next sensor read, and a wedged read
+    // times out, so this cannot deadlock a restart.
+    if (isCycleInFlight) {
       return;
     }
 
-    activeCycleRunId = runId;
+    isCycleInFlight = true;
     try {
       // Collect average temperature throughout CYCLE_DURATION
       const collection = await collectAverageTemps(runId);
@@ -279,16 +312,22 @@ export function fanControl() {
         appliedPercentage = target;
         currRampDownCycle = 1;
         currRampUpCycle = 1;
-        publishActivity({
-          appliedSpeed: target,
-          avgCPUTemp: 200,
-          avgGPUTemp: 200,
-          target,
-        });
+        // Temps are telemetry, not control input: report the last real
+        // measurements (or nothing at all) instead of a sentinel that
+        // clients would display as a measured temperature.
+        if (lastAverages) {
+          publishActivity({
+            appliedSpeed: target,
+            avgCPUTemp: lastAverages.avgCPUTemp,
+            avgGPUTemp: lastAverages.avgGPUTemp,
+            target,
+          });
+        }
         return;
       }
 
       const { avgCPUTemp, avgGPUTemp } = collection;
+      lastAverages = { avgCPUTemp, avgGPUTemp };
 
       const highestMatchCPU = findHighestMatch(avgCPUTemp, state.cpuFanTable);
       const highestMatchGPU = findHighestMatch(avgGPUTemp, state.gpuFanTable);
@@ -352,11 +391,7 @@ export function fanControl() {
         target,
       });
     } finally {
-      // Conditional so a cycle from an older run can't clear the guard of
-      // the run that replaced it.
-      if (activeCycleRunId === runId) {
-        activeCycleRunId = null;
-      }
+      isCycleInFlight = false;
     }
   }, CYCLE_DURATION);
 }
