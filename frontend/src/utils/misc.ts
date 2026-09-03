@@ -90,3 +90,12 @@ export function getFanTableRowError(
 
   return null;
 }
+
+let requestSerial = 0;
+
+// The protocol has no server-generated correlation key, so each request
+// mints a unique id that the server echoes back in its response.
+export function nextRequestId(prefix: string): string {
+  requestSerial += 1;
+  return `${prefix}-${requestSerial}`;
+}

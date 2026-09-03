@@ -2,7 +2,11 @@ import styled from "@emotion/styled";
 import React, { useEffect, useRef, useState } from "react";
 import { getMethods, setMethods } from "../data/mof";
 import { theme } from "../utils/consts";
-import { parseIntegerInRange, validationToast } from "../utils/misc";
+import {
+  nextRequestId,
+  parseIntegerInRange,
+  validationToast,
+} from "../utils/misc";
 import { useWebSocket } from "../utils/useWebSocket";
 
 enum Kind {
@@ -44,7 +48,7 @@ const StyledForm = styled.form`
 
 export function RawUI() {
   const refRun = useRef<HTMLButtonElement>(null);
-  const pendingMethodIdRef = useRef<string | null>(null);
+  const pendingRequestIdRef = useRef<string | null>(null);
 
   const [kind, setKind] = useState(Kind.Get);
   const [methodName, setMethodName] = useState("");
@@ -56,17 +60,18 @@ export function RawUI() {
   const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
 
   useEffect(() => {
-    const { data, methodId } = lastJsonMessage;
+    const { data, requestId } = lastJsonMessage;
     // Only the response to our own Run matters here: server pushes
-    // (state, fancontrolactivity) and other components' requests echo a
-    // different methodId or none at all.
+    // (state, fancontrolactivity) never carry a requestId, and other
+    // requests echo their own id — even when they reuse the same WMI
+    // opcode (e.g. the GPU Boost toggle and SetAIBoostStatus).
     if (
-      pendingMethodIdRef.current === null ||
-      methodId !== pendingMethodIdRef.current
+      pendingRequestIdRef.current === null ||
+      requestId !== pendingRequestIdRef.current
     ) {
       return;
     }
-    pendingMethodIdRef.current = null;
+    pendingRequestIdRef.current = null;
     setIsRunning(false);
     if (data !== undefined) {
       const display =
@@ -105,12 +110,14 @@ export function RawUI() {
       }
       parsedArgs[arg.name] = parsed;
     }
-    pendingMethodIdRef.current = selectedMethod.methodId;
+    const requestId = nextRequestId("rawui");
+    pendingRequestIdRef.current = requestId;
     setIsRunning(true);
     sendJsonMessage({
       kind,
       methodId: selectedMethod.methodId,
       methodName,
+      requestId,
       data: selectedMethod.inArgs.length > 0 ? parsedArgs : undefined,
     });
   };
@@ -237,6 +244,7 @@ export function RawUI() {
     <div>
       <StyledHeader
         type="button"
+        aria-label="Toggle Raw UI"
         onClick={() => setIsVisible(!isVisible)}
         aria-expanded={isVisible}
         aria-controls="raw-ui-content"

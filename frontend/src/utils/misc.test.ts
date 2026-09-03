@@ -14,6 +14,7 @@ import { theme } from "./consts";
 import {
   errorToast,
   getFanTableRowError,
+  nextRequestId,
   parseIntegerInRange,
   successToast,
   validationToast,
@@ -155,5 +156,20 @@ describe("getFanTableRowError", () => {
       row: 1,
       reason: "fan speed must be a whole number from 0 to 100",
     });
+  });
+});
+
+describe("nextRequestId", () => {
+  it("mints unique, prefixed request ids", () => {
+    const first = nextRequestId("mode");
+    const second = nextRequestId("mode");
+    const rawUi = nextRequestId("rawui");
+
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/^mode-/);
+    expect(second).toMatch(/^mode-/);
+    expect(rawUi).toMatch(/^rawui-/);
+    expect(rawUi).not.toBe(first);
+    expect(rawUi).not.toBe(second);
   });
 });
