@@ -8,8 +8,9 @@ Report them privately:
 
 - **Preferred:** GitHub private vulnerability reporting — the repository's
   Security tab → "Report a vulnerability" (only the maintainer can see it).
-- **Fallback:** email the maintainer directly (see the author fields in
-  `package.json` / `plasmoid/package/metadata.json`).
+- **Fallback:** email the maintainer (Marko Bogosavljevic) directly — see the
+  `contributors` entry in `package.json` or the `KPlugin.Authors` field in
+  `plasmoid/package/metadata.json`.
 
 Include, if possible:
 
