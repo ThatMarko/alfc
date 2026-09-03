@@ -5,8 +5,9 @@ that future upgrades have a reproducible baseline.
 
 ## Current baseline
 
-- Bun is pinned to 1.3.9 in `packageManager`, CI, and both release jobs. The
-  declared engine floor is the same version.
+- Bun: CI and both release jobs pin 1.3.9 (`oven-sh/setup-bun`), and the `engines`
+  field declares `>=1.3.9`. Note: the `packageManager` field currently declares
+  1.4.0, which is ahead of the pin — see "Next steps" item 6.
 - Dependency updates stay within the currently declared major versions. This
   keeps the review focused: React 19, ESLint 10, Vitest 4, and other major
   upgrades should be handled separately with their own migration testing.
@@ -62,6 +63,9 @@ that future upgrades have a reproducible baseline.
    narrow cause.
 5. Add Windows CI coverage for the WMI helper build and a protocol-level helper
    test that does not require Aorus hardware.
+6. Align the Bun version in `package.json` `packageManager` (currently 1.4.0)
+   with the 1.3.9 pins used by CI and both release jobs, then re-run the
+   clean-install validation path.
 
 Hardware validation is still required before a release: automated tests mock
 native calls and cannot prove ACPI/WMI behavior or safe fan restoration on a

@@ -1,0 +1,69 @@
+name: Bug report
+description: Report a problem with ALFC
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Fan-control bugs are almost always hardware- and OS-specific, so please fill in the device context below.
+  - type: input
+    id: model
+    attributes:
+      label: Laptop model
+      description: Exact model, e.g. "Aorus 15G" or "Aero 15 SA"
+      placeholder: Aorus 15G
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      description: e.g. Windows 11 24H2, Ubuntu 24.04, Arch Linux (include kernel version if on Linux)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ALFC version
+      description: Release tag or git commit you are running
+      placeholder: v2.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - Manual install (install.sh / install.bat)
+        - run.sh / run.bat (temporary)
+        - Built from source
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what actually happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What were you doing when the problem occurred?
+      placeholder: |
+        1. Opened the web UI
+        2. Toggled fixed fan mode
+        3. ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Relevant logs — `service.log` in the ALFC directory on Windows,
+        `journalctl -u alfc` or the terminal output on Linux. Redact anything sensitive.
+      render: shell
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Anything else that might help — custom fan curves, PL1/PL2 values, plasmoid usage, etc.

@@ -17,7 +17,8 @@ The `alfc.service` in this directory is a pre-rendered copy for reference and lo
 ## Updating the Package
 
 1. Update `pkgver` in `PKGBUILD` to match the new release tag (reset `pkgrel` to 1)
-2. Update `sha256sums` (or keep `SKIP` for development):
+2. Update `sha256sums` with the real checksum of the release tarball (published
+   packages must pin checksums — a `SKIP` entry is unacceptable to AUR review):
    ```bash
    updpkgsums
    ```
@@ -31,6 +32,9 @@ The `alfc.service` in this directory is a pre-rendered copy for reference and lo
    ```
 
 ## Publishing to AUR
+
+The AUR package can only be submitted once a stable release exists — the PKGBUILD
+downloads `alfc-v${pkgver}-linux-x64.tar.gz` from GitHub Releases.
 
 First time:
 

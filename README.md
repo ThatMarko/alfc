@@ -1,5 +1,8 @@
 # Aorus Laptop Fan Control (alfc)
 
+[![CI](https://github.com/ThatMarko/alfc/actions/workflows/ci.yml/badge.svg)](https://github.com/ThatMarko/alfc/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 > Modern fork of [s-h-a-d-o-w/alfc](https://github.com/s-h-a-d-o-w/alfc) — rewritten on [Bun](https://bun.sh) with native platform bindings, a KDE Plasma 6 widget, and cross-platform service management. Original work by [Andreas Opferkuch](https://github.com/s-h-a-d-o-w).
 
 **Please note that if you're using Windows 10 _and_ a CPU other than the i7-10875H, you would have to look up and set the PL1 and PL2 values in order not to possibly limit the performance of your CPU** - e.g. [tech powerup database](https://www.techpowerup.com/cpu-specs/core-i7-10875h.c2277). (`alfc` will attempt to set those levels whenever it starts or you change them, using Intel XTU on Windows 10 and `constraint_0_power_limit_uw` and `constraint_1_power_limit_uw` on Linux. Windows 11 forbids using Intel XTU, at least for this. As far as I'm aware, there's no danger to setting those values too high, since CPUs won't consume more than a certain maximum, regardless of these values. On the other hand, throttling due to low values is possible!)
@@ -19,9 +22,22 @@
 | Aorus 5 SE4  | W11             |                     |                 |
 | Aero 15 SA   | W10, W11, Linux |                     |                 |
 
-Please submit a PR, an issue or send me an e-mail if you can confirm something that's not yet in the table.
+Please [open an issue](https://github.com/ThatMarko/alfc/issues) or submit a pull request if you can confirm a model that is not yet in the table.
 
 GPU boost is likely to not work on models other than the 15G though because the way that is controlled is highly model-dependent.
+
+## Documentation
+
+| Document                                             | Purpose                                                       |
+| ---------------------------------------------------- | ------------------------------------------------------------- |
+| [LINUX.md](LINUX.md)                                 | Linux installation and troubleshooting guide                  |
+| [RELEASING.md](RELEASING.md)                         | How releases are cut, tagged, and published                   |
+| [common/PROTOCOL.md](common/PROTOCOL.md)             | WebSocket protocol reference (client/server message contract) |
+| [common/COMPATIBILITY.md](common/COMPATIBILITY.md)   | Client compatibility matrix and protocol evolution policy     |
+| [plasmoid/README.md](plasmoid/README.md)             | KDE Plasma 6 widget documentation                             |
+| [plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md) | Plasmoid runtime dependencies by distribution                 |
+| [aur/README.md](aur/README.md)                       | AUR package (`alfc-bin`) maintenance notes                    |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Development setup, conventions, and the pull request process  |
 
 ## How it works
 
@@ -71,7 +87,7 @@ If that is something you're interested in, you need to do this:
 
 - Install Intel XTU
 - Extract the Control Center installer and copy `acpimof.dll` to `C:\Windows\SysWOW64`,
-  create a string value in the Registy at
+  create a string value in the Registry at
   `Computer\HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\WmiAcpi` called `MofImagePath`
   that contains `C:\Windows\SysWOW64\acpimof.dll` and reboot. (For more on this, [see here](https://docs.microsoft.com/en-us/samples/microsoft/windows-driver-samples/wmi-acpi-sample/))
 
@@ -98,10 +114,17 @@ hex string for Linux.
 - **Full check**: `bun run all-checks` — Runs lint, type-check, test, and build in sequence.
 - **Pre-commit**: Husky + lint-staged runs ESLint, type-check, and Prettier on staged files.
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the development
+setup, project conventions, and the pull request process. Bug reports and feature
+requests go to the [issue tracker](https://github.com/ThatMarko/alfc/issues); please
+report security issues privately as described in [SECURITY.md](SECURITY.md).
+
 ## Todo/Wishlist
 
 Contributions welcome, as always. 🙂
 
 - Using RGB lighting to highlight caps/num lock. There's something [here](https://gitlab.com/wtwrp/aeroctl/-/tree/master/Samples/AeroCtl.Rgb.LockKeys) for the Gigabyte Aero that could potentially be reused. (This should actually probably be a separate tool, like the Gigabyte-Aorus-Battery-Manager.)
 - Publish plasmoid to [KDE Store](https://store.kde.org) for discoverability in KDE Discover.
-- Publish AUR package — PKGBUILD ready in `aur/`, needs first release tag to submit.
+- Publish the AUR package (`alfc-bin`) — PKGBUILD is ready in `aur/` and will be submitted after the first stable release (see [`aur/README.md`](aur/README.md)).

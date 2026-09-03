@@ -1,7 +1,7 @@
 # ALFC - Aorus Laptop Fan Control
 
-**Generated:** 2026-02-18
-**Commit:** 5bd77bb
+**Generated:** 2026-09-03
+**Commit:** f6d1c26
 **Branch:** master
 
 ## OVERVIEW
@@ -43,7 +43,7 @@ alfc/
 ## CONVENTIONS
 
 - **Monorepo**: Bun workspaces (`frontend`, `server`)
-- **Bun 1.3+** required (1.4+ recommended)
+- **Bun >=1.3.9** required (`engines` floor; CI pins 1.3.9, `packageManager` declares 1.4.0)
 - **ESM imports**: Extensionless relative imports (Bun `moduleResolution: "bundler"` convention). Use `node:` prefix for Node built-in modules.
 - **No explicit `any`**: ESLint warns on `@typescript-eslint/no-explicit-any`. One known exception in `common/types.ts` (protocol data field).
 - **Underscore prefix**: Unused vars must use `_` prefix

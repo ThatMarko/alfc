@@ -18,14 +18,20 @@ The GitHub Actions release workflow will:
 
 Review the draft release, edit the notes if needed, then publish it.
 
-5. After publishing, update the AUR package:
-   ```bash
-   cd /path/to/aur/alfc-bin
-   # Update pkgver in PKGBUILD, then:
-   updpkgsums
-   makepkg --printsrcinfo > .SRCINFO
-   git add -u && git commit -m "Update to vX.Y.Z" && git push
-   ```
+5. After publishing, update the AUR package (`alfc-bin`):
+   - **First release only:** this is the initial AUR submission — follow the
+     "Publishing to AUR" steps in [`aur/README.md`](aur/README.md). Before
+     submitting, replace the `SKIP` placeholder in `sha256sums` with the real
+     checksum of the release tarball (`updpkgsums`); `SKIP` is only acceptable
+     while developing the package.
+   - **Later releases:** update the existing AUR repository:
+     ```bash
+     cd /path/to/aur/alfc-bin
+     # Update pkgver in PKGBUILD, then:
+     updpkgsums
+     makepkg --printsrcinfo > .SRCINFO
+     git add -u && git commit -m "Update to vX.Y.Z" && git push
+     ```
 
 ## Release artifacts
 
