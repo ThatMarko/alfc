@@ -2,6 +2,7 @@ import styled from "@emotion/styled";
 import React, { useEffect, useRef, useState } from "react";
 import { getMethods, setMethods } from "../data/mof";
 import { theme } from "../utils/consts";
+import { parseIntegerInRange, validationToast } from "../utils/misc";
 import { useWebSocket } from "../utils/useWebSocket";
 
 enum Kind {
@@ -43,10 +44,11 @@ const StyledForm = styled.form`
 
 export function RawUI() {
   const refRun = useRef<HTMLButtonElement>(null);
+  const pendingMethodIdRef = useRef<string | null>(null);
 
   const [kind, setKind] = useState(Kind.Get);
   const [methodName, setMethodName] = useState("");
-  const [args, setArgs] = useState<{ [key: string]: number }>({});
+  const [args, setArgs] = useState<{ [key: string]: string }>({});
   const [isRunning, setIsRunning] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [result, setResult] = useState("");
@@ -54,14 +56,24 @@ export function RawUI() {
   const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
 
   useEffect(() => {
-    const { kind, data } = lastJsonMessage;
-    if (kind !== "state" && data !== undefined) {
+    const { data, methodId } = lastJsonMessage;
+    // Only the response to our own Run matters here: server pushes
+    // (state, fancontrolactivity) and other components' requests echo a
+    // different methodId or none at all.
+    if (
+      pendingMethodIdRef.current === null ||
+      methodId !== pendingMethodIdRef.current
+    ) {
+      return;
+    }
+    pendingMethodIdRef.current = null;
+    setIsRunning(false);
+    if (data !== undefined) {
       const display =
         typeof data === "number"
           ? `${data} (0x${data.toString(16)})`
           : String(data);
       setResult(`${new Date().toLocaleTimeString()}: ${display}`);
-      setIsRunning(false);
     }
   }, [lastJsonMessage]);
 
@@ -82,12 +94,24 @@ export function RawUI() {
     event.preventDefault();
     refRun.current?.focus();
     if (!selectedMethod) return;
+    const parsedArgs: { [key: string]: number } = {};
+    for (const arg of selectedMethod.inArgs) {
+      const parsed = parseIntegerInRange(args[arg.name] ?? "", 0, 255);
+      if (parsed === null) {
+        validationToast(
+          `Argument ${arg.name} must be a whole number from 0 to 255.`,
+        );
+        return;
+      }
+      parsedArgs[arg.name] = parsed;
+    }
+    pendingMethodIdRef.current = selectedMethod.methodId;
     setIsRunning(true);
     sendJsonMessage({
       kind,
       methodId: selectedMethod.methodId,
       methodName,
-      data: Object.keys(args).length > 0 ? args : undefined,
+      data: selectedMethod.inArgs.length > 0 ? parsedArgs : undefined,
     });
   };
 
@@ -109,12 +133,10 @@ export function RawUI() {
                 min={0}
                 max={255}
                 onChange={(event) => {
-                  setArgs((prev) => {
-                    return {
-                      ...prev,
-                      [arg.name]: parseInt(event.target.value, 10),
-                    };
-                  });
+                  setArgs((prev) => ({
+                    ...prev,
+                    [arg.name]: event.target.value,
+                  }));
                 }}
                 value={args[arg.name] ?? ""}
               />
@@ -126,7 +148,9 @@ export function RawUI() {
 
   const isRunnable =
     selectedMethod !== undefined &&
-    Object.keys(args).length === selectedMethod.inArgs.length;
+    selectedMethod.inArgs.every(
+      (arg) => parseIntegerInRange(args[arg.name] ?? "", 0, 255) !== null,
+    );
 
   const content = isVisible && (
     <StyledContent id="raw-ui-content">
@@ -138,8 +162,8 @@ export function RawUI() {
         used on many different laptops and the Aorus 15G doesn&apos;t have
         implementations for all of them.
       </div>
-      <StyledControls onSubmit={onSubmit}>
-        <StyledForm>
+      <StyledControls>
+        <StyledForm onSubmit={onSubmit}>
           <div>
             <label>
               <input
