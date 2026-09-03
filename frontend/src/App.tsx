@@ -1,7 +1,7 @@
 import styled from "@emotion/styled";
 import { faExchangeAlt } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { Button } from "reactstrap";
@@ -30,12 +30,15 @@ const StyledChangeModeContainer = styled.div`
 
 function App() {
   const [doFixedSpeed, setDoFixedSpeed] = useState(false);
+  const isModeChangePending = useRef(false);
 
   const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
 
   useEffect(() => {
     const { kind, data } = lastJsonMessage;
     if (kind === "state") {
+      // Server confirmation: mode request settled.
+      isModeChangePending.current = false;
       setDoFixedSpeed(data.doFixedSpeed);
     } else if (kind === "success") {
       // Only toast for config changes (no methodName).
@@ -44,6 +47,11 @@ function App() {
         successToast("Successfully applied.");
       }
     } else if (kind === "error") {
+      if (isModeChangePending.current) {
+        // Undo the optimistic toggle so the UI reflects rejected state.
+        isModeChangePending.current = false;
+        setDoFixedSpeed((current) => !current);
+      }
       errorToast(
         typeof data === "string" ? data : "An unexpected error occurred.",
       );
@@ -52,8 +60,10 @@ function App() {
   }, [lastJsonMessage]);
 
   const onChangeMode: React.MouseEventHandler = () => {
-    sendJsonMessage({ kind: "dofixedspeed", data: !doFixedSpeed });
-    setDoFixedSpeed(!doFixedSpeed);
+    const nextValue = !doFixedSpeed;
+    isModeChangePending.current = true;
+    setDoFixedSpeed(nextValue);
+    sendJsonMessage({ kind: "dofixedspeed", data: nextValue });
   };
 
   return (

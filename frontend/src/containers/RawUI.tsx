@@ -9,12 +9,19 @@ enum Kind {
   Set = "set",
 }
 
-const StyledHeader = styled.div`
+const StyledHeader = styled.button`
   width: 100%;
   margin-top: 32px;
   padding: 8px;
 
   background-color: ${theme.secondary};
+
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  border-radius: 0;
 
   cursor: pointer;
 `;
@@ -122,7 +129,7 @@ export function RawUI() {
     Object.keys(args).length === selectedMethod.inArgs.length;
 
   const content = isVisible && (
-    <StyledContent>
+    <StyledContent id="raw-ui-content">
       <div style={{ margin: 8 }}>
         ⚠️ It goes without saying that you should know what you&apos;re doing
         when using this.
@@ -204,7 +211,12 @@ export function RawUI() {
 
   return (
     <div>
-      <StyledHeader onClick={() => setIsVisible(!isVisible)}>
+      <StyledHeader
+        type="button"
+        onClick={() => setIsVisible(!isVisible)}
+        aria-expanded={isVisible}
+        aria-controls="raw-ui-content"
+      >
         Raw UI
       </StyledHeader>
       {content}
