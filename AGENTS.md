@@ -1,7 +1,7 @@
 # ALFC - Aorus Laptop Fan Control
 
-**Generated:** 2026-02-18
-**Commit:** 5bd77bb
+**Generated:** 2026-09-03
+**Commit:** f6d1c26
 **Branch:** master
 
 ## OVERVIEW
@@ -43,7 +43,7 @@ alfc/
 ## CONVENTIONS
 
 - **Monorepo**: Bun workspaces (`frontend`, `server`)
-- **Bun 1.3+** required (1.4+ recommended)
+- **Bun >=1.3.9** required (`engines` floor; CI pins 1.3.9, `packageManager` declares 1.4.0)
 - **ESM imports**: Extensionless relative imports (Bun `moduleResolution: "bundler"` convention). Use `node:` prefix for Node built-in modules.
 - **No explicit `any`**: ESLint warns on `@typescript-eslint/no-explicit-any`. One known exception in `common/types.ts` (protocol data field).
 - **Underscore prefix**: Unused vars must use `_` prefix
@@ -95,7 +95,7 @@ plasmoidviewer -a plasmoid/package                               # Dev preview
 - Exit handler restores BIOS automatic fan control (disables fixed mode, re-enables auto mode)
 - Linux release is a Bun-compiled executable with systemd/OpenRC service scripts
 - Windows release is a Bun-compiled executable with WinSW service wrapper
-- Windows logging: WinSW to `service.log` (systemd journal / OpenRC stdout for Linux)
+- Windows logging: WinSW to `alfc-service.out.log`/`alfc-service.err.log` (systemd journal / OpenRC stdout for Linux)
 - Windows WMI: `WmiAPI.exe` subprocess (.NET Framework 4.8, built into Windows 11) communicates via stdin/stdout JSON, 30s stdin watchdog
 - Windows CPU OC: `bun:ffi` loads NativeAOT DLL (requires .NET 8 SDK to build)
 - Windows service: WinSW with `stopParentFirst` + `stopTimeout=15s` for safe fan restore on shutdown
