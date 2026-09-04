@@ -15,6 +15,8 @@ PlasmaExtras.Representation {
     readonly property var activity: connected && backend.latestActivity ? backend.latestActivity : null
     readonly property var state: connected && backend.latestState ? backend.latestState : null
     readonly property bool hasActivity: activity != null && activity.avgCPUTemp !== undefined
+    // sensorFailure is absent on protocol 1.0 servers — treated as false
+    readonly property bool sensorFailure: activity != null && activity.sensorFailure === true
     readonly property bool hasState: state != null && state.protocolVersion !== undefined
 
     collapseMarginsHint: true
@@ -65,10 +67,24 @@ PlasmaExtras.Representation {
             visible: fullRoot.hasActivity
 
             PlasmaComponents.Label { text: i18n("CPU Temp:") }
-            PlasmaComponents.Label { text: fullRoot.activity ? i18n("%1°C", Math.round(fullRoot.activity.avgCPUTemp)) : "--" }
+            PlasmaComponents.Label {
+                text: fullRoot.activity
+                    ? (fullRoot.sensorFailure
+                        ? i18n("Sensor error")
+                        : i18n("%1°C", Math.round(fullRoot.activity.avgCPUTemp)))
+                    : "--"
+                color: fullRoot.sensorFailure ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+            }
 
             PlasmaComponents.Label { text: i18n("GPU Temp:") }
-            PlasmaComponents.Label { text: fullRoot.activity ? i18n("%1°C", Math.round(fullRoot.activity.avgGPUTemp)) : "--" }
+            PlasmaComponents.Label {
+                text: fullRoot.activity
+                    ? (fullRoot.sensorFailure
+                        ? i18n("Sensor error")
+                        : i18n("%1°C", Math.round(fullRoot.activity.avgGPUTemp)))
+                    : "--"
+                color: fullRoot.sensorFailure ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+            }
 
             PlasmaComponents.Label { text: i18n("Fan Speed:") }
             PlasmaComponents.Label { text: fullRoot.activity && fullRoot.activity.appliedSpeed != null ? i18n("%1%", Math.round(fullRoot.activity.appliedSpeed)) : "--" }

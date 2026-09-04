@@ -1,6 +1,6 @@
 # ALFC Compatibility Matrix
 
-## Protocol Version: 1.0
+## Protocol Version: 1.1
 
 ### Client Compatibility
 
@@ -29,6 +29,18 @@
 | `isCpuTuningAvailable`  | 1.0      | No       | `undefined` | Platform-dependent |
 | `isFanControlAvailable` | 1.0      | No       | `undefined` | Platform-dependent |
 | `isGpuBoostAvailable`   | 1.0      | No       | `undefined` | Platform-dependent |
+
+### Activity Shape Additions Log
+
+| Field           | Added In | Required        | Default     | Notes                                                                                                                          |
+| --------------- | -------- | --------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `sensorFailure` | 1.1      | Yes (since 1.1) | `undefined` | `true` when the last collection failed; temperatures are last-known. Absent on 1.0 servers — clients must treat it as `false`. |
+
+### Other 1.1 Changes
+
+- `fixedpercentage` is validated (number, 0–100) and only commands fans when already in fixed mode.
+- `fantable` payloads are validated server-side (non-empty; temperatures 0–110 strictly ascending; speeds 0–100) and rejected with `INVALID_FAN_TABLE`.
+- New error codes: `INVALID_DATA`, `INVALID_FAN_TABLE`.
 
 ### Release Gates
 

@@ -51,6 +51,9 @@ MouseArea {
             if (cpu === undefined || gpu === undefined)
                 return i18n("ALFC: ...")
 
+            if (backend.latestActivity.sensorFailure === true)
+                return i18n("ALFC: sensor error")
+
             return i18n("%1°C / %2°C | %3%",
                 Math.round(cpu), Math.round(gpu),
                 fan != null ? Math.round(fan) : "--")

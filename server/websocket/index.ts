@@ -5,6 +5,10 @@ import {
   type MessageToServer,
   MessageToServerKind,
 } from "../../common/types";
+import {
+  validateFanTable,
+  validateFixedPercentage,
+} from "../../common/validation";
 import { getCall, setCall, tune } from "../native/index";
 import { persistState, state } from "../state/index";
 import {
@@ -46,7 +50,7 @@ function sendState(ws: ServerWebSocket<unknown>) {
   ws.send(
     JSON.stringify({
       kind: MessageToClientKind.State,
-      data: { ...state, protocolVersion: "1.0" },
+      data: { ...state, protocolVersion: "1.1" },
     }),
   );
 }
@@ -156,11 +160,24 @@ async function handleMessage(
       case MessageToServerKind.RegisterActivitySocket:
         ws.subscribe("activity");
         return;
-      case MessageToServerKind.FixedPercentage:
+      case MessageToServerKind.FixedPercentage: {
+        const percentageError = validateFixedPercentage(payload.data);
+        if (percentageError) {
+          console.warn(
+            `[WebSocket] Invalid fixedpercentage data: ${percentageError}`,
+          );
+          return sendError(ws, payload, `INVALID_DATA: ${percentageError}`);
+        }
         state.fixedPercentage = payload.data;
-        setFixedFan(state.fixedPercentage);
+        // In auto mode the percentage is only persisted — commanding fans
+        // here would fight the auto control loop. It is applied when the
+        // user switches to fixed mode.
+        if (state.doFixedSpeed) {
+          setFixedFan(state.fixedPercentage);
+        }
         persistState();
         return sendSuccess(ws, payload);
+      }
       case MessageToServerKind.DoFixedSpeed:
         state.doFixedSpeed = payload.data;
         if (!state.doFixedSpeed) {
@@ -168,14 +185,28 @@ async function handleMessage(
         }
         persistState();
         return sendSuccess(ws, payload);
-      case MessageToServerKind.FanTable:
+      case MessageToServerKind.FanTable: {
         if (payload.data) {
+          const cpuError = validateFanTable(payload.data.cpu);
+          const gpuError = validateFanTable(payload.data.gpu);
+          if (cpuError || gpuError) {
+            const which = cpuError ? "cpu" : "gpu";
+            const reason = cpuError ?? gpuError;
+            console.warn(`[WebSocket] Invalid ${which} fan table: ${reason}`);
+            return sendError(
+              ws,
+              payload,
+              `INVALID_FAN_TABLE: ${which} table ${reason}`,
+            );
+          }
+
           state.cpuFanTable = payload.data.cpu;
           state.gpuFanTable = payload.data.gpu;
           persistState();
           return sendSuccess(ws, payload);
         }
         break;
+      }
       case MessageToServerKind.Tune:
         if (payload.data) {
           state.pl1 = payload.data.pl1;

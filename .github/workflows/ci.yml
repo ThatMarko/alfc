@@ -3,8 +3,9 @@ name: ci
 on:
   push:
     branches: [master]
+  # All pull requests, not just ones targeting master — stacked feature
+  # branches get the same checks (including the Windows WmiDll build).
   pull_request:
-    branches: [master]
 
 permissions:
   contents: read

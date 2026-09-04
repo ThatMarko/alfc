@@ -56,6 +56,26 @@ ColumnLayout {
         }
     }
 
+    // Surface the server's verdict on validateAndSave() — the server
+    // re-validates tables (protocol 1.1) and may reject the payload.
+    Connections {
+        target: backend
+        function onMessageReceived(message) {
+            if (message.methodName !== "set_fantable") {
+                return
+            }
+            if (message.kind === "error") {
+                statusMessage = i18n("Error: %1", message.data || i18n("Unknown"))
+                isError = true
+                isNeutral = false
+            } else if (message.kind === "success") {
+                statusMessage = i18n("Configuration applied!")
+                isError = false
+                isNeutral = false
+            }
+        }
+    }
+
     Component.onCompleted: {
         if (backend && backend.latestState && backend.latestState.cpuFanTable) {
             loadFromBackend()

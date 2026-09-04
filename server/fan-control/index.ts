@@ -314,13 +314,16 @@ export function fanControl() {
         currRampUpCycle = 1;
         // Temps are telemetry, not control input: report the last real
         // measurements (or nothing at all) instead of a sentinel that
-        // clients would display as a measured temperature.
+        // clients would display as a measured temperature. The
+        // sensorFailure flag lets 1.1 clients render an explicit sensor
+        // error state instead of trusting the last-known numbers.
         if (lastAverages) {
           publishActivity({
             appliedSpeed: target,
             avgCPUTemp: lastAverages.avgCPUTemp,
             avgGPUTemp: lastAverages.avgGPUTemp,
             target,
+            sensorFailure: true,
           });
         }
         return;
@@ -389,6 +392,7 @@ export function fanControl() {
         avgCPUTemp,
         avgGPUTemp,
         target,
+        sensorFailure: false,
       });
     } finally {
       isCycleInFlight = false;
