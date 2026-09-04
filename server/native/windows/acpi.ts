@@ -1,4 +1,5 @@
 import { CString, dlopen, FFIType, ptr } from "bun:ffi";
+import type { Pointer } from "bun:ffi";
 import path from "node:path";
 import type { Args } from "../../../common/types";
 import { isDev } from "../../utils/consts";
@@ -8,7 +9,7 @@ const dllPath = isDev
   ? path.join(baseDir, "wmidll", "WmiDll.dll")
   : path.join(baseDir, "WmiDll.dll");
 
-const lib = dlopen(dllPath, {
+const wmiLibrary = dlopen(dllPath, {
   wmi_init: { args: [], returns: FFIType.i32 },
   wmi_get: {
     args: [FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.ptr],
@@ -20,7 +21,7 @@ const lib = dlopen(dllPath, {
 });
 
 function getLastError(): string {
-  const errorPtr = lib.symbols.wmi_get_last_error();
+  const errorPtr = wmiLibrary.symbols.wmi_get_last_error();
   if (!errorPtr) return "Unknown error";
   return new CString(errorPtr).toString();
 }
@@ -31,14 +32,17 @@ const resultsPtr = ptr(resultsBuffer);
 const countPtr = ptr(countBuffer);
 let isClosed = false;
 
-const methodPtrCache = new Map<string, { buf: Buffer; ptr: number }>();
+const methodPointerCache = new Map<
+  string,
+  { buffer: Buffer; pointer: Pointer }
+>();
 
-function getMethodPtr(name: string): number {
-  const cached = methodPtrCache.get(name);
-  if (cached) return cached.ptr;
-  const buf = Buffer.from(name + "\0");
-  const pointer = ptr(buf);
-  methodPtrCache.set(name, { buf, ptr: pointer });
+function getMethodPointer(name: string): Pointer {
+  const cached = methodPointerCache.get(name);
+  if (cached) return cached.pointer;
+  const buffer = Buffer.from(name + "\0");
+  const pointer = ptr(buffer);
+  methodPointerCache.set(name, { buffer, pointer });
   return pointer;
 }
 
@@ -58,13 +62,29 @@ function ensureLibraryOpen() {
   }
 }
 
+function runWmiCall<T>(callback: () => T): Promise<T> {
+  try {
+    return Promise.resolve(callback());
+  } catch (error) {
+    return Promise.reject(error);
+  }
+}
+
+function getRequiredDataArgument(methodName: string, args: Args): number {
+  if (args.Data === undefined) {
+    throw new TypeError(`WMI '${methodName}' requires a Data argument`);
+  }
+
+  return getUint8Argument(methodName, args.Data);
+}
+
 export async function wmiInit() {
   ensureLibraryOpen();
 
   let attempt = 0;
   while (attempt < 3) {
     try {
-      const result = lib.symbols.wmi_init();
+      const result = wmiLibrary.symbols.wmi_init();
       if (result !== 0) {
         throw new Error(`WMI init failed: ${getLastError()}`);
       }
@@ -82,10 +102,13 @@ export async function wmiInit() {
 }
 
 export function setCall(_: string, methodName: string, args: Args) {
-  return Promise.resolve().then(() => {
+  return runWmiCall(() => {
     ensureLibraryOpen();
-    const argValue = getUint8Argument(methodName, args.Data ?? 0);
-    const result = lib.symbols.wmi_set(getMethodPtr(methodName), argValue);
+    const argValue = getRequiredDataArgument(methodName, args);
+    const result = wmiLibrary.symbols.wmi_set(
+      getMethodPointer(methodName),
+      argValue,
+    );
     if (result !== 0) {
       throw new Error(`WMI set '${methodName}' failed: ${getLastError()}`);
     }
@@ -93,15 +116,15 @@ export function setCall(_: string, methodName: string, args: Args) {
 }
 
 export function getCall(_: string, methodName: string, args?: Args) {
-  return Promise.resolve().then(() => {
+  return runWmiCall(() => {
     ensureLibraryOpen();
     const argValue =
       args?.Data === undefined
         ? -1
         : getUint8Argument(methodName, Number(args.Data));
 
-    const result = lib.symbols.wmi_get(
-      getMethodPtr(methodName),
+    const result = wmiLibrary.symbols.wmi_get(
+      getMethodPointer(methodName),
       argValue,
       resultsPtr,
       countPtr,
@@ -130,9 +153,9 @@ export function getCall(_: string, methodName: string, args?: Args) {
 export function wmiCleanup() {
   if (isClosed) return;
 
-  lib.symbols.wmi_cleanup();
-  methodPtrCache.clear();
-  lib.close();
+  wmiLibrary.symbols.wmi_cleanup();
+  methodPointerCache.clear();
+  wmiLibrary.close();
   isClosed = true;
 }
 
