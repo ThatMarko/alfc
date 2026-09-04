@@ -11,7 +11,6 @@ Item {
     property string lastError: ""
     property var latestState: ({})
     property var latestActivity: ({})
-    property real lastPongTime: 0
 
     onUrlChanged: {
         reconnectTimer.interval = 1000;
@@ -39,7 +38,7 @@ Item {
             if (socket.status === WebSocket.Open) {
                 console.info("BackendConnection: Connected");
                 root.lastError = "";
-                root.lastPongTime = Date.now();
+                pongDeadline.restart();
                 reconnectTimer.stop();
                 reconnectTimer.interval = 1000;
 
@@ -55,18 +54,20 @@ Item {
             } else if (socket.status === WebSocket.Closed) {
                 console.info("BackendConnection: Closed");
                 keepaliveTimer.stop();
+                pongDeadline.stop();
                 reconnectTimer.start();
             } else if (socket.status === WebSocket.Error) {
                 console.error("BackendConnection: Error: " + socket.errorString);
                 root.lastError = socket.errorString;
                 keepaliveTimer.stop();
+                pongDeadline.stop();
                 reconnectTimer.start();
             }
         }
 
         onTextMessageReceived: (message) => {
             if (message === "pong") {
-                root.lastPongTime = Date.now();
+                pongDeadline.restart();
                 return;
             }
 
@@ -108,18 +109,16 @@ Item {
         }
     }
 
+    // One-shot deadline restarted by every pong (and on connect): if it fires,
+    // no pong arrived within 60 seconds and the connection is stale.
     Timer {
-        id: pongWatchdog
+        id: pongDeadline
         interval: 60000
-        repeat: true
-        running: keepaliveTimer.running
+        repeat: false
         onTriggered: {
-            if (root.lastPongTime > 0 && (Date.now() - root.lastPongTime) > 60000) {
-                console.warn("BackendConnection: Pong timeout, forcing reconnect");
-                root.lastPongTime = 0;
-                socket.active = false;
-                socket.active = true;
-            }
+            console.warn("BackendConnection: Pong timeout, forcing reconnect");
+            socket.active = false;
+            socket.active = true;
         }
     }
 }
