@@ -59,7 +59,7 @@ body:
     attributes:
       label: Logs
       description: |
-        Relevant logs — `service.log` in the ALFC directory on Windows,
+        Relevant logs — `alfc-service.out.log` in the ALFC directory on Windows,
         `journalctl -u alfc` or the terminal output on Linux. Redact anything sensitive.
       render: shell
   - type: textarea

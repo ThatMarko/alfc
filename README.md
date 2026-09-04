@@ -79,7 +79,9 @@ either BIOS or Gigabyte's Control Center.
 
 ## Troubleshooting
 
-On Windows, there is a `service.log` file in the alfc root directory that might contain useful information.
+On Windows, WinSW writes the service logs to `alfc-service.out.log` and
+`alfc-service.err.log` in the ALFC directory; they might contain useful
+information.
 
 ### Getting rid of Gigabyte Control Center
 

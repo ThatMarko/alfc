@@ -8,7 +8,7 @@ little extra care in how changes are made and verified goes a long way.
 If something is broken or missing, open an issue before writing code:
 
 - **Bugs** — use the bug report template. Include your laptop model, OS/distro,
-  ALFC version, and the relevant logs (`service.log` on Windows,
+  ALFC version, and the relevant logs (`alfc-service.out.log` on Windows,
   `journalctl -u alfc` on Linux). Most bugs are model- and OS-specific; without
   that context they are hard to reproduce.
 - **Feature requests** — use the feature request template and describe the

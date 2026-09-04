@@ -95,7 +95,7 @@ plasmoidviewer -a plasmoid/package                               # Dev preview
 - Exit handler restores BIOS automatic fan control (disables fixed mode, re-enables auto mode)
 - Linux release is a Bun-compiled executable with systemd/OpenRC service scripts
 - Windows release is a Bun-compiled executable with WinSW service wrapper
-- Windows logging: WinSW to `service.log` (systemd journal / OpenRC stdout for Linux)
+- Windows logging: WinSW to `alfc-service.out.log`/`alfc-service.err.log` (systemd journal / OpenRC stdout for Linux)
 - Windows WMI: `WmiAPI.exe` subprocess (.NET Framework 4.8, built into Windows 11) communicates via stdin/stdout JSON, 30s stdin watchdog
 - Windows CPU OC: `bun:ffi` loads NativeAOT DLL (requires .NET 8 SDK to build)
 - Windows service: WinSW with `stopParentFirst` + `stopTimeout=15s` for safe fan restore on shutdown

@@ -9,7 +9,7 @@ that future upgrades have a reproducible baseline.
   field declares `>=1.3.9`. Note: the `packageManager` field currently declares
   1.4.0, which is ahead of the pin — see "Next steps" item 6.
 - Dependency updates stay within the currently declared major versions. This
-  keeps the review focused: React 19, ESLint 10, Vitest 4, and other major
+  keeps the review focused: React 18, ESLint 9, Vitest 3, and other major
   upgrades should be handled separately with their own migration testing.
 - `bun install --frozen-lockfile` followed by `bun run all-checks` is the
   supported clean-install validation path.
