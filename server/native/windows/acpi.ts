@@ -62,7 +62,6 @@ function ensureLibraryOpen() {
   }
 }
 
-<<<<<<< HEAD
 function runWmiCall<T>(callback: () => T): Promise<T> {
   try {
     return Promise.resolve(callback());
@@ -79,8 +78,6 @@ function getRequiredDataArgument(methodName: string, args: Args): number {
   return getUint8Argument(methodName, args.Data);
 }
 
-=======
->>>>>>> origin/feat/wmi-ffi
 export async function wmiInit() {
   ensureLibraryOpen();
 
@@ -105,7 +102,6 @@ export async function wmiInit() {
 }
 
 export function setCall(_: string, methodName: string, args: Args) {
-<<<<<<< HEAD
   return runWmiCall(() => {
     ensureLibraryOpen();
     const argValue = getRequiredDataArgument(methodName, args);
@@ -113,12 +109,6 @@ export function setCall(_: string, methodName: string, args: Args) {
       getMethodPointer(methodName),
       argValue,
     );
-=======
-  return Promise.resolve().then(() => {
-    ensureLibraryOpen();
-    const argValue = getUint8Argument(methodName, args.Data ?? 0);
-    const result = lib.symbols.wmi_set(getMethodPtr(methodName), argValue);
->>>>>>> origin/feat/wmi-ffi
     if (result !== 0) {
       throw new Error(`WMI set '${methodName}' failed: ${getLastError()}`);
     }
@@ -126,24 +116,15 @@ export function setCall(_: string, methodName: string, args: Args) {
 }
 
 export function getCall(_: string, methodName: string, args?: Args) {
-<<<<<<< HEAD
   return runWmiCall(() => {
-=======
-  return Promise.resolve().then(() => {
->>>>>>> origin/feat/wmi-ffi
     ensureLibraryOpen();
     const argValue =
       args?.Data === undefined
         ? -1
         : getUint8Argument(methodName, Number(args.Data));
 
-<<<<<<< HEAD
     const result = wmiLibrary.symbols.wmi_get(
       getMethodPointer(methodName),
-=======
-    const result = lib.symbols.wmi_get(
-      getMethodPtr(methodName),
->>>>>>> origin/feat/wmi-ffi
       argValue,
       resultsPtr,
       countPtr,
@@ -172,15 +153,9 @@ export function getCall(_: string, methodName: string, args?: Args) {
 export function wmiCleanup() {
   if (isClosed) return;
 
-<<<<<<< HEAD
   wmiLibrary.symbols.wmi_cleanup();
   methodPointerCache.clear();
   wmiLibrary.close();
-=======
-  lib.symbols.wmi_cleanup();
-  methodPtrCache.clear();
-  lib.close();
->>>>>>> origin/feat/wmi-ffi
   isClosed = true;
 }
 
