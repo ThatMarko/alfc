@@ -6,6 +6,7 @@ import { SimpleTooltip } from "../components/SimpleTooltip";
 import { StyledApplyButton } from "../components/StyledApplyButton";
 import { StyledArea } from "../components/StyledArea";
 import xtuIncompatibility from "../images/xtu_incompatibility.png";
+import { parseIntegerInRange, validationToast } from "../utils/misc";
 import { useWebSocket } from "../utils/useWebSocket";
 
 const StyledInput = styled.input`
@@ -48,10 +49,16 @@ export function CPUTuning() {
 
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
+    const nextPl1 = parseIntegerInRange(pl1, 0, 200);
+    const nextPl2 = parseIntegerInRange(pl2, 0, 200);
+    if (nextPl1 === null || nextPl2 === null) {
+      validationToast("Power limits must be whole numbers from 0 to 200.");
+      return;
+    }
     setIsApplying(true);
     sendJsonMessage({
       kind: "tune",
-      data: { pl1: parseInt(pl1, 10), pl2: parseInt(pl2, 10) },
+      data: { pl1: nextPl1, pl2: nextPl2 },
     });
   };
 
@@ -89,6 +96,8 @@ export function CPUTuning() {
           <StyledInput
             size={4}
             type="number"
+            min={0}
+            max={200}
             onChange={(event) => setPL1(event.target.value)}
             value={pl1}
           />
@@ -99,6 +108,8 @@ export function CPUTuning() {
           <StyledInput
             size={4}
             type="number"
+            min={0}
+            max={200}
             onChange={(event) => setPL2(event.target.value)}
             value={pl2}
           />

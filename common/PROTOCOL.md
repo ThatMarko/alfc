@@ -1,17 +1,18 @@
 # ALFC WebSocket Protocol
 
-**Protocol version:** `1.0`
+**Protocol version:** `1.1`
 
 ## Versioning policy
 
 - **Additive changes** (new message kinds, new optional fields, new fields in server-push state) → **minor bump** (e.g. `1.1`).
 - **Breaking changes** (removals/renames/shape changes) → **major bump** (e.g. `2.0`) with a **deprecation period** where the previous major is still accepted.
 - Clients should treat `protocolVersion` as the authoritative version of the server contract.
+- **Current version `1.1`**: added the optional `requestId` request-correlation field (additive; see Message envelope).
 
 ## Connection lifecycle & client expectations
 
 - **Endpoint:** `ws://localhost:5522/ws`
-- **Initial state push:** on `open`, the server immediately sends a `state` message containing the full `State` object, including `protocolVersion: "1.0"`.
+- **Initial state push:** on `open`, the server immediately sends a `state` message containing the full `State` object, including `protocolVersion: "1.1"`.
 - **State broadcast:** after any successful state mutation (`fixedpercentage`, `dofixedspeed`, `fantable`, `tune`, supported `set` calls), the server publishes a fresh `state` snapshot to all connected sockets.
 - **Keepalive:** server has a ~30s idle timeout. Clients must send a plain-text `"ping"` at least every 30s; server responds with `"pong"`.
 - **Reconnect:** clients should auto-reconnect and expect the initial state push on every new connection.
@@ -35,10 +36,11 @@ All JSON messages follow this envelope:
 - `methodId` and `methodName` are required for all client requests.
 - For `get`/`set`, `methodName` is the native method name and is passed through to the platform layer.
 - For other kinds, `methodName` is echoed back in responses but is not used by the server logic.
+- `requestId` is optional. When a request carries it, the server echoes it back unchanged in that request's `success`/`error` response. Use it to attribute responses to your own requests — e.g. when two components issue the same WMI opcode concurrently. Server-initiated pushes never carry it.
 
 ### Server → Client
 
-Response messages include `methodId` and `methodName` from the request. Server-initiated push messages (`state`, `fancontrolactivity`) are sent without those fields in the current implementation.
+Response messages include `methodId` and `methodName` from the request, plus `requestId` when the client supplied one. Server-initiated push messages (`state`, `fancontrolactivity`) are sent without those fields in the current implementation.
 
 ## Client → Server message kinds
 
@@ -70,7 +72,7 @@ When `methodId` and `methodName` are present in the original request, they are e
 
 | Kind                 | Required fields                          | `data` shape         | Trigger                                                         | State mutation | Notes                                                                                                          |
 | -------------------- | ---------------------------------------- | -------------------- | --------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------- |
-| `state`              | `kind`, `data`                           | `State`              | Sent immediately on `open` and after successful state mutations | none           | Includes `protocolVersion: "1.0"`.                                                                             |
+| `state`              | `kind`, `data`                           | `State`              | Sent immediately on `open` and after successful state mutations | none           | Includes `protocolVersion: "1.1"`.                                                                             |
 | `success`            | `kind`, `methodId`, `methodName`         | `unknown` (optional) | Successful completion of a client request                       | none           | `data` is only present for `get` responses.                                                                    |
 | `error`              | `kind`, `methodId`, `methodName`, `data` | `string`             | Failed/invalid client request or thrown error                   | none           | `data` is a structured error code string (e.g. `INVALID_JSON: ...`).                                           |
 | `fancontrolactivity` | `kind`, `data`                           | `FanControlActivity` | Published when telemetry updates                                | none           | Only delivered to sockets that subscribed with `registeractivitysocket`. Fixed mode still publishes telemetry. |
@@ -90,7 +92,7 @@ type FanControlActivity = {
 };
 
 type State = {
-  protocolVersion: "1.0";
+  protocolVersion: "1.1";
   cpuFanTable: FanTable;
   gpuFanTable: FanTable;
   doFixedSpeed: boolean;

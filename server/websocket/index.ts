@@ -17,7 +17,7 @@ import {
 let server: Server<unknown> | null = null;
 
 type MessageMetadata = Partial<
-  Pick<MessageToServer, "methodId" | "methodName">
+  Pick<MessageToServer, "methodId" | "methodName" | "requestId">
 >;
 
 const validMessageToServerKinds = new Set<string>(
@@ -87,7 +87,7 @@ export function setServer(s: Server<unknown>) {
 function buildStateSnapshot(): State {
   return {
     ...state,
-    protocolVersion: "1.0",
+    protocolVersion: "1.1",
   };
 }
 
@@ -148,6 +148,10 @@ function getMessageMetadata(payload: unknown): MessageMetadata {
 
   if (typeof maybePayload.methodName === "string") {
     metadata.methodName = maybePayload.methodName;
+  }
+
+  if (typeof maybePayload.requestId === "string") {
+    metadata.requestId = maybePayload.requestId;
   }
 
   return metadata;

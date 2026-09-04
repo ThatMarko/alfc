@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { StyledApplyButton } from "../components/StyledApplyButton";
 import { StyledArea } from "../components/StyledArea";
 import { useWebSocket } from "../utils/useWebSocket";
+import { getFanTableRowError, validationToast } from "../utils/misc";
 import { FanTableEditor } from "./FanTableEditor";
 import { Status } from "./Status";
 import { disabledFormStyle, enabledFormStyle } from "./styles/misc";
@@ -53,6 +54,19 @@ export function FanTable({ disabled }: { disabled: boolean }) {
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
     submitRef.current?.focus();
+
+    const cpuInvalidRow = getFanTableRowError(cpuTable);
+    const gpuInvalidRow = getFanTableRowError(gpuTable);
+    const tableName = cpuInvalidRow ? "CPU" : "GPU";
+    const invalidRow = cpuInvalidRow ?? gpuInvalidRow;
+
+    if (invalidRow) {
+      validationToast(
+        `Invalid ${tableName} fan table (row ${invalidRow.row + 1}): ${invalidRow.reason}.`,
+      );
+      return;
+    }
+
     sendJsonMessage({
       kind: "fantable",
       data: {

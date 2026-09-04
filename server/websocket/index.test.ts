@@ -23,7 +23,7 @@ vi.mock("../fan-control/index", () => ({
 
 vi.mock("../state/index", () => ({
   state: {
-    protocolVersion: "1.0",
+    protocolVersion: "1.1",
     cpuFanTable: [
       [40, 15],
       [83, 50],
@@ -51,7 +51,7 @@ const mockedApplyFixedFan = vi.mocked(applyFixedFan);
 const mockedAutoFanControl = vi.mocked(fanControl);
 
 const DEFAULT_STATE: State = {
-  protocolVersion: "1.0",
+  protocolVersion: "1.1",
   cpuFanTable: [
     [40, 15],
     [83, 50],
@@ -162,7 +162,7 @@ describe("websocket contract", () => {
     expect(message.kind).toBe(MessageToClientKind.State);
     expect(message.data).toEqual({
       ...state,
-      protocolVersion: "1.0",
+      protocolVersion: "1.1",
     });
   });
 
@@ -203,7 +203,7 @@ describe("websocket contract", () => {
       kind: MessageToClientKind.State,
       data: {
         ...state,
-        protocolVersion: "1.0",
+        protocolVersion: "1.1",
       },
     });
     expect(getLastSentJson(ws)).toEqual({
@@ -444,6 +444,56 @@ describe("websocket contract", () => {
       methodId: "129",
       methodName: "SetAIBoostStatus",
       data: { Data: 0 },
+    });
+  });
+
+  it("echoes a client-supplied requestId in success responses", async () => {
+    const ws = createSocket();
+    mockedGetCall.mockResolvedValueOnce(42);
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.Get,
+      methodId: "0x129",
+      methodName: "GetSomething",
+      requestId: "rawui-1",
+      data: { Data: 1 },
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Success,
+      methodId: "0x129",
+      methodName: "GetSomething",
+      requestId: "rawui-1",
+      data: 42,
+    });
+  });
+
+  it("echoes a client-supplied requestId in error responses", async () => {
+    const ws = createSocket();
+    state.isFanControlAvailable = false;
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.DoFixedSpeed,
+      methodId: "mode-toggle",
+      methodName: "SetDoFixedSpeed",
+      requestId: "mode-1",
+      data: true,
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      methodId: "mode-toggle",
+      methodName: "SetDoFixedSpeed",
+      requestId: "mode-1",
+      data: "UNSUPPORTED_FEATURE: Fan control is not available on this system",
     });
   });
 
