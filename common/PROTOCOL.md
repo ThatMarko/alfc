@@ -1,6 +1,6 @@
 # ALFC WebSocket Protocol
 
-**Protocol version:** `1.0`
+**Protocol version:** `1.1`
 
 ## Versioning policy
 
@@ -11,7 +11,7 @@
 ## Connection lifecycle & client expectations
 
 - **Endpoint:** `ws://localhost:5522/ws`
-- **Initial state push:** on `open`, the server immediately sends a `state` message containing the full `State` object, including `protocolVersion: "1.0"`.
+- **Initial state push:** on `open`, the server immediately sends a `state` message containing the full `State` object, including `protocolVersion: "1.1"`.
 - **Keepalive:** server has a ~30s idle timeout. Clients must send a plain-text `"ping"` at least every 30s; server responds with `"pong"`.
 - **Reconnect:** clients should auto-reconnect and expect the initial state push on every new connection.
 - **Activity stream:** to receive `fancontrolactivity` updates, the client must send `registeractivitysocket` once per connection.
@@ -41,15 +41,15 @@ Response messages include `methodId` and `methodName` from the request. Server-i
 
 ## Client → Server message kinds
 
-| Kind                     | Required fields                          | `data` shape                       | Response kind        | State mutation                                                                               | Notes                                                                        |
-| ------------------------ | ---------------------------------------- | ---------------------------------- | -------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `registeractivitysocket` | `kind`, `methodId`, `methodName`         | _none_                             | _none_               | none                                                                                         | Subscribes this socket to the activity pub/sub channel.                      |
-| `fixedpercentage`        | `kind`, `methodId`, `methodName`, `data` | `number`                           | `success` or `error` | `state.fixedPercentage` set; persists; calls `setFixedFan`                                   | Missing `data` triggers `error`.                                             |
-| `dofixedspeed`           | `kind`, `methodId`, `methodName`, `data` | `boolean`                          | `success` or `error` | `state.doFixedSpeed` set; persists; if `false` then `autoFanControl()`                       | Missing `data` triggers `error`.                                             |
-| `fantable`               | `kind`, `methodId`, `methodName`, `data` | `{ cpu: FanTable, gpu: FanTable }` | `success` or `error` | `state.cpuFanTable`, `state.gpuFanTable` set; persists                                       | Missing `data` triggers `error`.                                             |
-| `tune`                   | `kind`, `methodId`, `methodName`, `data` | `{ pl1: number, pl2: number }`     | `success` or `error` | `state.pl1`, `state.pl2` set; persists; `tune()` invoked                                     | Missing `data` triggers `error`.                                             |
-| `get`                    | `kind`, `methodId`, `methodName`         | `Args` (optional)                  | `success` or `error` | none                                                                                         | Calls `getCall(methodId, methodName, data)`; `success.data` contains result. |
-| `set`                    | `kind`, `methodId`, `methodName`, `data` | `Args`                             | `success` or `error` | If `methodName === "SetAIBoostStatus"`, sets `state.gpuBoost = data.Data === 1` and persists | Missing `data` triggers `error`.                                             |
+| Kind                     | Required fields                          | `data` shape                       | Response kind        | State mutation                                                                               | Notes                                                                                                                                                    |
+| ------------------------ | ---------------------------------------- | ---------------------------------- | -------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registeractivitysocket` | `kind`, `methodId`, `methodName`         | _none_                             | _none_               | none                                                                                         | Subscribes this socket to the activity pub/sub channel.                                                                                                  |
+| `fixedpercentage`        | `kind`, `methodId`, `methodName`, `data` | `number`                           | `success` or `error` | `state.fixedPercentage` set; persists; calls `setFixedFan` only when already in fixed mode   | Missing or invalid (non-number, outside 0–100) `data` triggers `error`. In auto mode the value is only persisted and applied when fixed mode is engaged. |
+| `dofixedspeed`           | `kind`, `methodId`, `methodName`, `data` | `boolean`                          | `success` or `error` | `state.doFixedSpeed` set; persists; if `false` then `autoFanControl()`                       | Missing `data` triggers `error`.                                                                                                                         |
+| `fantable`               | `kind`, `methodId`, `methodName`, `data` | `{ cpu: FanTable, gpu: FanTable }` | `success` or `error` | `state.cpuFanTable`, `state.gpuFanTable` set; persists                                       | Missing `data` or an invalid table triggers `error`. Tables must be non-empty, with temperatures 0–110 strictly ascending and speeds 0–100.              |
+| `tune`                   | `kind`, `methodId`, `methodName`, `data` | `{ pl1: number, pl2: number }`     | `success` or `error` | `state.pl1`, `state.pl2` set; persists; `tune()` invoked                                     | Missing `data` triggers `error`.                                                                                                                         |
+| `get`                    | `kind`, `methodId`, `methodName`         | `Args` (optional)                  | `success` or `error` | none                                                                                         | Calls `getCall(methodId, methodName, data)`; `success.data` contains result.                                                                             |
+| `set`                    | `kind`, `methodId`, `methodName`, `data` | `Args`                             | `success` or `error` | If `methodName === "SetAIBoostStatus"`, sets `state.gpuBoost = data.Data === 1` and persists | Missing `data` triggers `error`.                                                                                                                         |
 
 If an unknown `kind` is received, or required `data` is missing, the server responds with a structured error code:
 
@@ -57,6 +57,8 @@ If an unknown `kind` is received, or required `data` is missing, the server resp
 { "kind": "error", "data": "INVALID_JSON: Failed to parse message" }
 { "kind": "error", "methodId": "...", "methodName": "...", "data": "UNKNOWN_KIND: <received kind>" }
 { "kind": "error", "methodId": "...", "methodName": "...", "data": "MISSING_DATA: <expected kind>" }
+{ "kind": "error", "methodId": "...", "methodName": "...", "data": "INVALID_DATA: must be between 0 and 100 (got 150)" }
+{ "kind": "error", "methodId": "...", "methodName": "...", "data": "INVALID_FAN_TABLE: cpu table temperatures must be strictly ascending" }
 { "kind": "error", "methodId": "...", "methodName": "...", "data": "INTERNAL_ERROR: An unexpected error occurred" }
 ```
 
@@ -66,7 +68,7 @@ When `methodId` and `methodName` are present in the original request, they are e
 
 | Kind                 | Required fields                          | `data` shape         | Trigger                                       | State mutation | Notes                                                                    |
 | -------------------- | ---------------------------------------- | -------------------- | --------------------------------------------- | -------------- | ------------------------------------------------------------------------ |
-| `state`              | `kind`, `data`                           | `State`              | Sent immediately on `open`                    | none           | Includes `protocolVersion: "1.0"`.                                       |
+| `state`              | `kind`, `data`                           | `State`              | Sent immediately on `open`                    | none           | Includes `protocolVersion: "1.1"`.                                       |
 | `success`            | `kind`, `methodId`, `methodName`         | `unknown` (optional) | Successful completion of a client request     | none           | `data` is only present for `get` responses.                              |
 | `error`              | `kind`, `methodId`, `methodName`, `data` | `string`             | Failed/invalid client request or thrown error | none           | `data` is a structured error code string (e.g. `INVALID_JSON: ...`).     |
 | `fancontrolactivity` | `kind`, `data`                           | `FanControlActivity` | Published when fan control updates            | none           | Only delivered to sockets that subscribed with `registeractivitysocket`. |
@@ -83,10 +85,11 @@ type FanControlActivity = {
   avgCPUTemp: number;
   avgGPUTemp: number;
   target: number;
+  sensorFailure: boolean; // since 1.1
 };
 
 type State = {
-  protocolVersion: "1.0";
+  protocolVersion: "1.1";
   cpuFanTable: FanTable;
   gpuFanTable: FanTable;
   doFixedSpeed: boolean;
@@ -99,6 +102,8 @@ type State = {
   isFanControlAvailable?: boolean;
 };
 ```
+
+When `sensorFailure` is `true`, the last temperature collection failed: `avgCPUTemp`/`avgGPUTemp` are the **last successfully collected averages** (not current measurements) and the fans have been commanded to the highest configured speed as a fail-safe. Clients should render an explicit sensor error state instead of styling these values as live temperatures. Until the first successful collection of a run, no `fancontrolactivity` is published at all. Clients talking to a 1.0 server never receive the field and must treat it as absent (`false`).
 
 ## Security
 

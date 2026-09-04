@@ -1,7 +1,7 @@
 export type FanTable = [number, number][];
 
 export type State = {
-  readonly protocolVersion: "1.0";
+  readonly protocolVersion: "1.1";
   cpuFanTable: FanTable;
   gpuFanTable: FanTable;
 
@@ -43,6 +43,10 @@ export type FanControlActivity = {
   avgCPUTemp: number;
   avgGPUTemp: number;
   target: number;
+  // True when the last collection failed: the temperatures are the last
+  // successfully collected averages and fans were commanded to the highest
+  // configured speed. Absent from 1.0 servers — treat undefined as false.
+  sensorFailure: boolean;
 };
 
 export type MessageToClient = Pick<MessageToServer, "methodName" | "methodId"> &

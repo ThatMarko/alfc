@@ -23,7 +23,7 @@ vi.mock("../fan-control/index", () => ({
 
 vi.mock("../state/index", () => ({
   state: {
-    protocolVersion: "1.0",
+    protocolVersion: "1.1",
     cpuFanTable: [
       [40, 15],
       [83, 50],
@@ -51,7 +51,7 @@ const mockedSetFixedFan = vi.mocked(setFixedFan);
 const mockedAutoFanControl = vi.mocked(fanControl);
 
 const DEFAULT_STATE: State = {
-  protocolVersion: "1.0",
+  protocolVersion: "1.1",
   cpuFanTable: [
     [40, 15],
     [83, 50],
@@ -137,7 +137,7 @@ describe("websocket contract", () => {
     expect(message.kind).toBe(MessageToClientKind.State);
     expect(message.data).toEqual({
       ...state,
-      protocolVersion: "1.0",
+      protocolVersion: "1.1",
     });
   });
 
@@ -156,8 +156,9 @@ describe("websocket contract", () => {
     expect(ws.send).not.toHaveBeenCalled();
   });
 
-  it("handles fixedpercentage by mutating state and persisting", async () => {
+  it("handles fixedpercentage in fixed mode by commanding fans and persisting", async () => {
     const ws = createSocket();
+    state.doFixedSpeed = true;
 
     dispatchMessage(ws, {
       kind: MessageToServerKind.FixedPercentage,
@@ -179,6 +180,136 @@ describe("websocket contract", () => {
       methodName: "SetFixedPercentage",
       data: 64,
     });
+  });
+
+  it("persists fixedpercentage in auto mode without commanding fans", async () => {
+    const ws = createSocket();
+    state.doFixedSpeed = false;
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.FixedPercentage,
+      methodId: "fixed-percentage",
+      methodName: "SetFixedPercentage",
+      data: 64,
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.fixedPercentage).toBe(64);
+    expect(mockedSetFixedFan).not.toHaveBeenCalled();
+    expect(mockedPersistState).toHaveBeenCalledTimes(1);
+    expect(getLastSentJson(ws).kind).toBe(MessageToClientKind.Success);
+  });
+
+  it.each([101, -5, 150.5, "50"])(
+    "returns INVALID_DATA for out-of-range fixedpercentage %s",
+    async (data) => {
+      const ws = createSocket();
+      state.doFixedSpeed = true;
+      const before = state.fixedPercentage;
+
+      dispatchMessage(ws, {
+        kind: MessageToServerKind.FixedPercentage,
+        methodId: "fixed-percentage",
+        methodName: "SetFixedPercentage",
+        data,
+      });
+
+      await vi.waitFor(() => {
+        expect(ws.send).toHaveBeenCalledTimes(1);
+      });
+
+      const message = getLastSentJson(ws);
+      expect(message.kind).toBe(MessageToClientKind.Error);
+      expect(message.data).toEqual(expect.stringMatching(/^INVALID_DATA: /));
+      expect(state.fixedPercentage).toBe(before);
+      expect(mockedSetFixedFan).not.toHaveBeenCalled();
+      expect(mockedPersistState).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      "non-ascending temperatures",
+      [
+        [90, 100],
+        [40, 15],
+      ],
+    ],
+    ["an empty table", []],
+    ["out-of-range speeds", [[40, 150]]],
+    ["out-of-range temperatures", [[-10, 15]]],
+    ["malformed entries", [[40], [50, 20]]],
+  ] as [string, unknown][])(
+    "returns INVALID_FAN_TABLE for %s",
+    async (_label, cpuTable) => {
+      const ws = createSocket();
+      const gpuTable: FanTable = [
+        [35, 25],
+        [80, 65],
+        [90, 100],
+      ];
+
+      dispatchMessage(ws, {
+        kind: MessageToServerKind.FanTable,
+        methodId: "fan-table",
+        methodName: "SetFanTable",
+        data: {
+          cpu: cpuTable,
+          gpu: gpuTable,
+        },
+      });
+
+      await vi.waitFor(() => {
+        expect(ws.send).toHaveBeenCalledTimes(1);
+      });
+
+      const message = getLastSentJson(ws);
+      expect(message.kind).toBe(MessageToClientKind.Error);
+      expect(message.data).toEqual(
+        expect.stringMatching(/^INVALID_FAN_TABLE: cpu table /),
+      );
+      expect(state.cpuFanTable).toEqual(DEFAULT_STATE.cpuFanTable);
+      expect(state.gpuFanTable).toEqual(DEFAULT_STATE.gpuFanTable);
+      expect(mockedPersistState).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns INVALID_FAN_TABLE for an invalid gpu table", async () => {
+    const ws = createSocket();
+    const cpuTable: FanTable = [
+      [35, 20],
+      [80, 75],
+      [90, 100],
+    ];
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.FanTable,
+      methodId: "fan-table",
+      methodName: "SetFanTable",
+      data: {
+        cpu: cpuTable,
+        gpu: [
+          [90, 100],
+          [40, 15],
+        ],
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    const message = getLastSentJson(ws);
+    expect(message.kind).toBe(MessageToClientKind.Error);
+    expect(message.data).toEqual(
+      expect.stringMatching(/^INVALID_FAN_TABLE: gpu table /),
+    );
+    expect(state.cpuFanTable).toEqual(DEFAULT_STATE.cpuFanTable);
+    expect(state.gpuFanTable).toEqual(DEFAULT_STATE.gpuFanTable);
+    expect(mockedPersistState).not.toHaveBeenCalled();
   });
 
   it("handles dofixedspeed and re-enters auto fan control when disabled", async () => {

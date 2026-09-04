@@ -59,9 +59,13 @@ Item {
             }
             PlasmaComponents.Label {
                 text: backend && backend.latestActivity != null
-                    ? i18n("%1\u00B0C", Math.round(backend.latestActivity.avgCPUTemp))
+                    ? (backend.latestActivity.sensorFailure === true
+                        ? i18n("Sensor error")
+                        : i18n("%1\u00B0C", Math.round(backend.latestActivity.avgCPUTemp)))
                     : "--"
-                color: backend && backend.latestActivity != null && backend.latestActivity.avgCPUTemp >= tooltipRoot.warningTemp
+                color: backend && backend.latestActivity != null
+                    && (backend.latestActivity.sensorFailure === true
+                        || backend.latestActivity.avgCPUTemp >= tooltipRoot.warningTemp)
                     ? Kirigami.Theme.negativeTextColor
                     : Kirigami.Theme.textColor
             }
@@ -72,9 +76,13 @@ Item {
             }
             PlasmaComponents.Label {
                 text: backend && backend.latestActivity != null
-                    ? i18n("%1\u00B0C", Math.round(backend.latestActivity.avgGPUTemp))
+                    ? (backend.latestActivity.sensorFailure === true
+                        ? i18n("Sensor error")
+                        : i18n("%1\u00B0C", Math.round(backend.latestActivity.avgGPUTemp)))
                     : "--"
-                color: backend && backend.latestActivity != null && backend.latestActivity.avgGPUTemp >= tooltipRoot.warningTemp
+                color: backend && backend.latestActivity != null
+                    && (backend.latestActivity.sensorFailure === true
+                        || backend.latestActivity.avgGPUTemp >= tooltipRoot.warningTemp)
                     ? Kirigami.Theme.negativeTextColor
                     : Kirigami.Theme.textColor
             }

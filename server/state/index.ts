@@ -4,6 +4,10 @@ import stringifyCompact from "json-stringify-pretty-compact";
 import path from "node:path";
 import { isDev } from "../utils/consts";
 import type { State } from "../../common/types";
+import {
+  validateFanTable,
+  validateFixedPercentage,
+} from "../../common/validation";
 
 type PersistedState = Omit<
   State,
@@ -40,18 +44,7 @@ const DEFAULT_PERSISTED_STATE: PersistedState = {
 function isPersistedFanTable(
   value: unknown,
 ): value is PersistedState["cpuFanTable"] {
-  return (
-    Array.isArray(value) &&
-    value.every(
-      (entry) =>
-        Array.isArray(entry) &&
-        entry.length === 2 &&
-        typeof entry[0] === "number" &&
-        Number.isFinite(entry[0]) &&
-        typeof entry[1] === "number" &&
-        Number.isFinite(entry[1]),
-    )
-  );
+  return validateFanTable(value) === null;
 }
 
 function isPersistedState(value: unknown): value is PersistedState {
@@ -70,8 +63,7 @@ function isPersistedState(value: unknown): value is PersistedState {
     typeof object.pl2 === "number" &&
     Number.isFinite(object.pl2) &&
     typeof object.doFixedSpeed === "boolean" &&
-    typeof object.fixedPercentage === "number" &&
-    Number.isFinite(object.fixedPercentage)
+    validateFixedPercentage(object.fixedPercentage) === null
   );
 }
 
@@ -85,7 +77,7 @@ function loadPersistedState(): PersistedState {
       return parsed;
     }
 
-    console.warn("[State] Corrupt config detected, using defaults.");
+    console.warn("[State] Corrupt or invalid config detected, using defaults.");
   } catch (error) {
     console.warn("[State] Failed to load config, using defaults: " + error);
   }
@@ -97,7 +89,7 @@ const persistedState: PersistedState = loadPersistedState();
 
 export const state: State = {
   ...persistedState,
-  protocolVersion: "1.0",
+  protocolVersion: "1.1",
 };
 
 export async function persistState() {

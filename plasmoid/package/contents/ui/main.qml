@@ -30,7 +30,11 @@ PlasmoidItem {
         && backendConnection.latestActivity.avgCPUTemp !== undefined
     readonly property int cpuTemp: hasData ? Math.round(backendConnection.latestActivity.avgCPUTemp) : 0
     readonly property int gpuTemp: hasData ? Math.round(backendConnection.latestActivity.avgGPUTemp) : 0
+    // sensorFailure is absent on protocol 1.0 servers — treated as false
+    readonly property bool sensorFailure: hasData
+        && backendConnection.latestActivity.sensorFailure === true
     readonly property bool isOverheating: hasData && (cpuTemp >= warningTemp || gpuTemp >= warningTemp)
+    readonly property bool needsAttention: isOverheating || sensorFailure
 
     // ── Smart Plasmoid.status ──────────────────────────────────────
     // Controls visibility in system tray:
@@ -38,7 +42,7 @@ PlasmoidItem {
     //   PassiveStatus            = hidden in tray (in "hidden items" popup)
     //   RequiresAttentionStatus  = shown + blinks/pulses
     Plasmoid.status: {
-        if (isOverheating)
+        if (needsAttention)
             return PlasmaCore.Types.RequiresAttentionStatus
         if (backendConnection.isConnected)
             return PlasmaCore.Types.ActiveStatus
@@ -49,6 +53,8 @@ PlasmoidItem {
     Plasmoid.icon: {
         if (!backendConnection.isConnected)
             return "network-disconnect"
+        if (sensorFailure)
+            return "dialog-error"
         if (isOverheating)
             return "dialog-warning"
         return "computer-laptop"
@@ -75,6 +81,8 @@ PlasmoidItem {
             return i18n("Disconnected")
         if (!hasData)
             return i18n("Connected — waiting for data")
+        if (sensorFailure)
+            return i18n("Sensor error — fans at fail-safe maximum")
         var fan = backendConnection.latestActivity.appliedSpeed
         return i18n("CPU: %1°C | GPU: %2°C | Fan: %3%",
             cpuTemp, gpuTemp, fan != null ? Math.round(fan) : "--")
