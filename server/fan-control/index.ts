@@ -322,6 +322,7 @@ export function fanControl() {
               avgCPUTemp: lastAverages.avgCPUTemp,
               avgGPUTemp: lastAverages.avgGPUTemp,
               target: state.fixedPercentage,
+              sensorFailure: true,
             });
           }
           return;
@@ -371,6 +372,7 @@ export function fanControl() {
           avgCPUTemp,
           avgGPUTemp,
           target: state.fixedPercentage,
+          sensorFailure: false,
         });
         return;
       }
