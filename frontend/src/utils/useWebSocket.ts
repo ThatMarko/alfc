@@ -8,12 +8,10 @@ export function useWebSocket() {
   const { lastJsonMessage, sendJsonMessage, readyState } =
     useReactWebSocket<MessageToClient | null>("ws://localhost:5522/ws", {
       share: true,
-      heartbeat: {
-        message: "ping",
-        returnMessage: "pong",
-        timeout: 60000,
-        interval: 25000,
-      },
+      // No application-level heartbeat — react-use-websocket's heartbeat has
+      // known bugs with share:true (Issues #268, #269, #273) that cause
+      // spurious disconnects (especially on sleep/wake and tab backgrounding).
+      // Bun's built-in WebSocket protocol PING frames handle keepalive instead.
       retryOnError: true,
       reconnectAttempts: Number.MAX_SAFE_INTEGER,
       shouldReconnect,

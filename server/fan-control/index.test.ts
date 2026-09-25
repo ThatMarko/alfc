@@ -44,8 +44,9 @@ function mockTemperatures(cpu: number, gpu: number) {
 
 async function waitUntilFanPercent(fanPercent: number) {
   let advancedTime = 0;
+  const timeout = 5 * 60_000;
 
-  while (true) {
+  while (advancedTime <= timeout) {
     try {
       expect(mockedSetCall).toHaveBeenLastCalledWith(
         expect.any(String),
@@ -62,6 +63,10 @@ async function waitUntilFanPercent(fanPercent: number) {
     await vi.advanceTimersByTimeAsync(10);
     advancedTime += 10;
   }
+
+  throw new Error(
+    `Fan did not reach ${fanPercent}% within ${timeout / 1000} seconds`,
+  );
 }
 
 describe("fan-control", () => {
@@ -144,7 +149,7 @@ describe("fan-control", () => {
     // High CPU temperature => 50% fan speed
     mockTemperatures(90, 30);
     await vi.advanceTimersByTimeAsync(
-      3 * WAIT_RAMP_UP_CYCLES * CYCLE_DURATION + 1000,
+      (3 * WAIT_RAMP_UP_CYCLES + 1) * CYCLE_DURATION,
     );
     expect(mockedSetCall).toHaveBeenLastCalledWith(
       expect.any(String),
@@ -157,7 +162,7 @@ describe("fan-control", () => {
     // Cool CPU => 15% fan speed
     mockTemperatures(30, 30);
     await vi.advanceTimersByTimeAsync(
-      3 * WAIT_RAMP_DOWN_CYCLES * CYCLE_DURATION + 1000,
+      (3 * WAIT_RAMP_DOWN_CYCLES + 1) * CYCLE_DURATION,
     );
     expect(mockedSetCall).toHaveBeenLastCalledWith(
       expect.any(String),
@@ -170,7 +175,7 @@ describe("fan-control", () => {
     // High GPU temperature => 100% fan speed
     mockTemperatures(30, 90);
     await vi.advanceTimersByTimeAsync(
-      5 * WAIT_RAMP_UP_CYCLES * CYCLE_DURATION + 1000,
+      (5 * WAIT_RAMP_UP_CYCLES + 1) * CYCLE_DURATION,
     );
     expect(mockedSetCall).toHaveBeenLastCalledWith(
       expect.any(String),
@@ -232,6 +237,17 @@ describe("fan-control", () => {
     expectedPercentage = targetPercentage;
     cycles = await waitUntilFanPercent(expectedPercentage);
     expect(cycles - WAIT_RAMP_UP_CYCLES).toBeLessThan(1);
+  });
+
+  it("ramps to full speed promptly during a sudden thermal spike", async () => {
+    fanControl();
+    await waitUntilFanPercent(firstSpeed(state.cpuFanTable));
+
+    mockTemperatures(30, 90);
+    vi.clearAllMocks();
+
+    const cycles = await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
+    expect(cycles).toBeLessThanOrEqual(6);
   });
 
   it("should handle fan table changes", async () => {

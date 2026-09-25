@@ -36,6 +36,7 @@ function acpiModuleFactory() {
     setCall: vi.fn((_: string, methodName: string) =>
       runTransportCall(methodName, undefined),
     ),
+    wmiCleanup: vi.fn(),
     wmiInit: vi.fn(() => Promise.resolve()),
   };
 }

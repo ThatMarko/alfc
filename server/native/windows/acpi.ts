@@ -1,60 +1,72 @@
+import { CString, dlopen, FFIType, ptr } from "bun:ffi";
 import path from "node:path";
 import type { Args } from "../../../common/types";
 import { isDev } from "../../utils/consts";
 
 const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
-const exePath = path.join(baseDir, "WmiAPI.exe");
+const dllPath = isDev
+  ? path.join(baseDir, "wmidll", "WmiDll.dll")
+  : path.join(baseDir, "WmiDll.dll");
 
-interface WmiResponse {
-  ok: boolean;
-  data?: number[];
-  error?: string;
+const lib = dlopen(dllPath, {
+  wmi_init: { args: [], returns: FFIType.i32 },
+  wmi_get: {
+    args: [FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.ptr],
+    returns: FFIType.i32,
+  },
+  wmi_set: { args: [FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
+  wmi_cleanup: { args: [], returns: FFIType.void },
+  wmi_get_last_error: { args: [], returns: FFIType.ptr },
+});
+
+function getLastError(): string {
+  const errorPtr = lib.symbols.wmi_get_last_error();
+  if (!errorPtr) return "Unknown error";
+  return new CString(errorPtr).toString();
 }
 
-let sendCommand: ((cmd: object) => Promise<WmiResponse>) | null = null;
+const resultsBuffer = new Float64Array(16);
+const countBuffer = new Int32Array(1);
+const resultsPtr = ptr(resultsBuffer);
+const countPtr = ptr(countBuffer);
+let isClosed = false;
+
+const methodPtrCache = new Map<string, { buf: Buffer; ptr: number }>();
+
+function getMethodPtr(name: string): number {
+  const cached = methodPtrCache.get(name);
+  if (cached) return cached.ptr;
+  const buf = Buffer.from(name + "\0");
+  const pointer = ptr(buf);
+  methodPtrCache.set(name, { buf, ptr: pointer });
+  return pointer;
+}
+
+function getUint8Argument(methodName: string, value: number): number {
+  if (!Number.isInteger(value) || value < 0 || value > 0xff) {
+    throw new RangeError(
+      `WMI '${methodName}' Data must be an integer between 0 and 255; received ${value}`,
+    );
+  }
+
+  return value;
+}
+
+function ensureLibraryOpen() {
+  if (isClosed) {
+    throw new Error("WMI library is already closed");
+  }
+}
 
 export async function wmiInit() {
-  if (!(await Bun.file(exePath).exists())) {
-    throw new Error(`WmiAPI.exe not found at ${exePath}`);
-  }
-
-  const proc = Bun.spawn([exePath], {
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "inherit",
-  });
-
-  const stdoutReader = proc.stdout.getReader();
-  const textDecoder = new TextDecoder();
-  let readBuffer = "";
-
-  async function readLine(): Promise<string> {
-    for (;;) {
-      const idx = readBuffer.indexOf("\n");
-      if (idx !== -1) {
-        const line = readBuffer.slice(0, idx).replace(/\r$/, "");
-        readBuffer = readBuffer.slice(idx + 1);
-        return line;
-      }
-      const { value, done } = await stdoutReader.read();
-      if (done) throw new Error("WMI helper process exited unexpectedly");
-      readBuffer += textDecoder.decode(value, { stream: true });
-    }
-  }
-
-  sendCommand = async (cmd: object): Promise<WmiResponse> => {
-    proc.stdin.write(JSON.stringify(cmd) + "\n");
-    proc.stdin.flush();
-    const line = await readLine();
-    return JSON.parse(line) as WmiResponse;
-  };
+  ensureLibraryOpen();
 
   let attempt = 0;
   while (attempt < 3) {
     try {
-      const response = await sendCommand({ cmd: "init" });
-      if (!response.ok) {
-        throw new Error(`WMI init failed: ${response.error}`);
+      const result = lib.symbols.wmi_init();
+      if (result !== 0) {
+        throw new Error(`WMI init failed: ${getLastError()}`);
       }
       return;
     } catch (e) {
@@ -70,47 +82,58 @@ export async function wmiInit() {
 }
 
 export function setCall(_: string, methodName: string, args: Args) {
-  if (!sendCommand) return Promise.reject(new Error("WMI not initialized"));
-  return sendCommand({ cmd: "set", method: methodName, args }).then(
-    (response) => {
-      if (!response.ok) {
-        throw new Error(`WMI set '${methodName}' failed: ${response.error}`);
-      }
-    },
-  );
-}
-
-// uint16 values are already little-endian, just need to split them up
-function splitWords(numbers: number[]) {
-  for (let i = 0; i < numbers.length; i++) {
-    const current = numbers[i] ?? 0;
-    if (current > 255) {
-      numbers[i] = current >> 8;
-      numbers.splice(i + 1, 0, current & 0xff);
+  return Promise.resolve().then(() => {
+    ensureLibraryOpen();
+    const argValue = getUint8Argument(methodName, args.Data ?? 0);
+    const result = lib.symbols.wmi_set(getMethodPtr(methodName), argValue);
+    if (result !== 0) {
+      throw new Error(`WMI set '${methodName}' failed: ${getLastError()}`);
     }
-  }
+  });
 }
 
 export function getCall(_: string, methodName: string, args?: Args) {
-  if (!sendCommand) return Promise.reject(new Error("WMI not initialized"));
-  return sendCommand({
-    cmd: "get",
-    method: methodName,
-    ...(args ? { args } : {}),
-  }).then((response) => {
-    if (!response.ok) {
-      throw new Error(`WMI get '${methodName}' failed: ${response.error}`);
+  return Promise.resolve().then(() => {
+    ensureLibraryOpen();
+    const argValue =
+      args?.Data === undefined
+        ? -1
+        : getUint8Argument(methodName, Number(args.Data));
+
+    const result = lib.symbols.wmi_get(
+      getMethodPtr(methodName),
+      argValue,
+      resultsPtr,
+      countPtr,
+    );
+
+    if (result !== 0) {
+      throw new Error(`WMI get '${methodName}' failed: ${getLastError()}`);
     }
 
-    const result: number[] = (response.data ?? []).reverse();
-    splitWords(result);
-
+    const count = countBuffer[0] ?? 0;
     let value = 0;
-    for (const byte of result) {
-      value = value * 256 + byte;
+    for (let i = count - 1; i >= 0; i--) {
+      const raw = resultsBuffer[i] ?? 0;
+      if (raw > 255) {
+        value = value * 256 + (raw >> 8);
+        value = value * 256 + (raw & 0xff);
+      } else {
+        value = value * 256 + raw;
+      }
     }
+
     return value;
   });
+}
+
+export function wmiCleanup() {
+  if (isClosed) return;
+
+  lib.symbols.wmi_cleanup();
+  methodPtrCache.clear();
+  lib.close();
+  isClosed = true;
 }
 
 if (import.meta.main) {

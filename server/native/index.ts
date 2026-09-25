@@ -11,6 +11,7 @@ type ACPIModule = {
   isAvailable?: () => Promise<boolean>;
   setCall: (methodId: string, methodName: string, args: Args) => Promise<void>;
   wmiInit: () => Promise<void>;
+  wmiCleanup: () => void;
 };
 
 type CPUOCModule = {
@@ -28,7 +29,12 @@ const cpuocModule: CPUOCModule = await (isLinux
   ? import("./linux/cpuoc")
   : import("./windows/cpuoc"));
 
-const { getCall: getCallNative, wmiInit, setCall: setCallNative } = acpiModule;
+const {
+  getCall: getCallNative,
+  wmiInit,
+  setCall: setCallNative,
+  wmiCleanup,
+} = acpiModule;
 const { tuneInit, tune: tuneNative } = cpuocModule;
 
 let acpiCallQueue: Promise<void> = Promise.resolve();
@@ -147,4 +153,8 @@ async function initNativeServices() {
   );
 }
 
-export { getCall, initNativeServices, setCall, tune };
+function cleanupNativeServices() {
+  wmiCleanup();
+}
+
+export { cleanupNativeServices, getCall, initNativeServices, setCall, tune };
