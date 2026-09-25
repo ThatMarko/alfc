@@ -65,6 +65,9 @@ Item {
         && (Math.round(safeActivity.avgCPUTemp) >= warningTemp - 10
             || Math.round(safeActivity.avgGPUTemp) >= warningTemp - 10)
     readonly property bool isWarning: isCritical || isWarm
+    // sensorFailure is absent on protocol 1.0 servers — treated as false
+    readonly property bool sensorFailure: hasTelemetrySnapshot
+        && safeActivity.sensorFailure === true
     readonly property bool showHorizontalPanelDetails: !iconOnly
         && !verticalPanel
         && width >= horizontalPanelDetailsWidth
@@ -82,6 +85,10 @@ Item {
 
         if (!hasTelemetrySnapshot) {
             return i18n("Waiting")
+        }
+
+        if (sensorFailure) {
+            return i18n("Sensor error")
         }
 
         return i18n("%1°C / %2°C",

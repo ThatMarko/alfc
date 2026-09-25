@@ -100,6 +100,6 @@ plasmoidviewer -a plasmoid/package                               # Dev preview
 - Windows CPU OC: `bun:ffi` loads NativeAOT DLL (requires .NET 8 SDK to build)
 - Windows service: WinSW with `stopParentFirst` + `stopTimeout=15s` for safe fan restore on shutdown
 - Bootstrap: Scripts-only (no TypeScript), WinSW replaces `os-service`
-- CI: GitHub Actions on master, runs `bun run all-checks`
+- CI: GitHub Actions on master and all pull requests, runs `bun run all-checks`
 - Release: GitHub Actions on `v*` tag, builds Linux + Windows + plasmoid
 - Pre-commit: Husky + lint-staged runs ESLint, type-check, Prettier on staged files

@@ -13,12 +13,14 @@ export function Status({ disabled }: { disabled: boolean }) {
   const [avgCPUTemp, setAvgCPUTemp] = useState<string>("-");
   const [avgGPUTemp, setAvgGPUTemp] = useState<string>("-");
   const [target, setTarget] = useState<string>("-");
+  const [sensorFailure, setSensorFailure] = useState(false);
 
   const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
 
   useEffect(() => {
     const { kind, data } = lastJsonMessage;
     if (kind === MessageToClientKind.FanControlActivity) {
+      setSensorFailure(data.sensorFailure === true);
       setAppliedSpeed(data.appliedSpeed ? data.appliedSpeed.toString() : "-");
       setAvgCPUTemp(Math.round(data.avgCPUTemp).toString());
       setAvgGPUTemp(Math.round(data.avgGPUTemp).toString());
@@ -38,6 +40,7 @@ export function Status({ disabled }: { disabled: boolean }) {
         setAvgCPUTemp("-");
         setAvgGPUTemp("-");
         setTarget("-");
+        setSensorFailure(false);
       }, 500);
     } else {
       sendJsonMessage({ kind: "registeractivitysocket" });
@@ -48,7 +51,13 @@ export function Status({ disabled }: { disabled: boolean }) {
     return null;
   }
 
-  const status = `CPU: ${avgCPUTemp}°C
+  const status = sensorFailure
+    ? `Sensor error — showing last known readings
+CPU: ${avgCPUTemp}°C
+GPU: ${avgGPUTemp}°C
+Current target: ${target}%
+Last applied: ${appliedSpeed}%`
+    : `CPU: ${avgCPUTemp}°C
 GPU: ${avgGPUTemp}°C
 Current target: ${target}%
 Last applied: ${appliedSpeed}%`;
@@ -69,7 +78,7 @@ Last applied: ${appliedSpeed}%`;
         readOnly
         aria-label="Fan control status"
         value={status}
-        rows={4}
+        rows={sensorFailure ? 5 : 4}
         cols={25}
         style={{ fontSize: 14, cursor: "default" }}
       />
