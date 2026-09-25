@@ -50,15 +50,18 @@ jobs:
           # Default config
           cp alfc.config.json "${RELEASE_DIR}/"
 
-          # Service scripts
+          # Service scripts and template
           cp bootstrap/scripts/linux/install.sh "${RELEASE_DIR}/"
           cp bootstrap/scripts/linux/uninstall.sh "${RELEASE_DIR}/"
           cp bootstrap/scripts/linux/run.sh "${RELEASE_DIR}/"
+          cp bootstrap/scripts/linux/alfc.service "${RELEASE_DIR}/"
 
           # Plasmoid
-          cp -r plasmoid "${RELEASE_DIR}/plasmoid"
-          # Remove dev artifacts from plasmoid copy
-          rm -rf "${RELEASE_DIR}/plasmoid/DEPENDENCIES.md"
+          mkdir -p "${RELEASE_DIR}/plasmoid"
+          cp -r plasmoid/package "${RELEASE_DIR}/plasmoid/package"
+          cp plasmoid/install.sh "${RELEASE_DIR}/plasmoid/"
+          cp plasmoid/uninstall.sh "${RELEASE_DIR}/plasmoid/"
+          cp plasmoid/DEPENDENCIES.md "${RELEASE_DIR}/plasmoid/"
 
           # License and docs
           cp LICENSE "${RELEASE_DIR}/"

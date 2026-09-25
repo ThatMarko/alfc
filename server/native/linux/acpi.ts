@@ -16,6 +16,10 @@ export async function isAcpiAvailable() {
   return _acpiAvailable;
 }
 
+export function isAvailable() {
+  return isAcpiAvailable();
+}
+
 // Precondition: There are no uint16 arguments.
 function argstoHexString(args?: Args) {
   if (!args) {
@@ -50,7 +54,7 @@ export function wmiCleanup() {}
 
 export async function setCall(methodId: string, _: string, args: Args) {
   if (!(await isAcpiAvailable())) {
-    return;
+    throw new Error(`${ACPI_CALL_PATH} is not available`);
   }
 
   const command = `\\_SB.PCI0.AMW0.WMBD 0 ${methodId} ${argstoHexString(args)}`;

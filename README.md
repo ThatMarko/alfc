@@ -33,8 +33,7 @@ GPU boost is likely to not work on models other than the 15G though because the 
   be lower for a while.)
 - Fans are controlled as if they were one (since most heat pipes are shared). And so
   whatever is the higher target fan speed gets applied.
-- Config is stored in `alfc.config.json`. If you prefer not to use the UI, you can
-  edit this and restart the service to apply your changes.
+- Config is stored in `alfc.config.json` next to the binary (`/opt/alfc/` for manual installs, `/usr/lib/alfc/` for AUR). If you prefer not to use the UI, you can edit this and restart the service to apply your changes.
 - Uses about `0.4%` CPU and `500 mW` package power. (Measured in Windows at idle
   using hwinfo.)
 
@@ -95,7 +94,7 @@ hex string for Linux.
 
 - **Lint**: `bun run lint` — ESLint with TypeScript, React, Prettier integration. `no-explicit-any` warns, `no-unreachable` errors.
 - **Type-check**: `bun run type-check` — Strict TypeScript with `noUncheckedIndexedAccess` enabled.
-- **Test**: `bun run test` — Vitest (28 tests across server + frontend).
+- **Test**: `bun run test` — Vitest (38 tests across server + frontend).
 - **Full check**: `bun run all-checks` — Runs lint, type-check, test, and build in sequence.
 - **Pre-commit**: Husky + lint-staged runs ESLint, type-check, and Prettier on staged files.
 
