@@ -16,6 +16,9 @@
    - New optional fields in State: old clients ignore them
    - New optional fields in responses: old clients ignore them
 
+   Current protocol: **1.1** — added the optional `requestId` request-correlation
+   field (echoed in `success`/`error` responses; no `State` shape changes).
+
 2. **Major bumps (1.x → 2.0)**: Breaking changes
    - Requires deprecation period where both versions accepted
    - Clients must check `protocolVersion` in initial state push
@@ -25,7 +28,7 @@
 
 | Field                   | Added In | Required | Default     | Notes              |
 | ----------------------- | -------- | -------- | ----------- | ------------------ |
-| `protocolVersion`       | 1.0      | Yes      | `"1.0"`     | Always present     |
+| `protocolVersion`       | 1.0      | Yes      | `"1.1"`     | Always present     |
 | `isCpuTuningAvailable`  | 1.0      | No       | `undefined` | Platform-dependent |
 | `isFanControlAvailable` | 1.0      | No       | `undefined` | Platform-dependent |
 | `isGpuBoostAvailable`   | 1.0      | No       | `undefined` | Platform-dependent |

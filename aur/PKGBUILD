@@ -6,7 +6,7 @@ pkgdesc="Cross-platform fan control for Aorus laptops — web UI + backend servi
 arch=('x86_64')
 url="https://github.com/ThatMarko/alfc"
 license=('MIT')
-depends=()
+depends=('glibc' 'gcc-libs' 'icu')
 optdepends=(
   'acpi_call: Required for fan control (kernel module)'
   'acpi_call-dkms: Alternative DKMS-based acpi_call'
@@ -15,10 +15,8 @@ provides=('alfc')
 conflicts=('alfc')
 backup=('usr/lib/alfc/alfc.config.json')
 install=alfc.install
-source=("${pkgname}-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/alfc-v${pkgver}-linux-x64.tar.gz"
-        "alfc.service")
-sha256sums=('SKIP'
-            'SKIP')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/alfc-v${pkgver}-linux-x64.tar.gz")
+sha256sums=('SKIP')
 
 package() {
   local _srcdir="alfc-v${pkgver}-linux-x64"
@@ -43,8 +41,9 @@ package() {
     find "${pkgdir}/usr/lib/alfc/plasmoid" -type d -exec chmod 755 {} +
   fi
 
-  # systemd service
-  install -Dm644 alfc.service "${pkgdir}/usr/lib/systemd/system/alfc.service"
+  # systemd service — generated from shared template
+  sed "s|@@INSTALL_DIR@@|/usr/lib/alfc|g" "${_srcdir}/alfc.service" \
+    | install -Dm644 /dev/stdin "${pkgdir}/usr/lib/systemd/system/alfc.service"
 
   # License
   install -Dm644 "${_srcdir}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
