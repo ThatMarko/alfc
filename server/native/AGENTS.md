@@ -44,6 +44,6 @@ native/
 - Linux requires `acpi_call` kernel module loaded
 - Windows requires admin rights for WMI access
 - WmiDll uses C++ COM (`wbemcli.h`) — compiled with MSVC (`cl.exe`), loaded via `bun:ffi`
-- WmiDll exports: `wmi_init`, `wmi_get`, `wmi_set`, `wmi_cleanup`, `wmi_get_last_error`
+- WmiDll exports: `wmi_init`, `wmi_get`, `wmi_get_named`, `wmi_set`, `wmi_set_named`, `wmi_cleanup`, `wmi_get_last_error` (the `*_named` variants transport full argument maps as VT_UI1)
 - CPUOC uses NativeAOT (.NET 8) — loaded via `bun:ffi`
 - Build commands in `server/package.json` (`build:cpuoc`, `build:wmidll`)
