@@ -21,12 +21,12 @@ native/
 
 ## WHERE TO LOOK
 
-| Task             | Location                                                |
-| ---------------- | ------------------------------------------------------- |
-| Unified API      | `index.ts` → `getCall`, `setCall`, `initNativeServices` |
-| Linux ACPI       | `linux/acpi.ts` → reads `/proc/acpi/call`               |
-| Windows WMI      | `windows/acpi.ts` → loads `WmiDll.dll` via `bun:ffi`    |
-| CPU power limits | `windows/cpuoc.ts` (Windows only, Intel XTU)            |
+| Task             | Location                                                             |
+| ---------------- | -------------------------------------------------------------------- |
+| Unified API      | `index.ts` → `getCall`, `setCall`, `initNativeServices`              |
+| Linux ACPI       | `linux/acpi.ts` → reads `/proc/acpi/call`                            |
+| Windows WMI      | `windows/acpi.ts` → loads `WmiDll.dll` via `bun:ffi`                 |
+| CPU power limits | `linux/cpuoc.ts` (sysfs intel-rapl) / `windows/cpuoc.ts` (Intel XTU) |
 
 ## CONVENTIONS
 

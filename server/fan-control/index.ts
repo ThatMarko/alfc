@@ -8,6 +8,7 @@ export const WAIT_RAMP_UP_CYCLES = 1;
 export const CYCLE_DURATION = 2_000;
 const TEMP_POLL_INTERVAL = 500;
 export const SENSOR_READ_TIMEOUT = 5_000;
+const FIXED_MODE_SAMPLES_PER_CYCLE = 1;
 
 let autoFanInterval: ReturnType<typeof setInterval> | null = null;
 let reinitInterval: ReturnType<typeof setInterval> | null = null;
@@ -44,22 +45,33 @@ export function fanPercentToSpeed(percent: number) {
   return Math.ceil((percent / 100.0) * 229);
 }
 
-// Both CPU and GPU fan are set to the same speed
-// due to the shared heat pipes.
-export function setFixedFan(percent: number) {
+async function applyFixedFanSpeed(speed: number) {
+  try {
+    await setCall("0x6b", "SetFixedFanSpeed", { Data: speed });
+  } catch (error) {
+    throw new Error(`SetFixedFanSpeed failed: ${String(error)}`);
+  }
+
+  try {
+    await setCall("0x47", "SetGPUFanDuty", { Data: speed });
+  } catch (error) {
+    throw new Error(`SetGPUFanDuty failed: ${String(error)}`);
+  }
+}
+
+export async function applyFixedFan(percent: number) {
   if (isFanControlShuttingDown) {
     return;
   }
 
-  const speed = fanPercentToSpeed(percent);
+  await applyFixedFanSpeed(fanPercentToSpeed(percent));
+}
 
-  // SetFixedFanSpeed
-  setCall("0x6b", "SetFixedFanSpeed", { Data: speed }).catch((e) =>
-    console.warn("[FanControl] SetFixedFanSpeed failed:", e),
-  );
-  // SetGPUFanDuty
-  setCall("0x47", "SetGPUFanDuty", { Data: speed }).catch((e) =>
-    console.warn("[FanControl] SetGPUFanDuty failed:", e),
+// Both CPU and GPU fan are set to the same speed
+// due to the shared heat pipes.
+export function setFixedFan(percent: number) {
+  void applyFixedFan(percent).catch((error) =>
+    console.warn("[FanControl] Failed to apply fixed fan speed:", error),
   );
 }
 
@@ -85,11 +97,7 @@ async function readSensor(
   methodId: string,
   methodName: string,
 ): Promise<SensorRead> {
-  if (
-    isFanControlShuttingDown ||
-    runId !== fanControlRunId ||
-    state.doFixedSpeed
-  ) {
+  if (isFanControlShuttingDown || runId !== fanControlRunId) {
     return "stale";
   }
 
@@ -159,9 +167,11 @@ function highestFanTarget() {
 }
 
 async function collectAverageTemps(runId: number): Promise<TempCollection> {
-  const samplesPerCycle = Math.round(
-    (CYCLE_DURATION - TEMP_POLL_INTERVAL) / TEMP_POLL_INTERVAL,
-  );
+  const isFixedMode = state.doFixedSpeed;
+  const samplesPerCycle = isFixedMode
+    ? FIXED_MODE_SAMPLES_PER_CYCLE
+    : Math.round((CYCLE_DURATION - TEMP_POLL_INTERVAL) / TEMP_POLL_INTERVAL);
+  const sampleInterval = isFixedMode ? CYCLE_DURATION : TEMP_POLL_INTERVAL;
 
   // Running sums instead of array allocations — zero per-cycle heap pressure
   let cpuSum = 0;
@@ -181,7 +191,7 @@ async function collectAverageTemps(runId: number): Promise<TempCollection> {
     gpuSum += Math.max(gpuTemp1, gpuTemp2);
 
     if (sample < samplesPerCycle - 1) {
-      await Bun.sleep(TEMP_POLL_INTERVAL);
+      await Bun.sleep(sampleInterval);
     }
   }
 
@@ -201,7 +211,13 @@ export function fanControl() {
   const runId = ++fanControlRunId;
 
   initFanControl();
-  resetFanSpeed();
+  let appliedPercentage = state.doFixedSpeed
+    ? state.fixedPercentage
+    : resetFanSpeed();
+
+  if (state.doFixedSpeed) {
+    setFixedFan(state.fixedPercentage);
+  }
 
   // On Linux, it happened once that restarting the fan control
   // was necessary. But it's so rare it can't be tested what
@@ -259,7 +275,6 @@ export function fanControl() {
       : gradientTarget;
   }
 
-  let appliedPercentage = -1;
   let currRampDownCycle = 1;
   let currRampUpCycle = 1;
   let prevCPUFanTable = state.cpuFanTable;
@@ -268,17 +283,10 @@ export function fanControl() {
   // fabricated sentinel values when a later collection fails.
   let lastAverages: { avgCPUTemp: number; avgGPUTemp: number } | null = null;
   autoFanInterval = setInterval(async () => {
-    // Control-state transitions are serviced even while a collection cycle
-    // is in flight — otherwise a stalled read would permanently hide a
-    // fixed-speed switch or shutdown behind the cycle guard.
+    // Shutdown and restart transitions are serviced even while a collection
+    // cycle is in flight — a stalled read must not hide them behind the
+    // cycle guard. Fixed mode is a served mode (see below), not a teardown.
     if (isFanControlShuttingDown || runId !== fanControlRunId) {
-      return;
-    }
-
-    // Interrupt if switching to fixed fan speed
-    if (state.doFixedSpeed) {
-      cleanupFanControlIntervals();
-      setFixedFan(state.fixedPercentage);
       return;
     }
 
@@ -292,18 +300,33 @@ export function fanControl() {
 
     isCycleInFlight = true;
     try {
-      // Collect average temperature throughout CYCLE_DURATION
+      // Collect average temperature throughout CYCLE_DURATION.
+      // In fixed mode we intentionally use a single sample per cycle to keep
+      // telemetry available without paying the full auto-control polling cost.
       const collection = await collectAverageTemps(runId);
       if (
         collection.status === "stale" ||
         isFanControlShuttingDown ||
-        runId !== fanControlRunId ||
-        state.doFixedSpeed
+        runId !== fanControlRunId
       ) {
         return;
       }
 
       if (collection.status === "failed") {
+        if (state.doFixedSpeed) {
+          // The user-pinned speed stands; only the telemetry degrades to
+          // the last known measurements.
+          if (lastAverages) {
+            publishActivity({
+              appliedSpeed: state.fixedPercentage,
+              avgCPUTemp: lastAverages.avgCPUTemp,
+              avgGPUTemp: lastAverages.avgGPUTemp,
+              target: state.fixedPercentage,
+            });
+          }
+          return;
+        }
+
         // A failed read means the thermal state is unknown — fail hot with
         // the highest shared target instead of diluting the failure into
         // the cycle average.
@@ -329,6 +352,26 @@ export function fanControl() {
       const { avgCPUTemp, avgGPUTemp } = collection;
       lastAverages = { avgCPUTemp, avgGPUTemp };
 
+      if (state.doFixedSpeed) {
+        if (appliedPercentage !== state.fixedPercentage) {
+          setFixedFan(state.fixedPercentage);
+          appliedPercentage = state.fixedPercentage;
+        }
+
+        currRampDownCycle = 1;
+        currRampUpCycle = 1;
+        prevCPUFanTable = state.cpuFanTable;
+        prevGPUFanTable = state.gpuFanTable;
+
+        publishActivity({
+          appliedSpeed: appliedPercentage,
+          avgCPUTemp,
+          avgGPUTemp,
+          target: state.fixedPercentage,
+        });
+        return;
+      }
+
       const highestMatchCPU = findHighestMatch(avgCPUTemp, state.cpuFanTable);
       const highestMatchGPU = findHighestMatch(avgGPUTemp, state.gpuFanTable);
 
@@ -350,12 +393,7 @@ export function fanControl() {
         currRampUpCycle = 1;
       } else if (appliedPercentage < target) {
         if (currRampUpCycle === WAIT_RAMP_UP_CYCLES) {
-          gradientTarget = getGradientTarget(
-            appliedPercentage === -1
-              ? (state.cpuFanTable[0]?.[1] ?? 0)
-              : appliedPercentage,
-            target,
-          );
+          gradientTarget = getGradientTarget(appliedPercentage, target);
           setFixedFan(gradientTarget);
 
           currRampDownCycle = 1;
@@ -385,7 +423,7 @@ export function fanControl() {
       }
 
       publishActivity({
-        appliedSpeed: appliedPercentage === -1 ? null : appliedPercentage,
+        appliedSpeed: appliedPercentage,
         avgCPUTemp,
         avgGPUTemp,
         target,

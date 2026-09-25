@@ -1,0 +1,12 @@
+# Normalize text files to LF so lint/format checks are platform-independent
+# (Windows checkouts otherwise get CRLF and prettier fails on `Delete ␍`).
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF for cmd.exe parsing edge cases.
+*.bat text eol=crlf
+
+# Binary assets
+*.png binary
+*.dll binary
+*.exe binary
+*.zip binary

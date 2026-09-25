@@ -38,8 +38,4 @@ If `org.kde.plasma.components` is missing:
 
 ### Optional Dependencies
 
-| Dependency   | Purpose                      | Arch         | Fedora         |
-| ------------ | ---------------------------- | ------------ | -------------- |
-| `qt6-charts` | Future: graphical fan curves | `qt6-charts` | `qt6-qtcharts` |
-
-Charts module is NOT required for v2. The fan table uses numeric editing only.
+Graphical fan curve visualization is built directly into the widget using standard **QtQuick `Canvas`** (part of `qt6-declarative`), requiring **zero extra chart libraries** (such as `qt6-charts`).

@@ -16,7 +16,7 @@ alfc/
 ├── common/          # Shared TypeScript types + protocol docs
 ├── frontend/        # React web UI (Vite, @emotion/react)
 ├── plasmoid/        # KDE Plasma 6 widget (QML)
-│   └── package/contents/ui/  # 7 QML files: main, compact, full, tooltip, backend, fan editor, config
+│   └── package/contents/ui/  # 11 pure QML files: main, compact, full, backend, fan editor, config, settings, metric tile, section card, heading, inline msg
 ├── server/          # Bun backend
 │   ├── fan-control/ # Core fan logic + tests
 │   ├── native/      # Platform-specific (linux/windows)
@@ -74,15 +74,15 @@ bun run build             # Build all packages
 bun run all-checks        # Lint + type-check + test + build
 bun run lint              # ESLint (0 errors required, warnings OK)
 bun run type-check        # TypeScript (no emit, strict + noUncheckedIndexedAccess)
-bun run test              # Vitest (28 tests: server + frontend)
+bun run test              # Vitest (38 tests: server + frontend)
 
 # Windows Native Build (requires MSVC for WmiDll, .NET 8 SDK for CPUOC)
 cd server/native/windows/wmidll && build.bat
 cd server/native/cpuoc-dotnet && dotnet publish -c Release -r win-x64
 
 # Service Management (Linux)
-sudo ./install.sh         # Install as system service
-sudo ./uninstall.sh       # Remove service
+sudo ./install.sh         # Install to /opt/alfc as system service
+sudo /opt/alfc/uninstall.sh  # Remove service and installed files
 
 # Plasmoid
 kpackagetool6 --type Plasma/Applet --install plasmoid/package    # Install
