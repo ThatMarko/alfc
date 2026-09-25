@@ -1,0 +1,16 @@
+# Normalize all text files to LF in the repo and in every working tree.
+# Prettier (endOfLine: "lf" default) rejects CRLF, so Windows checkouts
+# must not get CRLF — this overrides core.autocrlf on Windows runners,
+# where checkout otherwise materializes LF-indexed files with CRLF and
+# lint fails on every line.
+* text=auto eol=lf
+
+# Windows scripts keep CRLF in the working tree (cmd.exe parsing).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets — never convert.
+*.png binary
+*.ico binary
+*.dll binary
+*.exe binary
