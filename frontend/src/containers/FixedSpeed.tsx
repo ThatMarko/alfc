@@ -2,6 +2,7 @@ import styled from "@emotion/styled";
 import React, { useEffect, useRef, useState } from "react";
 import { StyledApplyButton } from "../components/StyledApplyButton";
 import { useWebSocket } from "../utils/useWebSocket";
+import { parseIntegerInRange, validationToast } from "../utils/misc";
 import { disabledFormStyle, enabledFormStyle } from "./styles/misc";
 
 const StyledForm = styled.form<{ disabled: boolean }>`
@@ -23,6 +24,7 @@ const StyledInput = styled.input`
 
 export function FixedSpeed({ disabled }: { disabled: boolean }) {
   const submitRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [fixedPercentage, setFixedPercentage] = useState("0");
 
   const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
@@ -41,9 +43,17 @@ export function FixedSpeed({ disabled }: { disabled: boolean }) {
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
     submitRef.current?.focus();
+
+    const percentage = parseIntegerInRange(fixedPercentage, 0, 100);
+    if (percentage === null) {
+      inputRef.current?.focus();
+      validationToast("Fan speed must be a whole number from 0 to 100.");
+      return;
+    }
+
     sendJsonMessage({
       kind: "fixedpercentage",
-      data: parseInt(fixedPercentage, 10),
+      data: percentage,
     });
   };
 
@@ -52,6 +62,7 @@ export function FixedSpeed({ disabled }: { disabled: boolean }) {
       <div>
         <h2>Fan Speed</h2>
         <StyledInput
+          ref={inputRef}
           type="number"
           name="percentage"
           aria-label="Fixed fan speed percentage"

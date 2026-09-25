@@ -1,109 +1,68 @@
-# Bun and Plasma Port: Branch Review
+# Bun and Plasma port review
 
-This review evaluates the change on top of repository main commit `72c6160`
-(`chore: validate WMI FFI on Bun 1.4`). The separately supplied review dated
-2026-08-21 describes a different or older repository state: for example, it says
-main uses Bun 1.3.9 and a Windows WMI helper process, while `72c6160` already uses
-Bun 1.4.0 and `WmiDll.dll`. It is therefore treated as an external historical
-baseline, not as the Git baseline for this change.
+This review records the repository-wide validation performed on 2026-08-21 so
+that future upgrades have a reproducible baseline.
 
-## Executive assessment
+## Current baseline
 
-The port at `72c6160` is feature-complete enough for release-candidate testing,
-but the supplied evidence does not establish that it is hardware-validated
-enough for a release. The in-process C++ COM DLL loaded through `bun:ffi`, the
-10-second fan-control cadence, and the relaxed Plasma timers are already part of
-main. They are current release risks to validate, not changes introduced by this
-review branch.
+- Bun is pinned to 1.3.9 in `packageManager`, CI, and both release jobs. The
+  declared engine floor is the same version.
+- Dependency updates stay within the currently declared major versions. This
+  keeps the review focused: React 19, ESLint 10, Vitest 4, and other major
+  upgrades should be handled separately with their own migration testing.
+- `bun install --frozen-lockfile` followed by `bun run all-checks` is the
+  supported clean-install validation path.
+- Workspace scripts use explicit `frontend` and `server` filters. Do not replace
+  these with a root `--workspaces` invocation: because the root script has the
+  same name, that form can recursively invoke itself instead of reaching the
+  packages.
 
-## Actual branch diff from main
+## Review findings
 
-The only code/configuration change made by this review branch is to replace the
-root `--workspaces` script calls with explicit `frontend` and `server` filters.
-This preserves the main-branch behavior requested in the supplied review and
-prevents a root script from selecting itself when script names overlap.
+### Bun backend
 
-## Differences between actual main and the supplied external baseline
+- The compiled executable resolves production assets relative to
+  `process.execPath`, while development continues to use the source directory.
+- Shutdown stops fan-control timers before restoring BIOS automatic control.
+- The WebSocket boundary validates message kinds and required payloads, rejects
+  non-local browser origins, and returns protocol errors without exposing
+  internal exception details.
+- Linux and Windows native implementations remain behind the platform
+  abstraction. Windows WMI runs in a helper process, while CPU overclocking is
+  an optional NativeAOT library.
 
-| Area                | Supplied external baseline              | Actual main at `72c6160`                                        | Planning consequence                                                                                                   |
-| ------------------- | --------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Bun                 | 1.3.9 in package metadata and workflows | 1.4.0 in package metadata and workflows                         | Validate with Bun 1.4.0; this is already a main requirement, not a branch upgrade.                                     |
-| Windows WMI         | Helper process                          | `WmiDll.dll` through `bun:ffi`                                  | Existing helper-process results do not validate current main, but the transport is not a change in this review branch. |
-| Windows native CI   | Helper build requested as a next step   | MSVC build job for `WmiDll.dll` already exists                  | Native compilation coverage exists; hardware-independent runtime-contract tests are still missing.                     |
-| Plasma timers       | Bounded reconnect and watchdog          | 30-second reconnect cap, 20-second ping, and 60-second watchdog | Validate disconnect detection and recovery; the timer values are already on main.                                      |
-| Fan-control cadence | Not identified as a port delta          | 10-second decision cycle with running-sum averaging             | Recheck thermal response under sudden CPU/GPU load as a current-main release gate, not as a branch regression.         |
+### Plasma widget
 
-## Release gates, in order
+- The widget uses Qt WebSockets rather than embedding the web application.
+- Backend reconnects use bounded exponential backoff and a ping/pong watchdog.
+- The configured backend URL is also the source for the Web UI URL, so remote
+  or non-default endpoints are not silently replaced with localhost.
+- User-visible QML strings use KDE's `i18n()` integration and interactive
+  controls expose accessibility metadata.
 
-### 1. Reproduce the software baseline
+### Packaging and service lifecycle
 
-Use Bun 1.4.0 and run:
+- Linux artifacts include systemd/OpenRC scripts and the Plasma package.
+- Windows artifacts include the .NET Framework WMI helper and WinSW wrapper;
+  optional CPU tuning binaries are intentionally not distributed.
+- CI uses a frozen lockfile, least-privilege token permissions, and one complete
+  lint/type-check/test/build command.
 
-```bash
-bun install --frozen-lockfile
-bun run all-checks
-```
+## Next steps
 
-The installed Bun version must match `packageManager`, the engine floor, CI, and
-both release jobs. A successful run with another Bun version is useful but does
-not satisfy this gate.
+1. Run a Windows hardware soak test that repeatedly switches fixed/automatic
+   modes, exercises GPU boost, and confirms automatic BIOS fan control after
+   service stop, logoff, and shutdown.
+2. Run a Linux hardware soak test on both systemd and OpenRC, including a lost
+   `acpi_call` module and service restart while the frontend is connected.
+3. Validate the Plasma package with `kpackagetool6` and `plasmoidviewer` on the
+   oldest supported Plasma 6 release and the latest release before publishing.
+4. Treat each remaining major dependency update as a separate change. Start
+   with Vitest/Vite, then ESLint, and leave React for last so failures have a
+   narrow cause.
+5. Add Windows CI coverage for the WMI helper build and a protocol-level helper
+   test that does not require Aorus hardware.
 
-### 2. Add hardware-independent Windows native tests
-
-Before a soak test, extract or expose a seam that can exercise the TypeScript FFI
-adapter without Aorus hardware. At minimum, automate:
-
-- missing DLL and failed `wmi_init` reporting;
-- repeated init/cleanup and cleanup after partial initialization;
-- propagation and sanitization of `wmi_get`/`wmi_set` failures;
-- DLL lookup in development and compiled-executable layouts;
-- WebSocket protocol errors generated from native failures.
-
-Keep the existing Windows MSVC build job. Add these tests to the Windows CI job
-so compiling the DLL is not mistaken for validating its runtime contract.
-
-### 3. Repeat the Windows hardware soak test
-
-On each supported Windows generation available, repeatedly switch fixed and
-automatic modes, exercise GPU boost, and introduce service stop/restart cycles.
-Confirm BIOS automatic fan control after normal stop, forced termination,
-logoff, reboot, and shutdown. Review both ALFC/WinSW logs and observed fan
-behavior. Results collected for the older helper-process implementation are not
-transferable to current main.
-
-### 4. Run the Linux service matrix
-
-Test systemd and OpenRC with the frontend and Plasma widget connected. Include
-normal restart, missing or unloaded `acpi_call`, malformed ACPI responses, and
-restoration of automatic control during shutdown. Verify that reconnecting
-clients recover without stale state.
-
-### 5. Validate Plasma compatibility and network recovery
-
-Install and preview the package with `kpackagetool6` and `plasmoidviewer` on the
-oldest supported Plasma 6 release and the latest release. In addition to visual
-and accessibility checks, interrupt the backend for longer than the watchdog,
-restore it, and verify bounded reconnection. Test localhost, a non-default port,
-and a configured remote endpoint so the Web UI URL continues to follow the
-backend URL.
-
-### 6. Validate thermal response after cadence changes
-
-Record temperature, requested fan target, and observed fan speed under idle,
-step-load, and alternating CPU/GPU load. Compare ramp-up latency with the former
-cadence. If a 10-second decision interval permits unacceptable temperature
-overshoot, address adaptive polling before release rather than treating it as a
-future performance feature.
-
-### 7. Defer unrelated major upgrades
-
-Do not combine this port with React, ESLint, Vite, or Vitest major-version
-migrations. Once the release gates pass, upgrade Vite/Vitest first, ESLint
-second, and React last, with a clean validation run for each change.
-
-## Merge recommendation
-
-The workspace-script correction is suitable to merge independently. Do not cut a
-release from current main until the direct WMI DLL contract and the slower
-fan-control cadence have explicit evidence; they are current-main validation
-gaps that the supplied external review does not cover.
+Hardware validation is still required before a release: automated tests mock
+native calls and cannot prove ACPI/WMI behavior or safe fan restoration on a
+real laptop.

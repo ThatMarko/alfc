@@ -13,6 +13,11 @@
 #define MAX_BSTR_CACHE 32
 #define WMI_ENUM_TIMEOUT_MS 5000
 
+// Threading contract: this DLL is not thread-safe. Every export must be
+// called from a single thread: Bun invokes them synchronously on its
+// JavaScript thread through bun:ffi. COINIT_MULTITHREADED in wmi_init()
+// selects the COM apartment model, not concurrency for these globals.
+
 static wchar_t *Utf8ToWide(const char *str);
 static void SetLastErr(const char *fmt, ...);
 

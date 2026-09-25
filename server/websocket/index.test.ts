@@ -5,10 +5,10 @@ import type {
   State,
 } from "../../common/types";
 import { MessageToClientKind, MessageToServerKind } from "../../common/types";
-import { fanControl, setFixedFan } from "../fan-control/index";
+import { applyFixedFan, fanControl } from "../fan-control/index";
 import { getCall, setCall, tune } from "../native/index";
 import { persistState, state } from "../state/index";
-import { websocketHandlers } from "./index";
+import { setServer, websocketHandlers } from "./index";
 
 vi.mock("../native/index", () => ({
   getCall: vi.fn(),
@@ -17,7 +17,7 @@ vi.mock("../native/index", () => ({
 }));
 
 vi.mock("../fan-control/index", () => ({
-  setFixedFan: vi.fn(),
+  applyFixedFan: vi.fn().mockResolvedValue(undefined),
   fanControl: vi.fn(),
 }));
 
@@ -47,7 +47,7 @@ const mockedGetCall = vi.mocked(getCall);
 const mockedSetCall = vi.mocked(setCall);
 const mockedTune = vi.mocked(tune);
 const mockedPersistState = vi.mocked(persistState);
-const mockedSetFixedFan = vi.mocked(setFixedFan);
+const mockedApplyFixedFan = vi.mocked(applyFixedFan);
 const mockedAutoFanControl = vi.mocked(fanControl);
 
 const DEFAULT_STATE: State = {
@@ -74,6 +74,10 @@ type MockSocket = {
   subscribe: ReturnType<typeof vi.fn>;
 };
 
+type MockServer = {
+  publish: ReturnType<typeof vi.fn>;
+};
+
 function cloneFanTable(table: FanTable): FanTable {
   return table.map(
     ([temperature, percentage]) =>
@@ -89,12 +93,21 @@ function resetStateToDefaults() {
   state.gpuBoost = DEFAULT_STATE.gpuBoost;
   state.pl1 = DEFAULT_STATE.pl1;
   state.pl2 = DEFAULT_STATE.pl2;
+  state.isCpuTuningAvailable = true;
+  state.isGpuBoostAvailable = true;
+  state.isFanControlAvailable = true;
 }
 
 function createSocket(): MockSocket {
   return {
     send: vi.fn(),
     subscribe: vi.fn(),
+  };
+}
+
+function createServer(): MockServer {
+  return {
+    publish: vi.fn(),
   };
 }
 
@@ -116,7 +129,15 @@ function getLastSentJson(ws: MockSocket): MessageToClient {
   return JSON.parse(rawMessage as string) as MessageToClient;
 }
 
+function getLastPublishedJson(server: MockServer): MessageToClient {
+  const rawMessage = server.publish.mock.calls.at(-1)?.[1];
+  expect(typeof rawMessage).toBe("string");
+  return JSON.parse(rawMessage as string) as MessageToClient;
+}
+
 describe("websocket contract", () => {
+  let server: MockServer;
+
   beforeEach(() => {
     vi.clearAllMocks();
     resetStateToDefaults();
@@ -124,6 +145,9 @@ describe("websocket contract", () => {
     mockedSetCall.mockResolvedValue(undefined);
     mockedTune.mockResolvedValue(undefined);
     mockedPersistState.mockResolvedValue(undefined);
+    mockedApplyFixedFan.mockResolvedValue(undefined);
+    server = createServer();
+    setServer(server as unknown as import("bun").Server<unknown>);
   });
 
   it("sends a protocol versioned state snapshot on open", () => {
@@ -134,6 +158,7 @@ describe("websocket contract", () => {
     );
 
     const message = getLastSentJson(ws);
+    expect(ws.subscribe).toHaveBeenCalledWith("state");
     expect(message.kind).toBe(MessageToClientKind.State);
     expect(message.data).toEqual({
       ...state,
@@ -156,9 +181,8 @@ describe("websocket contract", () => {
     expect(ws.send).not.toHaveBeenCalled();
   });
 
-  it("handles fixedpercentage in fixed mode by commanding fans and persisting", async () => {
+  it("handles fixedpercentage by mutating state and persisting", async () => {
     const ws = createSocket();
-    state.doFixedSpeed = true;
 
     dispatchMessage(ws, {
       kind: MessageToServerKind.FixedPercentage,
@@ -172,8 +196,16 @@ describe("websocket contract", () => {
     });
 
     expect(state.fixedPercentage).toBe(64);
-    expect(mockedSetFixedFan).toHaveBeenCalledWith(64);
+    expect(mockedApplyFixedFan).not.toHaveBeenCalled();
     expect(mockedPersistState).toHaveBeenCalledTimes(1);
+    expect(server.publish).toHaveBeenCalledWith("state", expect.any(String));
+    expect(getLastPublishedJson(server)).toEqual({
+      kind: MessageToClientKind.State,
+      data: {
+        ...state,
+        protocolVersion: "1.1",
+      },
+    });
     expect(getLastSentJson(ws)).toEqual({
       kind: MessageToClientKind.Success,
       methodId: "fixed-percentage",
@@ -182,13 +214,13 @@ describe("websocket contract", () => {
     });
   });
 
-  it("persists fixedpercentage in auto mode without commanding fans", async () => {
+  it("applies fixedpercentage immediately when fixed mode is already enabled", async () => {
     const ws = createSocket();
-    state.doFixedSpeed = false;
+    state.doFixedSpeed = true;
 
     dispatchMessage(ws, {
       kind: MessageToServerKind.FixedPercentage,
-      methodId: "fixed-percentage",
+      methodId: "fixed-percentage-active",
       methodName: "SetFixedPercentage",
       data: 64,
     });
@@ -197,119 +229,13 @@ describe("websocket contract", () => {
       expect(ws.send).toHaveBeenCalledTimes(1);
     });
 
-    expect(state.fixedPercentage).toBe(64);
-    expect(mockedSetFixedFan).not.toHaveBeenCalled();
-    expect(mockedPersistState).toHaveBeenCalledTimes(1);
-    expect(getLastSentJson(ws).kind).toBe(MessageToClientKind.Success);
-  });
-
-  it.each([101, -5, 150.5, "50"])(
-    "returns INVALID_DATA for out-of-range fixedpercentage %s",
-    async (data) => {
-      const ws = createSocket();
-      state.doFixedSpeed = true;
-      const before = state.fixedPercentage;
-
-      dispatchMessage(ws, {
-        kind: MessageToServerKind.FixedPercentage,
-        methodId: "fixed-percentage",
-        methodName: "SetFixedPercentage",
-        data,
-      });
-
-      await vi.waitFor(() => {
-        expect(ws.send).toHaveBeenCalledTimes(1);
-      });
-
-      const message = getLastSentJson(ws);
-      expect(message.kind).toBe(MessageToClientKind.Error);
-      expect(message.data).toEqual(expect.stringMatching(/^INVALID_DATA: /));
-      expect(state.fixedPercentage).toBe(before);
-      expect(mockedSetFixedFan).not.toHaveBeenCalled();
-      expect(mockedPersistState).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each([
-    [
-      "non-ascending temperatures",
-      [
-        [90, 100],
-        [40, 15],
-      ],
-    ],
-    ["an empty table", []],
-    ["out-of-range speeds", [[40, 150]]],
-    ["out-of-range temperatures", [[-10, 15]]],
-    ["malformed entries", [[40], [50, 20]]],
-  ] as [string, unknown][])(
-    "returns INVALID_FAN_TABLE for %s",
-    async (_label, cpuTable) => {
-      const ws = createSocket();
-      const gpuTable: FanTable = [
-        [35, 25],
-        [80, 65],
-        [90, 100],
-      ];
-
-      dispatchMessage(ws, {
-        kind: MessageToServerKind.FanTable,
-        methodId: "fan-table",
-        methodName: "SetFanTable",
-        data: {
-          cpu: cpuTable,
-          gpu: gpuTable,
-        },
-      });
-
-      await vi.waitFor(() => {
-        expect(ws.send).toHaveBeenCalledTimes(1);
-      });
-
-      const message = getLastSentJson(ws);
-      expect(message.kind).toBe(MessageToClientKind.Error);
-      expect(message.data).toEqual(
-        expect.stringMatching(/^INVALID_FAN_TABLE: cpu table /),
-      );
-      expect(state.cpuFanTable).toEqual(DEFAULT_STATE.cpuFanTable);
-      expect(state.gpuFanTable).toEqual(DEFAULT_STATE.gpuFanTable);
-      expect(mockedPersistState).not.toHaveBeenCalled();
-    },
-  );
-
-  it("returns INVALID_FAN_TABLE for an invalid gpu table", async () => {
-    const ws = createSocket();
-    const cpuTable: FanTable = [
-      [35, 20],
-      [80, 75],
-      [90, 100],
-    ];
-
-    dispatchMessage(ws, {
-      kind: MessageToServerKind.FanTable,
-      methodId: "fan-table",
-      methodName: "SetFanTable",
-      data: {
-        cpu: cpuTable,
-        gpu: [
-          [90, 100],
-          [40, 15],
-        ],
-      },
+    expect(mockedApplyFixedFan).toHaveBeenCalledWith(64);
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Success,
+      methodId: "fixed-percentage-active",
+      methodName: "SetFixedPercentage",
+      data: 64,
     });
-
-    await vi.waitFor(() => {
-      expect(ws.send).toHaveBeenCalledTimes(1);
-    });
-
-    const message = getLastSentJson(ws);
-    expect(message.kind).toBe(MessageToClientKind.Error);
-    expect(message.data).toEqual(
-      expect.stringMatching(/^INVALID_FAN_TABLE: gpu table /),
-    );
-    expect(state.cpuFanTable).toEqual(DEFAULT_STATE.cpuFanTable);
-    expect(state.gpuFanTable).toEqual(DEFAULT_STATE.gpuFanTable);
-    expect(mockedPersistState).not.toHaveBeenCalled();
   });
 
   it("handles dofixedspeed and re-enters auto fan control when disabled", async () => {
@@ -330,11 +256,64 @@ describe("websocket contract", () => {
     expect(state.doFixedSpeed).toBe(false);
     expect(mockedAutoFanControl).toHaveBeenCalledTimes(1);
     expect(mockedPersistState).toHaveBeenCalledTimes(1);
+    expect(server.publish).toHaveBeenCalledWith("state", expect.any(String));
     expect(getLastSentJson(ws)).toEqual({
       kind: MessageToClientKind.Success,
       methodId: "do-fixed-speed",
       methodName: "SetDoFixedSpeed",
       data: false,
+    });
+  });
+
+  it("applies the stored fixed speed immediately when fixed mode is enabled", async () => {
+    const ws = createSocket();
+    state.fixedPercentage = 72;
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.DoFixedSpeed,
+      methodId: "enable-fixed-speed",
+      methodName: "SetDoFixedSpeed",
+      data: true,
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.doFixedSpeed).toBe(true);
+    expect(mockedApplyFixedFan).toHaveBeenCalledWith(72);
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Success,
+      methodId: "enable-fixed-speed",
+      methodName: "SetDoFixedSpeed",
+      data: true,
+    });
+  });
+
+  it("rejects fixedpercentage when applying the active fixed speed fails", async () => {
+    const ws = createSocket();
+    state.doFixedSpeed = true;
+    mockedApplyFixedFan.mockRejectedValueOnce(new Error("ec write failed"));
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.FixedPercentage,
+      methodId: "fixed-percentage-apply-failed",
+      methodName: "SetFixedPercentage",
+      data: 64,
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.fixedPercentage).toBe(DEFAULT_STATE.fixedPercentage);
+    expect(mockedPersistState).not.toHaveBeenCalled();
+    expect(server.publish).not.toHaveBeenCalled();
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      methodId: "fixed-percentage-apply-failed",
+      methodName: "SetFixedPercentage",
+      data: "INTERNAL_ERROR: An unexpected error occurred",
     });
   });
 
@@ -368,6 +347,7 @@ describe("websocket contract", () => {
     expect(state.cpuFanTable).toEqual(cpuTable);
     expect(state.gpuFanTable).toEqual(gpuTable);
     expect(mockedPersistState).toHaveBeenCalledTimes(1);
+    expect(server.publish).toHaveBeenCalledWith("state", expect.any(String));
     expect(getLastSentJson(ws)).toEqual({
       kind: MessageToClientKind.Success,
       methodId: "fan-table",
@@ -400,6 +380,7 @@ describe("websocket contract", () => {
     expect(state.pl2).toBe(95);
     expect(mockedPersistState).toHaveBeenCalledTimes(1);
     expect(mockedTune).toHaveBeenCalledTimes(1);
+    expect(server.publish).toHaveBeenCalledWith("state", expect.any(String));
     expect(getLastSentJson(ws)).toEqual({
       kind: MessageToClientKind.Success,
       methodId: "tune",
@@ -457,11 +438,193 @@ describe("websocket contract", () => {
     });
     expect(state.gpuBoost).toBe(false);
     expect(mockedPersistState).toHaveBeenCalledTimes(1);
+    expect(server.publish).toHaveBeenCalledWith("state", expect.any(String));
     expect(getLastSentJson(ws)).toEqual({
       kind: MessageToClientKind.Success,
       methodId: "129",
       methodName: "SetAIBoostStatus",
       data: { Data: 0 },
+    });
+  });
+
+  it("echoes a client-supplied requestId in success responses", async () => {
+    const ws = createSocket();
+    mockedGetCall.mockResolvedValueOnce(42);
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.Get,
+      methodId: "0x129",
+      methodName: "GetSomething",
+      requestId: "rawui-1",
+      data: { Data: 1 },
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Success,
+      methodId: "0x129",
+      methodName: "GetSomething",
+      requestId: "rawui-1",
+      data: 42,
+    });
+  });
+
+  it("echoes a client-supplied requestId in error responses", async () => {
+    const ws = createSocket();
+    state.isFanControlAvailable = false;
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.DoFixedSpeed,
+      methodId: "mode-toggle",
+      methodName: "SetDoFixedSpeed",
+      requestId: "mode-1",
+      data: true,
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      methodId: "mode-toggle",
+      methodName: "SetDoFixedSpeed",
+      requestId: "mode-1",
+      data: "UNSUPPORTED_FEATURE: Fan control is not available on this system",
+    });
+  });
+
+  it("rejects fan control mutations when the backend reports that fan control is unavailable", async () => {
+    const ws = createSocket();
+    state.isFanControlAvailable = false;
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.FixedPercentage,
+      methodId: "fan-unavailable",
+      methodName: "SetFixedPercentage",
+      data: 64,
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.fixedPercentage).toBe(DEFAULT_STATE.fixedPercentage);
+    expect(mockedApplyFixedFan).not.toHaveBeenCalled();
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      methodId: "fan-unavailable",
+      methodName: "SetFixedPercentage",
+      data: "UNSUPPORTED_FEATURE: Fan control is not available on this system",
+    });
+  });
+
+  it("rejects enabling fixed mode when applying the stored speed fails", async () => {
+    const ws = createSocket();
+    mockedApplyFixedFan.mockRejectedValueOnce(new Error("ec write failed"));
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.DoFixedSpeed,
+      methodId: "enable-fixed-speed-failed",
+      methodName: "SetDoFixedSpeed",
+      data: true,
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.doFixedSpeed).toBe(DEFAULT_STATE.doFixedSpeed);
+    expect(mockedPersistState).not.toHaveBeenCalled();
+    expect(server.publish).not.toHaveBeenCalled();
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      methodId: "enable-fixed-speed-failed",
+      methodName: "SetDoFixedSpeed",
+      data: "INTERNAL_ERROR: An unexpected error occurred",
+    });
+  });
+
+  it("rejects invalid fixedpercentage ranges", async () => {
+    const ws = createSocket();
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.FixedPercentage,
+      methodId: "fixed-out-of-range",
+      methodName: "SetFixedPercentage",
+      data: 140,
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.fixedPercentage).toBe(DEFAULT_STATE.fixedPercentage);
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      methodId: "fixed-out-of-range",
+      methodName: "SetFixedPercentage",
+      data: "INVALID_RANGE: fixedpercentage must be an integer from 0 to 100",
+    });
+  });
+
+  it("rejects invalid fan tables", async () => {
+    const ws = createSocket();
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.FanTable,
+      methodId: "fan-table-invalid",
+      methodName: "SetFanTable",
+      data: {
+        cpu: [
+          [80, 70],
+          [60, 60],
+        ],
+        gpu: [
+          [40, 15],
+          [80, 65],
+        ],
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.cpuFanTable).toEqual(DEFAULT_STATE.cpuFanTable);
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      methodId: "fan-table-invalid",
+      methodName: "SetFanTable",
+      data: "INVALID_PAYLOAD: fantable requires ascending CPU and GPU tables with percentages from 0 to 100",
+    });
+  });
+
+  it("rejects GPU boost mutations when the backend reports the feature unavailable", async () => {
+    const ws = createSocket();
+    state.isGpuBoostAvailable = false;
+
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.Set,
+      methodId: "gpu-boost-unavailable",
+      methodName: "SetAIBoostStatus",
+      data: { Data: 0 },
+    });
+
+    await vi.waitFor(() => {
+      expect(ws.send).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockedSetCall).not.toHaveBeenCalled();
+    expect(state.gpuBoost).toBe(DEFAULT_STATE.gpuBoost);
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      methodId: "gpu-boost-unavailable",
+      methodName: "SetAIBoostStatus",
+      data: "UNSUPPORTED_FEATURE: GPU boost is not available on this system",
     });
   });
 

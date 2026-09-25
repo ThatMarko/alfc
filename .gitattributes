@@ -5,7 +5,7 @@
 # lint fails on every line.
 * text=auto eol=lf
 
-# Windows scripts keep CRLF in the working tree (cmd.exe parsing).
+# Windows-native scripts keep CRLF for cmd.exe parsing edge cases.
 *.bat text eol=crlf
 *.cmd text eol=crlf
 
@@ -14,3 +14,4 @@
 *.ico binary
 *.dll binary
 *.exe binary
+*.zip binary

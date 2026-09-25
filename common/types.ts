@@ -49,7 +49,10 @@ export type FanControlActivity = {
   sensorFailure: boolean;
 };
 
-export type MessageToClient = Pick<MessageToServer, "methodName" | "methodId"> &
+export type MessageToClient = Pick<
+  MessageToServer,
+  "methodName" | "methodId" | "requestId"
+> &
   (
     | {
         kind: MessageToClientKind.State;
@@ -73,5 +76,6 @@ export type MessageToServer = {
   kind: MessageToServerKind;
   methodId: string;
   methodName: string;
+  requestId?: string;
   data?: any;
 };

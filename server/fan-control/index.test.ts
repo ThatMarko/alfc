@@ -96,18 +96,20 @@ describe("fan-control", () => {
   });
 
   afterEach(async () => {
-    // stop auto control loop
-    state.doFixedSpeed = true;
-    // Advance past the sensor-read timeout so a cycle left in flight by the
-    // test releases the shared cycle lock before the next test runs.
-    await vi.advanceTimersByTimeAsync(CYCLE_DURATION + SENSOR_READ_TIMEOUT);
+    // Stop the loop first so no new cycles start, then advance past the
+    // sensor-read timeout so a cycle left in flight by the test releases
+    // the shared cycle lock before the next test runs. (Fixed mode is a
+    // served mode now, so switching modes alone no longer stops reads.)
     cleanupFanControlIntervals();
+    state.doFixedSpeed = true;
+    await vi.advanceTimersByTimeAsync(SENSOR_READ_TIMEOUT);
 
     vi.useRealTimers();
   });
 
   it("should change fan speed as temperatures change", async () => {
     fanControl();
+    await vi.advanceTimersByTimeAsync(0);
     expect(mockedSetCall.mock.calls).toMatchInlineSnapshot(`
       [
         [
@@ -268,7 +270,7 @@ describe("fan-control", () => {
     expect(mockedGetCall).toHaveBeenCalledTimes(1);
   });
 
-  it("applies fixed speed even while a collection cycle is stalled", async () => {
+  it("escapes a stalled collection and applies fixed mode after the read timeout", async () => {
     mockedGetCall.mockImplementation(() => new Promise(() => undefined));
 
     fanControl();
@@ -277,15 +279,13 @@ describe("fan-control", () => {
     state.doFixedSpeed = true;
     state.fixedPercentage = 75;
 
-    await vi.advanceTimersByTimeAsync(CYCLE_DURATION);
+    // The loop is not torn down on the switch: the stalled read holds the
+    // cycle lock until SENSOR_READ_TIMEOUT fails the collection.
+    await vi.advanceTimersByTimeAsync(SENSOR_READ_TIMEOUT);
 
-    expect(mockedSetCall).toHaveBeenLastCalledWith(
-      expect.any(String),
-      expect.any(String),
-      {
-        Data: fanPercentToSpeed(state.fixedPercentage),
-      },
-    );
+    // Recovery: the next collected cycle applies the fixed speed.
+    mockTemperatures(30, 30);
+    await waitUntilFanPercent(state.fixedPercentage);
   });
 
   it("serializes collections across restarts and aborts the stale run", async () => {
