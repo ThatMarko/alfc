@@ -1,2 +1,5 @@
-windows/WmiAPI.dll
-windows/CPUOC.dll
+native/windows/wmidll/WmiDll.dll
+native/windows/wmidll/*.obj
+native/windows/wmidll/*.exp
+native/windows/wmidll/*.lib
+native/windows/CPUOC.dll
