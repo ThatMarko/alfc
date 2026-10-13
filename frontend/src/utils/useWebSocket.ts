@@ -4,9 +4,21 @@ import type { MessageToClient } from "../../../common/types";
 const emptyObject = {};
 const shouldReconnect = (_: CloseEvent) => true;
 
+function resolveWebSocketUrl(): string {
+  if (typeof window === "undefined" || !window.location.hostname) {
+    return "ws://localhost:5522/ws";
+  }
+  const host = window.location.hostname.includes(":")
+    ? `[${window.location.hostname}]`
+    : window.location.hostname;
+  return `ws://${host}:5522/ws`;
+}
+
+const WS_URL = resolveWebSocketUrl();
+
 export function useWebSocket() {
   const { lastJsonMessage, sendJsonMessage, readyState } =
-    useReactWebSocket<MessageToClient | null>("ws://localhost:5522/ws", {
+    useReactWebSocket<MessageToClient | null>(WS_URL, {
       share: true,
       // No application-level heartbeat — react-use-websocket's heartbeat has
       // known bugs with share:true (Issues #268, #269, #273) that cause

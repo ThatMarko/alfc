@@ -3,7 +3,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { StyledApplyButton } from "../components/StyledApplyButton";
 import { StyledArea } from "../components/StyledArea";
 import { useWebSocket } from "../utils/useWebSocket";
-import { getFanTableRowError, validationToast } from "../utils/misc";
+import {
+  getFanTableRowError,
+  nextRequestId,
+  validationToast,
+} from "../utils/misc";
 import { FanTableEditor } from "./FanTableEditor";
 import { Status } from "./Status";
 import { disabledFormStyle, enabledFormStyle } from "./styles/misc";
@@ -29,14 +33,16 @@ export function FanTable({
   statusDisabled?: boolean;
 }) {
   const submitRef = useRef<HTMLButtonElement>(null);
+  const pendingRequestIdRef = useRef<string | null>(null);
 
   const [cpuTable, setCPUTable] = useState<FanTableItems>([]);
   const [gpuTable, setGPUTable] = useState<FanTableItems>([]);
+  const [isApplying, setIsApplying] = useState(false);
 
   const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
 
   useEffect(() => {
-    const { kind, data } = lastJsonMessage;
+    const { kind, data, requestId } = lastJsonMessage;
     if (kind === "state") {
       setCPUTable(
         data.cpuFanTable.map(([temperature, speed]) => [
@@ -50,6 +56,13 @@ export function FanTable({
           speed.toString(),
         ]),
       );
+    } else if (
+      (kind === "success" || kind === "error") &&
+      pendingRequestIdRef.current !== null &&
+      requestId === pendingRequestIdRef.current
+    ) {
+      pendingRequestIdRef.current = null;
+      setIsApplying(false);
     }
   }, [lastJsonMessage]);
 
@@ -59,6 +72,9 @@ export function FanTable({
 
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
+    if (disabled || isApplying) {
+      return;
+    }
     submitRef.current?.focus();
 
     const cpuInvalidRow = getFanTableRowError(cpuTable);
@@ -73,8 +89,12 @@ export function FanTable({
       return;
     }
 
+    const requestId = nextRequestId("fantable");
+    pendingRequestIdRef.current = requestId;
+    setIsApplying(true);
     sendJsonMessage({
       kind: "fantable",
+      requestId,
       data: {
         cpu: cpuTable.map((entry) => [
           parseInt(entry[0], 10),
@@ -89,31 +109,36 @@ export function FanTable({
   };
 
   return (
-    <StyledForm disabled={disabled} onSubmit={onSubmit}>
-      <div style={{ display: "flex" }}>
-        <StyledArea>
-          <h2 style={{ marginTop: 0 }}>CPU</h2>
-          <FanTableEditor
-            onChange={(nextCurvePoints) => setCPUTable(nextCurvePoints)}
-            value={cpuTable}
-          />
-        </StyledArea>
-        <StyledArea style={{ marginRight: 0 }}>
-          <h2 style={{ marginTop: 0 }}>GPU</h2>
-          <FanTableEditor
-            onChange={(nextCurvePoints) => setGPUTable(nextCurvePoints)}
-            value={gpuTable}
-          />
-        </StyledArea>
-      </div>
-      <StyledApplyButton
-        ref={submitRef}
-        type="submit"
-        style={{ marginBottom: 16 }}
-      >
-        Apply
-      </StyledApplyButton>
+    <div style={{ textAlign: "center" }}>
+      <StyledForm disabled={disabled} onSubmit={onSubmit}>
+        <div style={{ display: "flex" }}>
+          <StyledArea>
+            <h2 style={{ marginTop: 0 }}>CPU</h2>
+            <FanTableEditor
+              disabled={disabled}
+              onChange={(nextCurvePoints) => setCPUTable(nextCurvePoints)}
+              value={cpuTable}
+            />
+          </StyledArea>
+          <StyledArea style={{ marginRight: 0 }}>
+            <h2 style={{ marginTop: 0 }}>GPU</h2>
+            <FanTableEditor
+              disabled={disabled}
+              onChange={(nextCurvePoints) => setGPUTable(nextCurvePoints)}
+              value={gpuTable}
+            />
+          </StyledArea>
+        </div>
+        <StyledApplyButton
+          ref={submitRef}
+          type="submit"
+          disabled={disabled || isApplying}
+          style={{ marginBottom: 16 }}
+        >
+          Apply
+        </StyledApplyButton>
+      </StyledForm>
       <Status disabled={statusDisabled} />
-    </StyledForm>
+    </div>
   );
 }

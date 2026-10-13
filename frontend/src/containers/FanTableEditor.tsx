@@ -9,6 +9,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { FanTableItems } from "./FanTable";
 
 type Props = {
+  disabled?: boolean;
   onChange: (nextCurvePoints: FanTableItems) => void;
   value: FanTableItems;
 };
@@ -23,7 +24,7 @@ const StyledButton = styled.button`
   padding: 0;
 `;
 
-export function FanTableEditor({ onChange, value }: Props) {
+export function FanTableEditor({ disabled = false, onChange, value }: Props) {
   const inputs = value.map((tableItem, idx) => {
     return (
       <tr key={idx}>
@@ -32,6 +33,7 @@ export function FanTableEditor({ onChange, value }: Props) {
             type="number"
             name="temperature"
             aria-label={`Temperature for row ${idx + 1}`}
+            disabled={disabled}
             min={0}
             max={110}
             maxLength={3}
@@ -49,6 +51,7 @@ export function FanTableEditor({ onChange, value }: Props) {
             type="number"
             name="percentage"
             aria-label={`Fan speed for row ${idx + 1}`}
+            disabled={disabled}
             min={0}
             max={100}
             maxLength={3}
@@ -65,6 +68,7 @@ export function FanTableEditor({ onChange, value }: Props) {
           <StyledButton
             type="button"
             aria-label={`Add row before row ${idx + 1}`}
+            disabled={disabled}
             onClick={() => {
               const nextValue = structuredClone(value);
               let temperature = parseInt(tableItem[0], 10) - 1;
@@ -89,7 +93,7 @@ export function FanTableEditor({ onChange, value }: Props) {
           <StyledButton
             type="button"
             aria-label={`Remove row ${idx + 1}`}
-            disabled={value.length === 1}
+            disabled={disabled || value.length === 1}
             style={
               value.length === 1
                 ? {

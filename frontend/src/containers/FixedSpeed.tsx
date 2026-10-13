@@ -2,7 +2,11 @@ import styled from "@emotion/styled";
 import React, { useEffect, useRef, useState } from "react";
 import { StyledApplyButton } from "../components/StyledApplyButton";
 import { useWebSocket } from "../utils/useWebSocket";
-import { parseIntegerInRange, validationToast } from "../utils/misc";
+import {
+  nextRequestId,
+  parseIntegerInRange,
+  validationToast,
+} from "../utils/misc";
 import { disabledFormStyle, enabledFormStyle } from "./styles/misc";
 
 const StyledForm = styled.form<{ disabled: boolean }>`
@@ -25,14 +29,23 @@ const StyledInput = styled.input`
 export function FixedSpeed({ disabled }: { disabled: boolean }) {
   const submitRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pendingRequestIdRef = useRef<string | null>(null);
   const [fixedPercentage, setFixedPercentage] = useState("0");
+  const [isApplying, setIsApplying] = useState(false);
 
   const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
 
   useEffect(() => {
-    const { kind, data } = lastJsonMessage;
+    const { kind, data, requestId } = lastJsonMessage;
     if (kind === "state") {
       setFixedPercentage(data.fixedPercentage.toString());
+    } else if (
+      (kind === "success" || kind === "error") &&
+      pendingRequestIdRef.current !== null &&
+      requestId === pendingRequestIdRef.current
+    ) {
+      pendingRequestIdRef.current = null;
+      setIsApplying(false);
     }
   }, [lastJsonMessage]);
 
@@ -42,6 +55,9 @@ export function FixedSpeed({ disabled }: { disabled: boolean }) {
 
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
+    if (disabled || isApplying) {
+      return;
+    }
     submitRef.current?.focus();
 
     const percentage = parseIntegerInRange(fixedPercentage, 0, 100);
@@ -51,8 +67,12 @@ export function FixedSpeed({ disabled }: { disabled: boolean }) {
       return;
     }
 
+    const requestId = nextRequestId("fixed");
+    pendingRequestIdRef.current = requestId;
+    setIsApplying(true);
     sendJsonMessage({
       kind: "fixedpercentage",
+      requestId,
       data: percentage,
     });
   };
@@ -66,6 +86,7 @@ export function FixedSpeed({ disabled }: { disabled: boolean }) {
           type="number"
           name="percentage"
           aria-label="Fixed fan speed percentage"
+          disabled={disabled}
           min={0}
           max={100}
           maxLength={3}
@@ -79,6 +100,7 @@ export function FixedSpeed({ disabled }: { disabled: boolean }) {
         <StyledApplyButton
           ref={submitRef}
           type="submit"
+          disabled={disabled || isApplying}
           style={{ marginTop: 16 }}
         >
           Apply
