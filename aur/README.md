@@ -42,6 +42,7 @@ First time:
 git clone ssh://aur@aur.archlinux.org/alfc-bin.git
 cd alfc-bin
 cp ../PKGBUILD ../alfc.install .
+updpkgsums
 makepkg --printsrcinfo > .SRCINFO
 git add PKGBUILD .SRCINFO alfc.install
 git commit -m "Initial upload: alfc-bin 2.0.0"
@@ -51,7 +52,8 @@ git push
 Subsequent updates:
 
 ```bash
-# Update PKGBUILD version, regenerate .SRCINFO
+# Update PKGBUILD version, pin checksums, and regenerate .SRCINFO
+updpkgsums
 makepkg --printsrcinfo > .SRCINFO
 git add -u
 git commit -m "Update to X.Y.Z"

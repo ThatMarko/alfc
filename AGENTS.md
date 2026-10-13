@@ -1,7 +1,7 @@
 # ALFC - Aorus Laptop Fan Control
 
 **Generated:** 2026-10-13
-**Commit:** 7f571a0
+**Commit:** 1ffe0f5
 **Branch:** master
 
 ## OVERVIEW
@@ -48,7 +48,7 @@ alfc/
 - **Monorepo**: Bun workspaces (`frontend`, `server`)
 - **Bun >=1.4.3** required (`engines` floor, `packageManager`, and CI/release workflows pin 1.4.3)
 - **ESM imports**: Extensionless relative imports (Bun `moduleResolution: "bundler"` convention). Use `node:` prefix for Node built-in modules.
-- **No explicit `any`**: ESLint warns on `@typescript-eslint/no-explicit-any`. One known exception in `common/types.ts` (protocol data field).
+- **No explicit `any`**: ESLint warns on `@typescript-eslint/no-explicit-any`. One known exception in `common/types.ts` (protocol `data` field).
 - **Underscore prefix**: Unused vars must use `_` prefix
 - **Strict TypeScript**: `strict: true` + `noUncheckedIndexedAccess: true` — always handle potential `undefined` from indexed access
 - **Accessibility**: Frontend uses `aria-label` on all interactive elements. Plasmoid uses `Accessible.role` / `Accessible.name`.
@@ -83,7 +83,7 @@ bun run test              # Vitest (88 tests: server + frontend)
 bun run --cwd server build:wmidll
 bun run --cwd server build:cpuoc
 
-# Service Management (Linux)
+# Service Management (Linux — from extracted release or bootstrap/scripts/linux/)
 sudo ./install.sh         # Install to /opt/alfc as system service
 sudo /opt/alfc/uninstall.sh  # Remove service and installed files
 
@@ -98,7 +98,7 @@ plasmoidviewer -a plasmoid/package                               # Dev preview
 - Exit handler restores BIOS automatic fan control (disables fixed mode, re-enables auto mode)
 - Linux release is a Bun-compiled executable with systemd/OpenRC service scripts
 - Windows release is a Bun-compiled executable with WinSW service wrapper
-- Windows logging: WinSW to `alfc-service.out.log`/`alfc-service.err.log` (systemd journal / OpenRC for Linux)
+- Service logging: Windows logs to `alfc-service.out.log`/`alfc-service.err.log` via WinSW; Linux systemd logs to the journal (OpenRC runs in the background without `output_log` configured)
 - Windows WMI: `WmiDll.dll` (C++ COM wrapper) loaded via `bun:ffi` — direct in-process WMI calls, no subprocess
 - Windows CPU OC: `bun:ffi` loads NativeAOT DLL (requires .NET 8 SDK to build)
 - Windows service: WinSW with `stopParentFirst` + `stopTimeout=15s` for safe fan restore on shutdown

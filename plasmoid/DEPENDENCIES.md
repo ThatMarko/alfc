@@ -16,11 +16,8 @@ The plasmoid requires KDE Plasma 6 and the QtWebSockets QML module.
 ### Checking Dependencies
 
 ```bash
-# Check if QtWebSockets QML module is available
-qml6 -e 'import QtWebSockets; Qt.quit()'
-
-# Check if Plasma components are available
-qml6 -e 'import org.kde.plasma.components; Qt.quit()'
+# Validate QML syntax and imports (or preview with plasmoidviewer -a plasmoid/package)
+qmllint plasmoid/package/contents/ui/*.qml
 ```
 
 ### Missing Dependency Behavior
