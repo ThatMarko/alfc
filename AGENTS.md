@@ -1,7 +1,7 @@
 # ALFC - Aorus Laptop Fan Control
 
-**Generated:** 2026-02-18
-**Commit:** 5bd77bb
+**Generated:** 2026-10-13
+**Commit:** 7f571a0
 **Branch:** master
 
 ## OVERVIEW
@@ -12,6 +12,7 @@ Cross-platform fan control utility for Aorus laptops. Web UI (React) + Bun backe
 
 ```
 alfc/
+├── aur/             # Arch Linux AUR packaging (alfc-bin)
 ├── bootstrap/       # Service management (install/uninstall/run)
 ├── common/          # Shared TypeScript types + protocol docs
 ├── frontend/        # React web UI (Vite, @emotion/react)
@@ -20,8 +21,10 @@ alfc/
 ├── server/          # Bun backend
 │   ├── fan-control/ # Core fan logic + tests
 │   ├── native/      # Platform-specific (linux/windows)
-│   │   ├── wmidll/  # Windows WMI C++ DLL (bun:ffi)
-│   │   └── cpuoc-dotnet/ # Windows CPU OC NativeAOT
+│   │   ├── linux/   # /proc/acpi/call + sysfs intel-rapl
+│   │   └── windows/ # WMI C++ DLL + CPU OC NativeAOT (bun:ffi)
+│   │       ├── wmidll/       # Windows WMI C++ DLL (bun:ffi)
+│   │       └── cpuoc-dotnet/ # Windows CPU OC NativeAOT
 │   ├── state/       # Config persistence
 │   └── websocket/   # Client communication + tests
 └── assets/          # Static resources
@@ -34,7 +37,7 @@ alfc/
 | Fan curve logic   | `server/fan-control/`                   | Ramping prevents frequent fluctuations                                               |
 | ACPI/WMI calls    | `server/native/{linux,windows}/acpi.ts` | Platform abstraction (Linux: /proc/acpi, Windows: WmiDll.dll via bun:ffi)            |
 | Frontend state    | `frontend/src/utils/useWebSocket.ts`    | WebSocket hook for real-time updates                                                 |
-| Frontend tests    | `frontend/src/{data,utils}/*.test.ts`   | MOF parser tests, toast utility tests                                                |
+| Frontend tests    | `frontend/src/{data,utils}/*.test.ts`   | MOF parser, toast, validation, and requestId tests                                   |
 | Shared types      | `common/types.ts`                       | `State`, `MessageToServer`, `MessageToClient`                                        |
 | Service lifecycle | `bootstrap/scripts/linux/*.sh`          | Linux: auto-detects systemd or OpenRC                                                |
 | KDE Plasma widget | `plasmoid/package/contents/ui/`         | Multi-context: panel (text), system tray (icon), desktop (full), tooltip (mini-dash) |
@@ -43,7 +46,7 @@ alfc/
 ## CONVENTIONS
 
 - **Monorepo**: Bun workspaces (`frontend`, `server`)
-- **Bun 1.4.3+** required
+- **Bun >=1.4.3** required (`engines` floor, `packageManager`, and CI/release workflows pin 1.4.3)
 - **ESM imports**: Extensionless relative imports (Bun `moduleResolution: "bundler"` convention). Use `node:` prefix for Node built-in modules.
 - **No explicit `any`**: ESLint warns on `@typescript-eslint/no-explicit-any`. One known exception in `common/types.ts` (protocol data field).
 - **Underscore prefix**: Unused vars must use `_` prefix
@@ -77,8 +80,8 @@ bun run type-check        # TypeScript (no emit, strict + noUncheckedIndexedAcce
 bun run test              # Vitest (82 tests: server + frontend)
 
 # Windows Native Build (requires MSVC for WmiDll, .NET 8 SDK for CPUOC)
-cd server/native/windows/wmidll && build.bat
-cd server/native/cpuoc-dotnet && dotnet publish -c Release -r win-x64
+bun run --cwd server build:wmidll
+bun run --cwd server build:cpuoc
 
 # Service Management (Linux)
 sudo ./install.sh         # Install to /opt/alfc as system service
@@ -95,7 +98,7 @@ plasmoidviewer -a plasmoid/package                               # Dev preview
 - Exit handler restores BIOS automatic fan control (disables fixed mode, re-enables auto mode)
 - Linux release is a Bun-compiled executable with systemd/OpenRC service scripts
 - Windows release is a Bun-compiled executable with WinSW service wrapper
-- Windows logging: WinSW to `service.log` (systemd journal / OpenRC stdout for Linux)
+- Windows logging: WinSW to `alfc-service.out.log`/`alfc-service.err.log` (systemd journal / OpenRC for Linux)
 - Windows WMI: `WmiDll.dll` (C++ COM wrapper) loaded via `bun:ffi` — direct in-process WMI calls, no subprocess
 - Windows CPU OC: `bun:ffi` loads NativeAOT DLL (requires .NET 8 SDK to build)
 - Windows service: WinSW with `stopParentFirst` + `stopTimeout=15s` for safe fan restore on shutdown

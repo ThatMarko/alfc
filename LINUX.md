@@ -61,6 +61,11 @@ Add `acpi_call` to `/etc/modules` (one module name per line). On Gentoo, use `/e
 
 ### Arch Linux (AUR)
 
+**Not published yet** — the `alfc-bin` package will be submitted to the AUR after
+the first stable release. Until then, use the manual install below.
+
+Once available:
+
 ```bash
 yay -S alfc-bin
 sudo systemctl enable --now alfc
