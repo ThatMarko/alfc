@@ -38,6 +38,9 @@ GPU boost is likely to not work on models other than the 15G though because the 
 | [plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md) | Plasmoid runtime dependencies by distribution                 |
 | [aur/README.md](aur/README.md)                       | AUR package (`alfc-bin`) maintenance notes                    |
 | [CONTRIBUTING.md](CONTRIBUTING.md)                   | Development setup, conventions, and the pull request process  |
+| [SECURITY.md](SECURITY.md)                           | Vulnerability reporting policy and threat model               |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)             | Community participation standards                             |
+| [PORTING_REVIEW.md](PORTING_REVIEW.md)               | Bun and KDE Plasma 6 port validation baseline                 |
 
 ## How it works
 

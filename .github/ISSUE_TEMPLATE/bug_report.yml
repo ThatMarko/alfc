@@ -34,6 +34,7 @@ body:
       label: Install method
       options:
         - Manual install (install.sh / install.bat)
+        - AUR (alfc-bin)
         - run.sh / run.bat (temporary)
         - Built from source
     validations:

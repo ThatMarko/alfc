@@ -10,6 +10,7 @@ Works in **panel**, **system tray**, and **desktop widget** modes with context-a
 - **Panel**: Responsive compact view showing CPU/GPU temps, mode, and stale/offline state at a glance.
 - **Desktop widget**: Full view rendered directly on the desktop with configurable background.
 - **Tooltip**: Connection summary with live or stale telemetry details.
+- **Middle-click**: Quickly toggle between auto and fixed fan mode directly from the panel or system tray icon.
 - **Right-click menu**: Quick actions — switch between auto/fixed fan mode, reconnect the backend, open the web UI, or configure the widget.
 - **Full popup**: Complete fan control — mode toggle, fixed speed slider, fan curve editor, GPU boost, CPU tuning (PL1/PL2).
 - **Live data**: WebSocket connection with keepalive ping/pong and automatic reconnection.
@@ -51,9 +52,9 @@ The script detects an existing install and upgrades automatically.
 
 Right-click the widget → Configure → General:
 
-- **Server URL**: WebSocket endpoint (default: `ws://localhost:5522/ws`)
-- **Web interface**: Derived from the server URL and shown for reference.
-- **Warning temperature**: Threshold for warning colors/status.
+- **Server URL**: WebSocket endpoint (default: `ws://localhost:5522/ws`; must start with `ws://` or `wss://` and end with `/ws`).
+- **Web interface URL**: Optional `http://` or `https://` override. When left blank, it is derived automatically from the Server URL and displayed under **Resolved web interface**.
+- **Warning temperature (°C)**: Threshold for critical warning colors/status (default: `90°C`, range `50–110°C`, step `5°C`; warm status begins `10°C` below the threshold).
 - **Panel display**: Choose icon-only compact mode instead of the text layout.
 
 ## Structure

@@ -28,8 +28,8 @@ Please give us a reasonable window to fix the issue before public disclosure.
 ALFC is a hardware control daemon that runs with elevated privileges; the
 supported surface is:
 
-- The latest stable release (none published yet while ALFC is pre-1.0 — treat
-  `master` as the supported surface until then)
+- The latest stable release (none published yet prior to the first stable
+  `v2.0.0` release — treat `master` as the supported surface until then)
 - `master` on a best-effort basis
 
 Older alpha tags (`v2.0.0-alpha.*`) are pre-release builds and are not

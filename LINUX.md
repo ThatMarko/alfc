@@ -128,12 +128,12 @@ lsmod | grep acpi_call
 
 ## KDE Plasma 6 Widget (Optional)
 
-If you're running KDE Plasma 6, you can install the native Plasma widget for system tray fan control.
+If you're running KDE Plasma 6, you can install the native Plasma widget for panel, system tray, or desktop fan control (see [plasmoid/README.md](plasmoid/README.md) for full details).
 
 ### Prerequisites
 
 - KDE Plasma 6 desktop environment
-- QtWebSockets QML module (see `plasmoid/DEPENDENCIES.md` for distro-specific package names)
+- QtWebSockets QML module (see [plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md) for distro-specific package names)
 - The ALFC backend service must be running (`sudo ./install.sh` or `sudo ./run.sh`)
 
 ### Install
