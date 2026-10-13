@@ -22,9 +22,9 @@ Bootstrap is now scripts-only (no TypeScript). WinSW for Windows, shell scripts 
 
 ## NOTES
 
-- Windows: Logs to `service.log` via WinSW
+- Windows: Logs to `alfc-service.out.log`/`alfc-service.err.log` via WinSW
 - Linux (systemd): Logs go to systemd journal
-- Linux (OpenRC): Logs go to stdout (use `rc-service alfc start` to see output)
+- Linux (OpenRC): daemon runs in the background via the init script; stdout/stderr are not captured (no `output_log` configured)
 - Windows install.bat auto-opens browser to `localhost:5522`
 - WinSW config: `stopParentFirst` ensures alfc.exe completes fan restore before WmiAPI.exe is touched
 - WinSW config: `stopTimeout=15 sec` gives shutdown enough time for WMI restore commands

@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest an idea for ALFC
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What pain point or missing capability are you trying to solve?
+      placeholder: Describe the problem, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How should ALFC behave? Feel free to sketch the UI or flow.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else have you tried, and why did it not work?
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, references, or examples of how other tools solve this.

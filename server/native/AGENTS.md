@@ -9,6 +9,7 @@ Platform-specific ACPI/WMI hardware interface. Abstracts fan speed reading/writi
 ```
 native/
 ├── index.ts       # Platform detection, exports unified interface
+├── index.test.ts  # Call serialization and initialization tests
 ├── linux/         # acpi_call kernel module interface
 │   ├── acpi.ts    # Reads/writes via /proc/acpi/call
 │   └── cpuoc.ts   # CPU power limits via sysfs (intel-rapl)
@@ -36,7 +37,7 @@ native/
 
 ## ANTI-PATTERNS
 
-- **Never call Windows modules on Linux**: Always guard with `os.platform()`
+- **Never call Windows modules on Linux**: Always guard with `process.platform`
 - **No inline .NET code**: WmiAPI.exe built separately with `dotnet publish`, CPUOC.dll with NativeAOT
 
 ## NOTES

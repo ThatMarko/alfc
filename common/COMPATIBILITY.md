@@ -1,6 +1,6 @@
 # ALFC Compatibility Matrix
 
-## Protocol Version: 1.0
+## Protocol Version: 1.1
 
 ### Client Compatibility
 
