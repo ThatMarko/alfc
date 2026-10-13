@@ -18,32 +18,39 @@ export function Status({ disabled }: { disabled: boolean }) {
   const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
 
   useEffect(() => {
+    if (disabled) {
+      return;
+    }
     const { kind, data } = lastJsonMessage;
     if (kind === MessageToClientKind.FanControlActivity) {
       setSensorFailure(data.sensorFailure === true);
-      setAppliedSpeed(data.appliedSpeed ? data.appliedSpeed.toString() : "-");
+      setAppliedSpeed(
+        data.appliedSpeed !== null ? data.appliedSpeed.toString() : "-",
+      );
       setAvgCPUTemp(Math.round(data.avgCPUTemp).toString());
       setAvgGPUTemp(Math.round(data.avgGPUTemp).toString());
       setTarget(data.target.toString());
     } else if (kind === "error") {
       console.error(data);
     }
-  }, [lastJsonMessage]);
+  }, [disabled, lastJsonMessage]);
 
   useEffect(() => {
     if (disabled) {
       // Blanking out values must be delayed since we'll
       // still receive fancontrolactivity for a bit, until
       // server has actually stopped the auto fan control.
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         setAppliedSpeed("-");
         setAvgCPUTemp("-");
         setAvgGPUTemp("-");
         setTarget("-");
         setSensorFailure(false);
       }, 500);
+      return () => clearTimeout(timer);
     } else {
       sendJsonMessage({ kind: "registeractivitysocket" });
+      return undefined;
     }
   }, [disabled, sendJsonMessage]);
 

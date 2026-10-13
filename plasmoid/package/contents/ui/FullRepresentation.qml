@@ -49,6 +49,10 @@ PlasmaExtras.Representation {
                 protocolVersion)
         }
 
+        if (sensorFailure) {
+            return i18n("Sensor error")
+        }
+
         if (hasActivity) {
             return i18n("Live telemetry")
         }
@@ -108,6 +112,10 @@ PlasmaExtras.Representation {
         }
 
         if (!hasState || !protocolCompatible) {
+            return Kirigami.Theme.negativeTextColor
+        }
+
+        if (sensorFailure) {
             return Kirigami.Theme.negativeTextColor
         }
 

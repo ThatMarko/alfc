@@ -12,6 +12,7 @@ native/
 ├── index.test.ts  # Call serialization and initialization tests
 ├── linux/         # acpi_call kernel module interface
 │   ├── acpi.ts    # Reads/writes via /proc/acpi/call
+│   ├── acpi.test.ts # Linux ACPI unit tests
 │   └── cpuoc.ts   # CPU power limits via sysfs (intel-rapl)
 └── windows/
     ├── acpi.ts    # WMI via bun:ffi (loads WmiDll.dll)

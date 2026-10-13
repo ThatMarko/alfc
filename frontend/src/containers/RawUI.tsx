@@ -79,6 +79,8 @@ export function RawUI() {
           ? `${data} (0x${data.toString(16)})`
           : String(data);
       setResult(`${new Date().toLocaleTimeString()}: ${display}`);
+    } else if (lastJsonMessage.kind === "success") {
+      setResult(`${new Date().toLocaleTimeString()}: OK`);
     }
   }, [lastJsonMessage]);
 

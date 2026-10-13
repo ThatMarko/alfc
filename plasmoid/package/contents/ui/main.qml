@@ -132,7 +132,9 @@ PlasmoidItem {
         }
 
         if (root.sensorFailure) {
-            return i18n("Sensor error — fans at fail-safe maximum")
+            return root.isFixedMode
+                ? i18n("Sensor error — fixed fan speed active")
+                : i18n("Sensor error — fans at fail-safe maximum")
         }
 
         if (!backendConnection.hasFreshActivity) {
@@ -188,7 +190,7 @@ PlasmoidItem {
                     Layout.preferredWidth: Kirigami.Units.smallSpacing * 1.5
                     Layout.preferredHeight: Layout.preferredWidth
                     radius: Layout.preferredWidth / 2
-                    color: root.isOverheating
+                    color: (root.isOverheating || root.sensorFailure)
                         ? Kirigami.Theme.negativeTextColor
                         : (root.isWarm
                             ? Kirigami.Theme.neutralTextColor
@@ -234,9 +236,11 @@ PlasmoidItem {
             }
 
             PlasmaComponents.Label {
-                visible: !root.hasActivity
+                visible: !root.hasActivity || root.sensorFailure
                 text: root.toolTipSubText
-                color: Kirigami.Theme.disabledTextColor
+                color: root.sensorFailure
+                    ? Kirigami.Theme.negativeTextColor
+                    : Kirigami.Theme.disabledTextColor
                 font: Kirigami.Theme.smallFont
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true

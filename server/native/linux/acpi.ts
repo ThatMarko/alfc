@@ -20,14 +20,36 @@ export function isAvailable() {
   return isAcpiAvailable();
 }
 
+const ACPI_METHOD_ID_PATTERN = /^(?:0x[0-9a-fA-F]+|\d+)$/;
+
+function validateMethodId(methodId: string): string {
+  if (!ACPI_METHOD_ID_PATTERN.test(methodId)) {
+    throw new RangeError(`Invalid ACPI methodId: ${JSON.stringify(methodId)}`);
+  }
+  return methodId;
+}
+
 // Precondition: There are no uint16 arguments.
 function argstoHexString(args?: Args) {
   if (!args) {
     return "0";
   }
 
+  const values = Object.values(args);
+  if (values.length === 0) {
+    return "0";
+  }
+
+  for (const value of values) {
+    if (!Number.isInteger(value) || value < 0 || value > 0xff) {
+      throw new RangeError(
+        `ACPI argument must be an integer between 0 and 255; received ${value}`,
+      );
+    }
+  }
+
   // Reversed to match WMI byte order convention
-  return "0x" + Buffer.from(Object.values(args).reverse()).toString("hex");
+  return "0x" + Buffer.from([...values].reverse()).toString("hex");
 }
 
 export function wmiInit() {
@@ -39,8 +61,8 @@ export async function getCall(methodId: string, _: string, args?: Args) {
     return NaN;
   }
 
-  const command = `\\_SB.PCI0.AMW0.WMBC 0 ${methodId} ${argstoHexString(args)}`;
   try {
+    const command = `\\_SB.PCI0.AMW0.WMBC 0 ${validateMethodId(methodId)} ${argstoHexString(args)}`;
     await Bun.write(ACPI_CALL_PATH, command);
     const result = await Bun.file(ACPI_CALL_PATH).text();
     return parseInt(result.replaceAll("\0", "").trim(), 16);
@@ -57,7 +79,7 @@ export async function setCall(methodId: string, _: string, args: Args) {
     throw new Error(`${ACPI_CALL_PATH} is not available`);
   }
 
-  const command = `\\_SB.PCI0.AMW0.WMBD 0 ${methodId} ${argstoHexString(args)}`;
+  const command = `\\_SB.PCI0.AMW0.WMBD 0 ${validateMethodId(methodId)} ${argstoHexString(args)}`;
   try {
     await Bun.write(ACPI_CALL_PATH, command);
   } catch (error) {

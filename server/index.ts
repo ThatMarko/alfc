@@ -1,5 +1,6 @@
 import path from "node:path";
 import { cleanupNativeServices, initNativeServices } from "./native/index";
+import { state } from "./state/index";
 import { isDev } from "./utils/consts";
 import { websocketHandlers, setServer } from "./websocket/index";
 import {
@@ -8,6 +9,7 @@ import {
 } from "./fan-control/index";
 
 const PORT = 5522;
+const RESTORE_FAN_TIMEOUT_MS = 5_000;
 
 const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -98,9 +100,26 @@ const exitWithError = () => {
 
     (async () => {
       try {
-        if (!hasRestoredAutoFanControl) {
+        if (
+          !hasRestoredAutoFanControl &&
+          state.isFanControlAvailable !== false
+        ) {
           hasRestoredAutoFanControl = true;
-          await restoreAutoFanControl();
+          const restorePromise = restoreAutoFanControl();
+          restorePromise.then(
+            () => undefined,
+            () => undefined,
+          );
+          let timer: ReturnType<typeof setTimeout>;
+          await Promise.race([
+            restorePromise.finally(() => clearTimeout(timer)),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error("Restore fan control timed out")),
+                RESTORE_FAN_TIMEOUT_MS,
+              );
+            }),
+          ]);
         }
 
         if (code !== 0) {
@@ -122,7 +141,7 @@ const exitWithError = () => {
     ? import.meta.dirname
     : path.dirname(process.execPath);
 
-  const frontendDir = path.join(runtimeRoot, "frontend");
+  const frontendDir = path.resolve(runtimeRoot, "frontend");
 
   console.log("[Server] Starting server...");
 
@@ -151,9 +170,12 @@ const exitWithError = () => {
           pathname = "/index.html";
         }
 
-        const filePath = path.join(frontendDir, pathname);
+        const filePath = path.resolve(frontendDir, "." + pathname);
 
-        if (!filePath.startsWith(frontendDir)) {
+        if (
+          filePath === frontendDir ||
+          !filePath.startsWith(frontendDir + path.sep)
+        ) {
           return new Response("Forbidden", { status: 403 });
         }
 

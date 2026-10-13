@@ -7,6 +7,7 @@ import type { State } from "../../common/types";
 import {
   validateFanTable,
   validateFixedPercentage,
+  validatePowerLimit,
 } from "../../common/validation";
 
 type PersistedState = Omit<
@@ -58,10 +59,8 @@ function isPersistedState(value: unknown): value is PersistedState {
     isPersistedFanTable(object.cpuFanTable) &&
     isPersistedFanTable(object.gpuFanTable) &&
     typeof object.gpuBoost === "boolean" &&
-    typeof object.pl1 === "number" &&
-    Number.isFinite(object.pl1) &&
-    typeof object.pl2 === "number" &&
-    Number.isFinite(object.pl2) &&
+    validatePowerLimit(object.pl1) === null &&
+    validatePowerLimit(object.pl2) === null &&
     typeof object.doFixedSpeed === "boolean" &&
     validateFixedPercentage(object.fixedPercentage) === null
   );
@@ -92,25 +91,32 @@ export const state: State = {
   protocolVersion: "1.1",
 };
 
-export async function persistState() {
+let persistQueue: Promise<void> = Promise.resolve();
+
+export function persistState() {
   if (isDev) {
-    return;
+    return Promise.resolve();
   }
 
-  const {
-    protocolVersion: _protocolVersion,
-    isCpuTuningAvailable: _isCpuTuningAvailable,
-    isGpuBoostAvailable: _isGpuBoostAvailable,
-    isFanControlAvailable: _isFanControlAvailable,
-    ...persistable
-  } = state;
+  const writeSnapshot = async () => {
+    const {
+      protocolVersion: _protocolVersion,
+      isCpuTuningAvailable: _isCpuTuningAvailable,
+      isGpuBoostAvailable: _isGpuBoostAvailable,
+      isFanControlAvailable: _isFanControlAvailable,
+      ...persistable
+    } = state;
 
-  try {
-    await writeFile(TMP_CONFIG_FILE, stringifyCompact(persistable), {
-      encoding: "utf8",
-    });
-    await rename(TMP_CONFIG_FILE, CONFIG_FILE);
-  } catch (error) {
-    console.error("[State] Error trying to persist config: " + error);
-  }
+    try {
+      await writeFile(TMP_CONFIG_FILE, stringifyCompact(persistable), {
+        encoding: "utf8",
+      });
+      await rename(TMP_CONFIG_FILE, CONFIG_FILE);
+    } catch (error) {
+      console.error("[State] Error trying to persist config: " + error);
+    }
+  };
+
+  persistQueue = persistQueue.then(writeSnapshot, writeSnapshot);
+  return persistQueue;
 }

@@ -8,13 +8,14 @@
 - **Breaking changes** (removals/renames/shape changes) → **major bump** (e.g. `2.0`) with a **deprecation period** where the previous major is still accepted.
 - Clients should treat `protocolVersion` as the authoritative version of the server contract.
 - **Current version `1.1`**: added the optional `requestId` request-correlation field (additive; see Message envelope).
+- **Current version `1.1` telemetry addition**: `FanControlActivity` carries `sensorFailure: boolean` to report failed sensor collection cycles while preserving last-known temperature averages.
 
 ## Connection lifecycle & client expectations
 
 - **Endpoint:** `ws://localhost:5522/ws`
 - **Initial state push:** on `open`, the server immediately sends a `state` message containing the full `State` object, including `protocolVersion: "1.1"`.
 - **State broadcast:** after any successful state mutation (`fixedpercentage`, `dofixedspeed`, `fantable`, `tune`, supported `set` calls), the server publishes a fresh `state` snapshot to all connected sockets.
-- **Keepalive:** server has a ~30s idle timeout. Clients must send a plain-text `"ping"` at least every 30s; server responds with `"pong"`.
+- **Keepalive:** server sets `idleTimeout: 120` (120s) and `sendPings: true` (automatic WebSocket protocol `PING` frames, which browsers answer automatically). The server also replies `"pong"` to plain-text `"ping"` frames (used by the KDE Plasma widget's 25s heartbeat / 60s watchdog).
 - **Reconnect:** clients should auto-reconnect and expect the initial state push on every new connection.
 - **Activity stream:** to receive `fancontrolactivity` updates, the client must send `registeractivitysocket` once per connection.
 

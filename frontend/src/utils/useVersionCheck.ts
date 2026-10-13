@@ -16,7 +16,9 @@ export function useVersionCheck() {
 
         if (
           response.ok &&
-          data?.tag_name?.replace("v", "") !== packageJson.version
+          typeof data?.tag_name === "string" &&
+          data.tag_name.length > 0 &&
+          data.tag_name.replace(/^v/, "") !== packageJson.version
         ) {
           setNewVersionAvailable(true);
         }

@@ -63,7 +63,15 @@ function tune() {
   return tuneNative(state.pl1, state.pl2);
 }
 
+const WMI_INIT_TIMEOUT_MS = 20_000;
+
 function promiseWithTimeout<T>(promise: Promise<T>, timeout = 1000 * 5) {
+  // Swallow late rejections if the timeout wins the race so they cannot
+  // trigger process-level unhandledRejection and terminate the server.
+  promise.then(
+    () => undefined,
+    () => undefined,
+  );
   let timer: ReturnType<typeof setTimeout>;
   return Promise.race([
     promise.finally(() => clearTimeout(timer)),
@@ -100,7 +108,7 @@ async function initNativeServices() {
       await logWithFlush(
         "[Native] Initializing WMI... (If stuck here, there might be a temporary problem with WMI that requires a reboot.)",
       );
-      await promiseWithTimeout(wmiInit());
+      await promiseWithTimeout(wmiInit(), WMI_INIT_TIMEOUT_MS);
       state.isFanControlAvailable = true;
     } catch (e) {
       console.warn(

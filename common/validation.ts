@@ -48,6 +48,18 @@ export function validateFanTable(table: unknown): string | null {
   return null;
 }
 
+export function validatePowerLimit(value: unknown): string | null {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return "must be an integer";
+  }
+
+  if (value < 0 || value > 200) {
+    return `must be between 0 and 200 (got ${value})`;
+  }
+
+  return null;
+}
+
 export function validateFixedPercentage(value: unknown): string | null {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "must be a number";

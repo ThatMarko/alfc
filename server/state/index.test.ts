@@ -84,6 +84,8 @@ describe("state config loading", () => {
     ["out-of-range speeds", { cpuFanTable: [[40, 150]] }],
     ["out-of-range temperatures", { gpuFanTable: [[-10, 15]] }],
     ["out-of-range fixed percentage", { fixedPercentage: 150 }],
+    ["out-of-range PL1 power limit", { pl1: 250 }],
+    ["negative PL2 power limit", { pl2: -5 }],
     ["non-boolean doFixedSpeed", { doFixedSpeed: "yes" }],
   ] as [string, Record<string, unknown>][])(
     "falls back to defaults for %s",
