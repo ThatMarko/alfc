@@ -4,9 +4,11 @@
     <TargetFramework>net48</TargetFramework>
     <RootNamespace>WmiAPI</RootNamespace>
     <LangVersion>latest</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="WmiAPI.cs" />
     <Reference Include="System.Management" />
     <Reference Include="System.Web.Extensions" />
   </ItemGroup>

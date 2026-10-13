@@ -2,7 +2,9 @@
 
 ## How to create a release
 
-1. Update the version in `package.json` and `plasmoid/package/metadata.json`
+1. Update the version in `package.json` (used at build time by the frontend's
+   update check), the package manifests (`frontend/package.json`,
+   `server/package.json`, `bootstrap/package.json`), `plasmoid/package/metadata.json`, and `aur/PKGBUILD` (`pkgver`)
 2. Commit: `git commit -am "chore: release vX.Y.Z"`
 3. Tag: `git tag vX.Y.Z`
 4. Push: `git push origin master --tags`
@@ -35,27 +37,27 @@ Review the draft release, edit the notes if needed, then publish it.
 
 ## Release artifacts
 
-| Artifact                       | Contents                                                                     |
-| ------------------------------ | ---------------------------------------------------------------------------- |
-| `alfc-vX.Y.Z-linux-x64.tar.gz` | Server binary, frontend, service scripts, plasmoid, config, LICENSE, docs    |
-| `alfc-vX.Y.Z-windows-x64.zip`  | Server binary, frontend, WmiAPI.exe, service scripts, WinSW, config, LICENSE |
-| `org.kde.alfc.plasmoid`        | Standalone plasmoid package (zip of QML files for KDE Store)                 |
+| Artifact                       | Contents                                                                                 |
+| ------------------------------ | ---------------------------------------------------------------------------------------- |
+| `alfc-vX.Y.Z-linux-x64.tar.gz` | Server binary, frontend, service scripts, plasmoid, config, LICENSE, README.md, LINUX.md |
+| `alfc-vX.Y.Z-windows-x64.zip`  | Server binary, frontend, WmiAPI.exe, service scripts, WinSW, config, LICENSE, README.md  |
+| `org.kde.alfc.plasmoid`        | Standalone plasmoid package (`plasmoid/package/` zip for KDE Store)                      |
 
 ## Windows: CPU tuning (PL1/PL2)
 
 The Windows release does **not** include `CPUOC.dll` or `IntelOverclockingSDK.dll`.
 CPU power limit tuning requires the Intel Overclocking SDK, which is proprietary
-and cannot be redistributed.
+and cannot be redistributed in binary releases (and is only supported on Windows 10;
+Windows 11 blocks Intel XTU power-limit tuning).
 
 Fan control, GPU boost, and all other features work without it.
 
-To enable CPU tuning:
+To enable CPU tuning on Windows 10:
 
 1. Install [Intel XTU](https://www.intel.com/content/www/us/en/download/17881/intel-extreme-tuning-utility-intel-xtu.html)
-2. Locate `IntelOverclockingSDK.dll` in the Intel XTU installation directory
-3. Copy it to `server/native/windows/`
-4. Build the CPUOC wrapper: `cd server && dotnet publish native/windows/cpuoc-dotnet -c Release -o native/windows`
-5. Copy the resulting `CPUOC.dll` next to `alfc.exe`
+2. Ensure `IntelOverclockingSDK.dll` is present in `server/native/windows/` (already in the source checkout, or copy it from the Intel XTU installation directory)
+3. Build the NativeAOT CPUOC wrapper (requires the .NET 8 SDK): `bun run --cwd server build:cpuoc` (or `cd server && dotnet publish native/windows/cpuoc-dotnet -c Release -o native/windows`)
+4. Copy `CPUOC.dll` and `IntelOverclockingSDK.dll` from `server/native/windows/` next to `alfc.exe`
 
 ## Distribution channels
 
