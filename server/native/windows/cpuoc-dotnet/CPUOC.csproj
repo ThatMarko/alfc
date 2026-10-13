@@ -6,12 +6,14 @@
     <RootNamespace>CPUOC</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <!-- Trimming configuration -->
     <TrimMode>partial</TrimMode>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="CPUOC.cs" />
     <!-- Intel Overclocking SDK - prebuilt .NET assembly.
          NativeAOT will statically link this. If the SDK uses reflection
          internally, AOT compilation may fail - in that case, fall back
