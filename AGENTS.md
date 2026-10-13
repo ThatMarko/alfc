@@ -74,7 +74,7 @@ bun run build             # Build all packages
 bun run all-checks        # Lint + type-check + test + build
 bun run lint              # ESLint (0 errors required, warnings OK)
 bun run type-check        # TypeScript (no emit, strict + noUncheckedIndexedAccess)
-bun run test              # Vitest (38 tests: server + frontend)
+bun run test              # Vitest (74 tests: server + frontend)
 
 # Windows Native Build (requires MSVC for WmiDll, .NET 8 SDK for CPUOC)
 cd server/native/windows/wmidll && build.bat
