@@ -25,6 +25,7 @@ server/
 | Fan control tests  | `fan-control/index.test.ts`                    |
 | WS contract tests  | `websocket/index.test.ts`                      |
 | ACPI calls         | `native/index.ts` → delegates to linux/windows |
+| Native queue tests | `native/index.test.ts`                         |
 | Config persistence | `state/index.ts`                               |
 | WS message types   | `../common/types.ts`                           |
 
@@ -38,7 +39,7 @@ server/
 ## ANTI-PATTERNS
 
 - **Never suppress type errors**: No `as any` on native module boundaries
-- **Never assume platform**: Always check `os.platform()` before native calls
+- **Never assume platform**: Always check `process.platform` before native calls
 
 ## NOTES
 

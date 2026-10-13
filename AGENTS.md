@@ -1,7 +1,7 @@
 # ALFC - Aorus Laptop Fan Control
 
-**Generated:** 2026-09-03
-**Commit:** f6d1c26
+**Generated:** 2026-10-13
+**Commit:** 7f571a0
 **Branch:** master
 
 ## OVERVIEW
@@ -12,6 +12,7 @@ Cross-platform fan control utility for Aorus laptops. Web UI (React) + Bun backe
 
 ```
 alfc/
+├── aur/             # Arch Linux AUR packaging (alfc-bin)
 ├── bootstrap/       # Service management (install/uninstall/run)
 ├── common/          # Shared TypeScript types + protocol docs
 ├── frontend/        # React web UI (Vite, @emotion/react)
@@ -20,8 +21,10 @@ alfc/
 ├── server/          # Bun backend
 │   ├── fan-control/ # Core fan logic + tests
 │   ├── native/      # Platform-specific (linux/windows)
-│   │   ├── wmiapi/  # Windows WMI helper (.NET Framework 4.8)
-│   │   └── cpuoc-dotnet/ # Windows CPU OC NativeAOT
+│   │   ├── linux/   # /proc/acpi/call + sysfs intel-rapl
+│   │   └── windows/ # WMI IPC + bun:ffi CPU OC
+│   │       ├── wmiapi/       # Windows WMI helper (.NET Framework 4.8)
+│   │       └── cpuoc-dotnet/ # Windows CPU OC NativeAOT
 │   ├── state/       # Config persistence
 │   └── websocket/   # Client communication + tests
 └── assets/          # Static resources
@@ -34,7 +37,7 @@ alfc/
 | Fan curve logic   | `server/fan-control/`                   | Ramping prevents frequent fluctuations                                               |
 | ACPI/WMI calls    | `server/native/{linux,windows}/acpi.ts` | Platform abstraction (Linux: /proc/acpi, Windows: WmiAPI.exe subprocess)             |
 | Frontend state    | `frontend/src/utils/useWebSocket.ts`    | WebSocket hook for real-time updates                                                 |
-| Frontend tests    | `frontend/src/{data,utils}/*.test.ts`   | MOF parser tests, toast utility tests                                                |
+| Frontend tests    | `frontend/src/{data,utils}/*.test.ts`   | MOF parser, toast, validation, and requestId tests                                   |
 | Shared types      | `common/types.ts`                       | `State`, `MessageToServer`, `MessageToClient`                                        |
 | Service lifecycle | `bootstrap/scripts/linux/*.sh`          | Linux: auto-detects systemd or OpenRC                                                |
 | KDE Plasma widget | `plasmoid/package/contents/ui/`         | Multi-context: panel (text), system tray (icon), desktop (full), tooltip (mini-dash) |
@@ -74,11 +77,11 @@ bun run build             # Build all packages
 bun run all-checks        # Lint + type-check + test + build
 bun run lint              # ESLint (0 errors required, warnings OK)
 bun run type-check        # TypeScript (no emit, strict + noUncheckedIndexedAccess)
-bun run test              # Vitest (38 tests: server + frontend)
+bun run test              # Vitest (53 tests: server + frontend)
 
 # Windows Native Build
-cd server/native/wmiapi && dotnet publish -c Release
-cd server/native/cpuoc-dotnet && dotnet publish -c Release -r win-x64
+bun run --cwd server build:wmiapi
+bun run --cwd server build:cpuoc
 
 # Service Management (Linux)
 sudo ./install.sh         # Install to /opt/alfc as system service

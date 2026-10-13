@@ -1,7 +1,7 @@
 export type FanTable = [number, number][];
 
 export type State = {
-  readonly protocolVersion: "1.0";
+  readonly protocolVersion: "1.1";
   cpuFanTable: FanTable;
   gpuFanTable: FanTable;
 
@@ -45,7 +45,10 @@ export type FanControlActivity = {
   target: number;
 };
 
-export type MessageToClient = Pick<MessageToServer, "methodName" | "methodId"> &
+export type MessageToClient = Pick<
+  MessageToServer,
+  "methodName" | "methodId" | "requestId"
+> &
   (
     | {
         kind: MessageToClientKind.State;
@@ -69,5 +72,6 @@ export type MessageToServer = {
   kind: MessageToServerKind;
   methodId: string;
   methodName: string;
+  requestId?: string;
   data?: any;
 };

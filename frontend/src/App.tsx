@@ -1,7 +1,7 @@
 import styled from "@emotion/styled";
 import { faExchangeAlt } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { Button } from "reactstrap";
@@ -11,7 +11,7 @@ import { FixedSpeed } from "./containers/FixedSpeed";
 import { RawUI } from "./containers/RawUI";
 import { Toggles } from "./containers/Toggles";
 import { useWebSocket } from "./utils/useWebSocket";
-import { errorToast, successToast } from "./utils/misc";
+import { errorToast, nextRequestId, successToast } from "./utils/misc";
 import { UpdateNotification } from "./components/UpdateNotification";
 const StyledTopRow = styled.div`
   display: flex;
@@ -30,14 +30,36 @@ const StyledChangeModeContainer = styled.div`
 
 function App() {
   const [doFixedSpeed, setDoFixedSpeed] = useState(false);
+  const isModeChangePending = useRef(false);
+  const pendingModeRequestIdRef = useRef<string | null>(null);
 
   const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
 
   useEffect(() => {
-    const { kind, data } = lastJsonMessage;
+    const { kind, data, requestId } = lastJsonMessage;
     if (kind === "state") {
-      setDoFixedSpeed(data.doFixedSpeed);
-    } else if (kind === "success") {
+      // A state push is not proof that our own mode request settled: the
+      // server broadcasts provisional state while the hardware call is
+      // still in flight, so only sync from pushes when nothing is pending.
+      if (!isModeChangePending.current) {
+        setDoFixedSpeed(data.doFixedSpeed);
+      }
+      return;
+    }
+
+    if (
+      isModeChangePending.current &&
+      requestId === pendingModeRequestIdRef.current
+    ) {
+      // The mode request's own response settles the optimistic toggle.
+      isModeChangePending.current = false;
+      pendingModeRequestIdRef.current = null;
+      if (kind === "error") {
+        setDoFixedSpeed((current) => !current);
+      }
+    }
+
+    if (kind === "success") {
       // Only toast for config changes (no methodName).
       // WMI get/set responses have methodName and are handled by their own components.
       if (!lastJsonMessage.methodName) {
@@ -52,8 +74,12 @@ function App() {
   }, [lastJsonMessage]);
 
   const onChangeMode: React.MouseEventHandler = () => {
-    sendJsonMessage({ kind: "dofixedspeed", data: !doFixedSpeed });
-    setDoFixedSpeed(!doFixedSpeed);
+    const nextValue = !doFixedSpeed;
+    const requestId = nextRequestId("mode");
+    isModeChangePending.current = true;
+    pendingModeRequestIdRef.current = requestId;
+    setDoFixedSpeed(nextValue);
+    sendJsonMessage({ kind: "dofixedspeed", data: nextValue, requestId });
   };
 
   return (

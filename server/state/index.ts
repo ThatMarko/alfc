@@ -97,7 +97,7 @@ const persistedState: PersistedState = loadPersistedState();
 
 export const state: State = {
   ...persistedState,
-  protocolVersion: "1.0",
+  protocolVersion: "1.1",
 };
 
 export async function persistState() {

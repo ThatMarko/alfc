@@ -29,6 +29,7 @@ All JSON messages follow this envelope:
   "kind": "<MessageToServerKind>",
   "methodId": "<client-generated id>",
   "methodName": "<method name>",
+  "requestId": "<optional correlation id>",
   "data": "<kind-specific payload>"
 }
 ```
@@ -70,7 +71,7 @@ If an unknown `kind` is received, required `data` is missing, the payload is inv
 `ACPI_ERROR` is emitted when a `get` call fails at the platform layer (for
 example, `/proc/acpi/call` is unavailable on Linux).
 
-When `methodId` and `methodName` are present in the original request, they are echoed back in the error response.
+When `methodId`, `methodName`, or `requestId` are present in the original request, they are echoed back in the error response.
 
 ## Server → Client message kinds
 
