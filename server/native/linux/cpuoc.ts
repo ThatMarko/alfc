@@ -9,3 +9,5 @@ export async function tune(pl1: number, pl2: number) {
   await Bun.write(PL1_PATH, String(pl1 * 1000000));
   await Bun.write(PL2_PATH, String(pl2 * 1000000));
 }
+
+export function cpuocCleanup() {}

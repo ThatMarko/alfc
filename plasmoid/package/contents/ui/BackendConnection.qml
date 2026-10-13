@@ -37,7 +37,7 @@ Item {
     property real lastActivityAt: 0
     property real lastStateAt: 0
     property int reconnectDelay: 1000
-    property int activityStaleTimeout: 5000
+    property int activityStaleTimeout: 10000
     property int heartbeatInterval: 25000
     property int heartbeatTimeout: 60000
     property int freshnessTick: 0
@@ -98,11 +98,12 @@ Item {
     }
 
     function sendRequest(kind, data, methodName, methodId) {
-        const requestId = methodId || nextRequestId(kind)
+        const requestId = nextRequestId(kind)
         const payload = {
             kind: kind,
-            methodId: requestId,
-            methodName: methodName || requestId
+            methodId: methodId || requestId,
+            methodName: methodName || requestId,
+            requestId: requestId
         }
 
         if (data !== undefined) {
@@ -213,13 +214,22 @@ Item {
                 }
 
                 if (data.kind === "success") {
-                    root.requestFinished(data.methodId || "", true, "", data)
+                    root.requestFinished(
+                        data.requestId || data.methodId || "",
+                        true,
+                        "",
+                        data
+                    )
                     return
                 }
 
                 if (data.kind === "error") {
-                    root.requestFinished(data.methodId || "", false,
-                        typeof data.data === "string" ? data.data : "", data)
+                    root.requestFinished(
+                        data.requestId || data.methodId || "",
+                        false,
+                        typeof data.data === "string" ? data.data : "",
+                        data
+                    )
                 }
             } catch (error) {
                 console.error("BackendConnection: Parse error: " + error)

@@ -6,7 +6,11 @@ import { SimpleTooltip } from "../components/SimpleTooltip";
 import { StyledApplyButton } from "../components/StyledApplyButton";
 import { StyledArea } from "../components/StyledArea";
 import xtuIncompatibility from "../images/xtu_incompatibility.png";
-import { parseIntegerInRange, validationToast } from "../utils/misc";
+import {
+  nextRequestId,
+  parseIntegerInRange,
+  validationToast,
+} from "../utils/misc";
 import { useWebSocket } from "../utils/useWebSocket";
 
 const StyledInput = styled.input`
@@ -20,6 +24,7 @@ const StyledLabel = styled.label`
 
 export function CPUTuning() {
   const tooltipRef = useRef(null);
+  const pendingRequestIdRef = useRef<string | null>(null);
 
   const [isCpuTuningAvailable, setIsCpuTuningAvailable] = useState<
     boolean | undefined
@@ -31,14 +36,19 @@ export function CPUTuning() {
   const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
 
   useEffect(() => {
-    const { kind, data } = lastJsonMessage;
+    const { kind, data, requestId } = lastJsonMessage;
     if (kind === "state") {
       if (data.isCpuTuningAvailable) {
         setPL1(data.pl1.toString());
         setPL2(data.pl2.toString());
       }
       setIsCpuTuningAvailable(data.isCpuTuningAvailable);
-    } else if (kind === "success" || kind === "error") {
+    } else if (
+      (kind === "success" || kind === "error") &&
+      pendingRequestIdRef.current !== null &&
+      requestId === pendingRequestIdRef.current
+    ) {
+      pendingRequestIdRef.current = null;
       setIsApplying(false);
     }
   }, [lastJsonMessage]);
@@ -55,9 +65,12 @@ export function CPUTuning() {
       validationToast("Power limits must be whole numbers from 0 to 200.");
       return;
     }
+    const requestId = nextRequestId("tune");
+    pendingRequestIdRef.current = requestId;
     setIsApplying(true);
     sendJsonMessage({
       kind: "tune",
+      requestId,
       data: { pl1: nextPl1, pl2: nextPl2 },
     });
   };

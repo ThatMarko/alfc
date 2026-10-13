@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { rename, writeFile } from "node:fs/promises";
+import { rename } from "node:fs/promises";
 import stringifyCompact from "json-stringify-pretty-compact";
 import path from "node:path";
 import { isDev } from "../utils/consts";
@@ -108,9 +108,7 @@ export function persistState() {
     } = state;
 
     try {
-      await writeFile(TMP_CONFIG_FILE, stringifyCompact(persistable), {
-        encoding: "utf8",
-      });
+      await Bun.write(TMP_CONFIG_FILE, stringifyCompact(persistable));
       await rename(TMP_CONFIG_FILE, CONFIG_FILE);
     } catch (error) {
       console.error("[State] Error trying to persist config: " + error);

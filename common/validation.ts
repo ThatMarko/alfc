@@ -61,8 +61,8 @@ export function validatePowerLimit(value: unknown): string | null {
 }
 
 export function validateFixedPercentage(value: unknown): string | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "must be a number";
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return "must be an integer";
   }
 
   if (value < 0 || value > 100) {

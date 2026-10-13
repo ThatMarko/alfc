@@ -15,6 +15,7 @@ type ACPIModule = {
 };
 
 type CPUOCModule = {
+  cpuocCleanup?: () => void;
   tuneInit: () => Promise<void>;
   tune: (pl1: number, pl2: number) => Promise<void>;
 };
@@ -35,7 +36,7 @@ const {
   setCall: setCallNative,
   wmiCleanup,
 } = acpiModule;
-const { tuneInit, tune: tuneNative } = cpuocModule;
+const { cpuocCleanup, tuneInit, tune: tuneNative } = cpuocModule;
 
 let acpiCallQueue: Promise<void> = Promise.resolve();
 
@@ -60,7 +61,7 @@ function setCall(methodId: string, methodName: string, args: Args) {
 }
 
 function tune() {
-  return tuneNative(state.pl1, state.pl2);
+  return enqueueAcpiCall(() => tuneNative(state.pl1, state.pl2));
 }
 
 const WMI_INIT_TIMEOUT_MS = 20_000;
@@ -163,6 +164,7 @@ async function initNativeServices() {
 
 function cleanupNativeServices() {
   wmiCleanup();
+  cpuocCleanup?.();
 }
 
 export { cleanupNativeServices, getCall, initNativeServices, setCall, tune };

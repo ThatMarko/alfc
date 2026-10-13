@@ -48,7 +48,7 @@ alfc/
 - **Monorepo**: Bun workspaces (`frontend`, `server`)
 - **Bun >=1.4.3** required (`engines` floor, `packageManager`, and CI/release workflows pin 1.4.3)
 - **ESM imports**: Extensionless relative imports (Bun `moduleResolution: "bundler"` convention). Use `node:` prefix for Node built-in modules.
-- **No explicit `any`**: ESLint warns on `@typescript-eslint/no-explicit-any`. One known exception in `common/types.ts` (protocol `data` field).
+- **No explicit `any`**: ESLint enforces zero `@typescript-eslint/no-explicit-any` warnings across the repository (`common/types.ts` uses `unknown` with runtime narrowing).
 - **Underscore prefix**: Unused vars must use `_` prefix
 - **Strict TypeScript**: `strict: true` + `noUncheckedIndexedAccess: true` — always handle potential `undefined` from indexed access
 - **Accessibility**: Frontend uses `aria-label` on all interactive elements. Plasmoid uses `Accessible.role` / `Accessible.name`.
@@ -77,7 +77,7 @@ bun run build             # Build all packages
 bun run all-checks        # Lint + type-check + test + build
 bun run lint              # ESLint (0 errors required, warnings OK)
 bun run type-check        # TypeScript (no emit, strict + noUncheckedIndexedAccess)
-bun run test              # Vitest (88 tests: server + frontend)
+bun run test              # Vitest (89 tests: server + frontend)
 
 # Windows Native Build (requires MSVC for WmiDll, .NET 8 SDK for CPUOC)
 bun run --cwd server build:wmidll

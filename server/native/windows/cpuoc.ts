@@ -5,20 +5,19 @@ import { isDev } from "../../utils/consts";
 const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
 const dllPath = path.join(baseDir, "CPUOC.dll");
 
-export const isCpuocAvailable = await Bun.file(dllPath).exists();
-
-if (!isCpuocAvailable) {
-  console.warn("[CPUOC] CPUOC.dll not found. CPU tuning will be disabled.");
+function openCpuocLibrary() {
+  return dlopen(dllPath, {
+    cpuoc_init: { args: [], returns: FFIType.i32 },
+    cpuoc_tune: { args: [FFIType.f64, FFIType.f64], returns: FFIType.i32 },
+    cpuoc_get_last_error: { args: [], returns: FFIType.ptr },
+    cpuoc_free_string: { args: [FFIType.ptr], returns: FFIType.void },
+  });
 }
 
-const lib = isCpuocAvailable
-  ? dlopen(dllPath, {
-      cpuoc_init: { args: [], returns: FFIType.i32 },
-      cpuoc_tune: { args: [FFIType.f64, FFIType.f64], returns: FFIType.i32 },
-      cpuoc_get_last_error: { args: [], returns: FFIType.ptr },
-      cpuoc_free_string: { args: [FFIType.ptr], returns: FFIType.void },
-    })
-  : null;
+type CpuocLibrary = ReturnType<typeof openCpuocLibrary>;
+
+let lib: CpuocLibrary | null = null;
+let isClosed = false;
 
 function getLastError(): string {
   if (!lib) return "CPUOC not available";
@@ -29,22 +28,43 @@ function getLastError(): string {
   return error.toString();
 }
 
-export function tuneInit() {
-  if (!lib) return Promise.resolve();
-  const result = lib.symbols.cpuoc_init();
+export async function tuneInit() {
+  if (isClosed) {
+    throw new Error("CPUOC library is already closed");
+  }
+  if (!(await Bun.file(dllPath).exists())) {
+    console.warn("[CPUOC] CPUOC.dll not found. CPU tuning will be disabled.");
+    return;
+  }
+  const current = (lib ??= openCpuocLibrary());
+  const result = current.symbols.cpuoc_init();
   if (result !== 0) {
     throw new Error(`CPUOC init failed: ${getLastError()}`);
   }
-  return Promise.resolve();
 }
 
 export function tune(pl1: number, pl2: number) {
-  if (!lib) return Promise.resolve();
-  const result = lib.symbols.cpuoc_tune(pl1, pl2);
-  if (result !== 0) {
-    throw new Error(`CPUOC tune failed: ${getLastError()}`);
+  return Promise.resolve().then(() => {
+    if (isClosed) {
+      throw new Error("CPUOC library is already closed");
+    }
+    if (!lib) {
+      throw new Error("CPUOC is not available");
+    }
+    const result = lib.symbols.cpuoc_tune(pl1, pl2);
+    if (result !== 0) {
+      throw new Error(`CPUOC tune failed: ${getLastError()}`);
+    }
+  });
+}
+
+export function cpuocCleanup() {
+  if (isClosed) return;
+  if (lib) {
+    lib.close();
+    lib = null;
   }
-  return Promise.resolve();
+  isClosed = true;
 }
 
 if (import.meta.main) {

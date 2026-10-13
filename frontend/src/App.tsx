@@ -30,6 +30,7 @@ const StyledChangeModeContainer = styled.div`
 
 function App() {
   const [doFixedSpeed, setDoFixedSpeed] = useState(false);
+  const [isFanControlAvailable, setIsFanControlAvailable] = useState(true);
   const isModeChangePending = useRef(false);
   const pendingModeRequestIdRef = useRef<string | null>(null);
 
@@ -38,6 +39,7 @@ function App() {
   useEffect(() => {
     const { kind, data, requestId } = lastJsonMessage;
     if (kind === "state") {
+      setIsFanControlAvailable(data.isFanControlAvailable !== false);
       // A state push is not proof that our own mode request settled: the
       // server broadcasts provisional state while the hardware call is
       // still in flight, so only sync from pushes when nothing is pending.
@@ -74,6 +76,9 @@ function App() {
   }, [lastJsonMessage]);
 
   const onChangeMode: React.MouseEventHandler = () => {
+    if (!isFanControlAvailable) {
+      return;
+    }
     const nextValue = !doFixedSpeed;
     const requestId = nextRequestId("mode");
     isModeChangePending.current = true;
@@ -85,11 +90,23 @@ function App() {
   return (
     <>
       <div style={{ flexGrow: 1 }}>
+        {isConnected && !isFanControlAvailable && (
+          <div
+            role="alert"
+            style={{ textAlign: "center", marginTop: 16, fontWeight: "bold" }}
+          >
+            Fan control is not available on this system.
+          </div>
+        )}
         <StyledTopRow>
-          <FanTable disabled={doFixedSpeed} />
+          <FanTable
+            disabled={!isFanControlAvailable || doFixedSpeed}
+            statusDisabled={!isFanControlAvailable}
+          />
           {isConnected && (
             <StyledChangeModeContainer>
               <Button
+                disabled={!isFanControlAvailable}
                 onClick={onChangeMode}
                 aria-label={
                   doFixedSpeed ? "Switch to auto mode" : "Switch to fixed mode"
@@ -103,7 +120,7 @@ function App() {
               </Button>
             </StyledChangeModeContainer>
           )}
-          <FixedSpeed disabled={!doFixedSpeed} />
+          <FixedSpeed disabled={!isFanControlAvailable || !doFixedSpeed} />
         </StyledTopRow>
         <StyledTopRow>
           <div style={{ maxWidth: 300, marginLeft: 32, marginTop: 24 }}>

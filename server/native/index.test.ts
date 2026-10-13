@@ -43,6 +43,7 @@ function acpiModuleFactory() {
 
 function cpuOcModuleFactory() {
   return {
+    cpuocCleanup: vi.fn(),
     tuneInit: vi.fn(() => Promise.resolve()),
     tune: vi.fn(() => Promise.resolve()),
   };

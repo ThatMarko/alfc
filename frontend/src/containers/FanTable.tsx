@@ -21,7 +21,13 @@ const StyledForm = styled.form<{ disabled: boolean }>`
   ${({ disabled }) => disabledFormStyle(disabled)}
 `;
 
-export function FanTable({ disabled }: { disabled: boolean }) {
+export function FanTable({
+  disabled,
+  statusDisabled = disabled,
+}: {
+  disabled: boolean;
+  statusDisabled?: boolean;
+}) {
   const submitRef = useRef<HTMLButtonElement>(null);
 
   const [cpuTable, setCPUTable] = useState<FanTableItems>([]);
@@ -107,7 +113,7 @@ export function FanTable({ disabled }: { disabled: boolean }) {
       >
         Apply
       </StyledApplyButton>
-      <Status disabled={disabled} />
+      <Status disabled={statusDisabled} />
     </StyledForm>
   );
 }

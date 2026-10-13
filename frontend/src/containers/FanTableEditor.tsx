@@ -32,8 +32,8 @@ export function FanTableEditor({ onChange, value }: Props) {
             type="number"
             name="temperature"
             aria-label={`Temperature for row ${idx + 1}`}
-            min={40}
-            max={100}
+            min={0}
+            max={110}
             maxLength={3}
             size={4}
             onChange={(event) => {
@@ -69,8 +69,8 @@ export function FanTableEditor({ onChange, value }: Props) {
               const nextValue = structuredClone(value);
               let temperature = parseInt(tableItem[0], 10) - 1;
               let percentage = parseInt(tableItem[1], 10) - 1;
-              if (temperature < 40) {
-                temperature = 40;
+              if (temperature < 0) {
+                temperature = 0;
               }
               if (percentage < 0) {
                 percentage = 0;

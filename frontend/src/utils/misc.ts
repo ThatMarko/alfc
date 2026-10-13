@@ -71,6 +71,13 @@ export function getFanTableRowError(
       return { row, reason: "temperature must be a whole number" };
     }
 
+    if (temperature < 0 || temperature > 110) {
+      return {
+        row,
+        reason: "temperature must be between 0 and 110",
+      };
+    }
+
     if (temperature <= previousTemperature) {
       return {
         row,

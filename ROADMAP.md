@@ -171,6 +171,5 @@ The web UI already works from any browser on the local network. Could be extende
 
 > Known issues that don't affect functionality but should be cleaned up.
 
-- [ ] **`any` in protocol types** — `common/types.ts` line 72 uses `data?: any` on `MessageToServer`. Should be a discriminated union matching each `MessageToServerKind` with its specific payload type.
 - [ ] **Windows-only LSP noise** — `WmiDll.cpp` shows cascading errors on Linux (missing `windows.h`). Not a real issue (compiles fine on Windows CI) but clutters IDE diagnostics. Could add an `.editorconfig` or workspace setting to suppress.
 - [ ] **`acpi_call` installation friction** — the Linux setup requires manually building and loading a kernel module. The `LINUX.md` wishlist mentions automating this but secure boot signing and distro differences make it hard.

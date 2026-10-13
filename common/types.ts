@@ -77,5 +77,5 @@ export type MessageToServer = {
   methodId: string;
   methodName: string;
   requestId?: string;
-  data?: any;
+  data?: unknown;
 };

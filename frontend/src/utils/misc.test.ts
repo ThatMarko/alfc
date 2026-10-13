@@ -121,6 +121,22 @@ describe("getFanTableRowError", () => {
     ).toEqual({ row: 1, reason: "temperature must be a whole number" });
   });
 
+  it("flags an out-of-range temperature", () => {
+    expect(
+      getFanTableRowError([
+        ["40", "15"],
+        ["120", "80"],
+      ]),
+    ).toEqual({
+      row: 1,
+      reason: "temperature must be between 0 and 110",
+    });
+    expect(getFanTableRowError([["-5", "15"]])).toEqual({
+      row: 0,
+      reason: "temperature must be between 0 and 110",
+    });
+  });
+
   it("flags temperatures that do not ascend", () => {
     expect(
       getFanTableRowError([

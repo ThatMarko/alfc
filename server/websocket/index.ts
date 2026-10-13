@@ -1,5 +1,6 @@
 import type { Server, ServerWebSocket } from "bun";
 import {
+  type Args,
   type FanControlActivity,
   type FanTable,
   MessageToClientKind,
@@ -7,6 +8,7 @@ import {
   MessageToServerKind,
   type State,
 } from "../../common/types";
+import { validateFanTable } from "../../common/validation";
 import { getCall, setCall, tune } from "../native/index";
 import { persistState, state } from "../state/index";
 import {
@@ -40,7 +42,11 @@ function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
 }
 
-function isIntegerInRange(value: unknown, minimum: number, maximum: number) {
+function isIntegerInRange(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+): value is number {
   return (
     isFiniteNumber(value) &&
     Number.isInteger(value) &&
@@ -50,34 +56,17 @@ function isIntegerInRange(value: unknown, minimum: number, maximum: number) {
 }
 
 function isValidFanTable(value: unknown): value is FanTable {
-  if (!Array.isArray(value) || value.length === 0) {
+  return validateFanTable(value) === null;
+}
+
+function isArgsRecord(value: unknown): value is Args {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
 
-  let previousTemperature = Number.NEGATIVE_INFINITY;
-
-  for (const entry of value) {
-    if (!Array.isArray(entry) || entry.length !== 2) {
-      return false;
-    }
-
-    const [temperature, percentage] = entry;
-    if (!isFiniteNumber(temperature) || !isFiniteNumber(percentage)) {
-      return false;
-    }
-
-    if (temperature <= previousTemperature) {
-      return false;
-    }
-
-    if (percentage < 0 || percentage > 100) {
-      return false;
-    }
-
-    previousTemperature = temperature;
-  }
-
-  return true;
+  return Object.values(value).every(
+    (entry) => typeof entry === "number" && Number.isFinite(entry),
+  );
 }
 
 export function setServer(s: Server<unknown>) {
@@ -315,7 +304,7 @@ async function handleMessage(
         publishState();
         return sendSuccess(ws, payload);
       }
-      case MessageToServerKind.FanTable:
+      case MessageToServerKind.FanTable: {
         if (state.isFanControlAvailable === false) {
           return rejectUnsupportedFeature(
             ws,
@@ -323,11 +312,14 @@ async function handleMessage(
             "Fan control is not available on this system",
           );
         }
+        const fanTableData =
+          payload.data && typeof payload.data === "object"
+            ? (payload.data as { cpu?: unknown; gpu?: unknown })
+            : null;
         if (
-          !payload.data ||
-          typeof payload.data !== "object" ||
-          !isValidFanTable(payload.data.cpu) ||
-          !isValidFanTable(payload.data.gpu)
+          !fanTableData ||
+          !isValidFanTable(fanTableData.cpu) ||
+          !isValidFanTable(fanTableData.gpu)
         ) {
           return rejectInvalidPayload(
             ws,
@@ -336,11 +328,12 @@ async function handleMessage(
           );
         }
 
-        state.cpuFanTable = payload.data.cpu;
-        state.gpuFanTable = payload.data.gpu;
+        state.cpuFanTable = fanTableData.cpu;
+        state.gpuFanTable = fanTableData.gpu;
         persistState();
         publishState();
         return sendSuccess(ws, payload);
+      }
       case MessageToServerKind.Tune: {
         if (state.isCpuTuningAvailable === false) {
           return rejectUnsupportedFeature(
@@ -349,11 +342,14 @@ async function handleMessage(
             "CPU tuning is not available on this system",
           );
         }
+        const tuneData =
+          payload.data && typeof payload.data === "object"
+            ? (payload.data as { pl1?: unknown; pl2?: unknown })
+            : null;
         if (
-          !payload.data ||
-          typeof payload.data !== "object" ||
-          !isIntegerInRange(payload.data.pl1, 0, 200) ||
-          !isIntegerInRange(payload.data.pl2, 0, 200)
+          !tuneData ||
+          !isIntegerInRange(tuneData.pl1, 0, 200) ||
+          !isIntegerInRange(tuneData.pl2, 0, 200)
         ) {
           return rejectInvalidRange(
             ws,
@@ -365,8 +361,8 @@ async function handleMessage(
         const previousPl1 = state.pl1;
         const previousPl2 = state.pl2;
 
-        state.pl1 = payload.data.pl1;
-        state.pl2 = payload.data.pl2;
+        state.pl1 = tuneData.pl1;
+        state.pl2 = tuneData.pl2;
         try {
           await tune();
         } catch (error) {
@@ -380,6 +376,13 @@ async function handleMessage(
         return sendSuccess(ws, payload);
       }
       case MessageToServerKind.Get: {
+        if (payload.data !== undefined && !isArgsRecord(payload.data)) {
+          return rejectInvalidPayload(
+            ws,
+            payload,
+            "get data must be an argument map of finite numbers",
+          );
+        }
         const result = await getCall(
           payload.methodId,
           payload.methodName,
@@ -390,7 +393,7 @@ async function handleMessage(
         }
         return sendSuccess(ws, payload, result);
       }
-      case MessageToServerKind.Set:
+      case MessageToServerKind.Set: {
         if (payload.methodName === "SetAIBoostStatus") {
           if (state.isGpuBoostAvailable === false) {
             return rejectUnsupportedFeature(
@@ -400,8 +403,8 @@ async function handleMessage(
             );
           }
           if (
-            !payload.data ||
-            typeof payload.data !== "object" ||
+            !isArgsRecord(payload.data) ||
+            typeof payload.data.Data !== "number" ||
             ![0, 1].includes(payload.data.Data)
           ) {
             return rejectInvalidPayload(
@@ -412,6 +415,14 @@ async function handleMessage(
           }
         }
 
+        if (!isArgsRecord(payload.data)) {
+          return rejectInvalidPayload(
+            ws,
+            payload,
+            "set requires an argument map of finite numbers",
+          );
+        }
+
         await setCall(payload.methodId, payload.methodName, payload.data);
         if (payload.methodName === "SetAIBoostStatus") {
           state.gpuBoost = payload.data.Data === 1;
@@ -419,6 +430,7 @@ async function handleMessage(
           publishState();
         }
         return sendSuccess(ws, payload);
+      }
     }
 
     sendError(ws, payload, `MISSING_DATA: ${payload.kind}`);
