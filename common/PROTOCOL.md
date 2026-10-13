@@ -89,6 +89,11 @@ type FanControlActivity = {
   avgCPUTemp: number;
   avgGPUTemp: number;
   target: number;
+  // True when the last temperature collection failed: avgCPUTemp/avgGPUTemp
+  // are the last successfully collected averages (not current measurements)
+  // and fans were commanded to the highest configured speed. Until the first
+  // successful collection of a run, no fancontrolactivity is published.
+  sensorFailure: boolean;
 };
 
 type State = {

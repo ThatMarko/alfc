@@ -78,6 +78,9 @@ PlasmaExtras.Representation {
         appliedSpeed: null,
         target: 0
     })
+    // sensorFailure is absent on protocol 1.0 servers — treated as false
+    readonly property bool sensorFailure: hasTelemetrySnapshot
+        && safeActivity.sensorFailure === true
     readonly property bool fixedModeEnabled: hasState
         && safeState.doFixedSpeed === true
     readonly property bool fanControlAvailable: hasState
@@ -392,12 +395,16 @@ PlasmaExtras.Representation {
                     MetricTile {
                         label: i18n("CPU")
                         value: fullRoot.hasTelemetrySnapshot
-                            ? i18n("%1\u00B0C", Math.round(fullRoot.safeActivity.avgCPUTemp))
+                            ? (fullRoot.sensorFailure
+                                ? i18n("Sensor error")
+                                : i18n("%1\u00B0C", Math.round(fullRoot.safeActivity.avgCPUTemp)))
                             : "--"
-                        valueColor: fullRoot.hasActivity
-                            ? fullRoot.tempColor(
-                                Math.round(fullRoot.safeActivity.avgCPUTemp))
-                            : Kirigami.Theme.disabledTextColor
+                        valueColor: fullRoot.sensorFailure
+                            ? Kirigami.Theme.negativeTextColor
+                            : fullRoot.hasActivity
+                                ? fullRoot.tempColor(
+                                    Math.round(fullRoot.safeActivity.avgCPUTemp))
+                                : Kirigami.Theme.disabledTextColor
                         subtitle: fullRoot.hasActivity
                             ? i18n("Average temperature")
                             : (fullRoot.staleActivity
@@ -408,12 +415,16 @@ PlasmaExtras.Representation {
                     MetricTile {
                         label: i18n("GPU")
                         value: fullRoot.hasTelemetrySnapshot
-                            ? i18n("%1\u00B0C", Math.round(fullRoot.safeActivity.avgGPUTemp))
+                            ? (fullRoot.sensorFailure
+                                ? i18n("Sensor error")
+                                : i18n("%1\u00B0C", Math.round(fullRoot.safeActivity.avgGPUTemp)))
                             : "--"
-                        valueColor: fullRoot.hasActivity
-                            ? fullRoot.tempColor(
-                                Math.round(fullRoot.safeActivity.avgGPUTemp))
-                            : Kirigami.Theme.disabledTextColor
+                        valueColor: fullRoot.sensorFailure
+                            ? Kirigami.Theme.negativeTextColor
+                            : fullRoot.hasActivity
+                                ? fullRoot.tempColor(
+                                    Math.round(fullRoot.safeActivity.avgGPUTemp))
+                                : Kirigami.Theme.disabledTextColor
                         subtitle: fullRoot.hasActivity
                             ? i18n("Average temperature")
                             : (fullRoot.staleActivity

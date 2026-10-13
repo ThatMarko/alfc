@@ -441,6 +441,14 @@ describe("fan-control", () => {
     // One successful collection establishes the last-known averages (90/30)
     // and applies the first gradient step from 15% toward the 50% target
     await waitUntilFanPercent(33);
+    // Successful collections publish current measurements, no failure flag
+    expect(mockedPublishActivity).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        avgCPUTemp: 90,
+        avgGPUTemp: 30,
+        sensorFailure: false,
+      }),
+    );
     mockedPublishActivity.mockClear();
 
     let cpuReads = 0;
@@ -464,6 +472,7 @@ describe("fan-control", () => {
       avgCPUTemp: 90,
       avgGPUTemp: 30,
       target: 100,
+      sensorFailure: true,
     });
   });
 
@@ -485,5 +494,80 @@ describe("fan-control", () => {
       expect.any(Error),
     );
     warning.mockRestore();
+  });
+
+  it("handles a read that rejects after the read timeout already fired", async () => {
+    // The global process is typed by Bun, whose `on` overloads don't accept
+    // a pre-declared listener for this event; cast to plain emitter
+    // signatures for the standard NodeJS behavior (same runtime object).
+    type UnhandledRejectionEvents = {
+      on(
+        event: "unhandledRejection",
+        listener: (reason: unknown) => void,
+      ): unknown;
+      off(
+        event: "unhandledRejection",
+        listener: (reason: unknown) => void,
+      ): unknown;
+    };
+    const nodeProcess = process as unknown as UnhandledRejectionEvents;
+    let unhandledRejections = 0;
+    const onUnhandledRejection = (reason: unknown) => {
+      void reason;
+      unhandledRejections++;
+    };
+    nodeProcess.on("unhandledRejection", onUnhandledRejection);
+    let rejectStalledRead: ((reason: Error) => void) | undefined;
+    mockedGetCall.mockImplementation(() => {
+      return new Promise<number>((_, reject) => {
+        if (!rejectStalledRead) {
+          rejectStalledRead = reject;
+        }
+      });
+    });
+
+    try {
+      fanControl();
+
+      // The stalled read times out and the cycle fails hot
+      await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
+      expect(mockedGetCall).toHaveBeenCalledTimes(1);
+
+      // The underlying read rejects long after the timeout consumed it
+      rejectStalledRead?.(new Error("late rejection"));
+      await vi.advanceTimersByTimeAsync(10);
+
+      // withReadTimeout keeps a rejection handler attached, so this late
+      // rejection must not surface as an unhandledRejection — the server
+      // entry point turns those into process.exit(1)
+      expect(unhandledRejections).toBe(0);
+    } finally {
+      nodeProcess.off("unhandledRejection", onUnhandledRejection);
+    }
+  });
+
+  it("keeps collections serialized when sensor reads are slow", async () => {
+    let readsInFlight = 0;
+    let maxReadsInFlight = 0;
+    mockedGetCall.mockImplementation((methodId: string) => {
+      readsInFlight++;
+      maxReadsInFlight = Math.max(maxReadsInFlight, readsInFlight);
+      return new Promise<number>((resolve) => {
+        setTimeout(() => {
+          readsInFlight--;
+          resolve(methodId === "0xe1" ? 90 : 30);
+        }, 600);
+      });
+    });
+
+    fanControl();
+
+    // A full slow cycle takes ~6.4s (9 reads x 600ms + 2x 500ms sleeps), so
+    // several 2s ticks fire mid-cycle and must be skipped. The first
+    // gradient step from 15% toward the 50% target still gets applied.
+    await waitUntilFanPercent(33);
+
+    // No two sensor reads were ever in flight at the same time
+    expect(maxReadsInFlight).toBe(1);
   });
 });
