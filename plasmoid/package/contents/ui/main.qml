@@ -44,6 +44,9 @@ PlasmoidItem {
     readonly property bool isOverheating: telemetryActivity != null
         && (Math.round(telemetryActivity.avgCPUTemp) >= warningTemp
             || Math.round(telemetryActivity.avgGPUTemp) >= warningTemp)
+    // sensorFailure is absent on protocol 1.0 servers — treated as false
+    readonly property bool sensorFailure: telemetryActivity != null
+        && telemetryActivity.sensorFailure === true
     readonly property bool isWarm: telemetryActivity != null && !root.isOverheating
         && (Math.round(telemetryActivity.avgCPUTemp) >= warningTemp - 10
             || Math.round(telemetryActivity.avgGPUTemp) >= warningTemp - 10)
@@ -75,6 +78,10 @@ PlasmoidItem {
             return PlasmaCore.Types.RequiresAttentionStatus
         }
 
+        if (root.sensorFailure) {
+            return PlasmaCore.Types.RequiresAttentionStatus
+        }
+
         if (backendConnection.isConnected) {
             return PlasmaCore.Types.ActiveStatus
         }
@@ -92,6 +99,10 @@ PlasmoidItem {
 
         if (root.isOverheating) {
             return "dialog-warning-symbolic"
+        }
+
+        if (root.sensorFailure) {
+            return "dialog-error-symbolic"
         }
 
         return "computer-laptop"
@@ -118,6 +129,10 @@ PlasmoidItem {
         if (!root.protocolCompatible) {
             return i18n("Unsupported backend protocol %1",
                 root.protocolVersion)
+        }
+
+        if (root.sensorFailure) {
+            return i18n("Sensor error — fans at fail-safe maximum")
         }
 
         if (!backendConnection.hasFreshActivity) {

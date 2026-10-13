@@ -1,4 +1,5 @@
 import { CString, dlopen, FFIType, ptr } from "bun:ffi";
+import type { Pointer } from "bun:ffi";
 import path from "node:path";
 import type { Args } from "../../../common/types";
 import { isDev } from "../../utils/consts";
@@ -49,9 +50,9 @@ const countBuffer = new Int32Array(1);
 const resultsPtr = ptr(resultsBuffer);
 const countPtr = ptr(countBuffer);
 
-const methodPtrCache = new Map<string, { buf: Buffer; ptr: number }>();
+const methodPtrCache = new Map<string, { buf: Buffer; ptr: Pointer }>();
 
-function getMethodPtr(name: string): number {
+function getMethodPtr(name: string): Pointer {
   const cached = methodPtrCache.get(name);
   if (cached) return cached.ptr;
   const buf = Buffer.from(name + "\0");
@@ -195,7 +196,10 @@ export function setCall(_: string, methodName: string, args: Args) {
       return;
     }
 
-    const argValue = getUint8Argument(methodName, "Data", args.Data ?? 0);
+    if (args.Data === undefined) {
+      throw new TypeError(`WMI '${methodName}' requires a Data argument`);
+    }
+    const argValue = getUint8Argument(methodName, "Data", args.Data);
     const result = symbols.wmi_set(getMethodPtr(methodName), argValue);
     if (result !== 0) {
       throw new Error(`WMI set '${methodName}' failed: ${getLastError()}`);

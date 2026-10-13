@@ -1,9 +1,12 @@
 import { getCall, setCall } from "../native/index";
+import { publishActivity } from "../websocket/index";
 import { state } from "../state/index";
 import {
   fanControl,
   fanPercentToSpeed,
+  cleanupFanControlIntervals,
   CYCLE_DURATION,
+  SENSOR_READ_TIMEOUT,
   WAIT_RAMP_UP_CYCLES,
   WAIT_RAMP_DOWN_CYCLES,
 } from "./index";
@@ -12,8 +15,12 @@ vi.mock("../native/index", () => ({
   getCall: vi.fn(),
   setCall: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("../websocket/index", () => ({
+  publishActivity: vi.fn(),
+}));
 const mockedGetCall = vi.mocked(getCall);
 const mockedSetCall = vi.mocked(setCall);
+const mockedPublishActivity = vi.mocked(publishActivity);
 
 function firstSpeed(table: [number, number][]) {
   const entry = table[0];
@@ -89,9 +96,13 @@ describe("fan-control", () => {
   });
 
   afterEach(async () => {
-    // stop auto control loop
+    // Stop the loop first so no new cycles start, then advance past the
+    // sensor-read timeout so a cycle left in flight by the test releases
+    // the shared cycle lock before the next test runs. (Fixed mode is a
+    // served mode now, so switching modes alone no longer stops reads.)
+    cleanupFanControlIntervals();
     state.doFixedSpeed = true;
-    await vi.advanceTimersByTimeAsync(CYCLE_DURATION);
+    await vi.advanceTimersByTimeAsync(SENSOR_READ_TIMEOUT);
 
     vi.useRealTimers();
   });
@@ -250,6 +261,92 @@ describe("fan-control", () => {
     expect(cycles).toBeLessThanOrEqual(6);
   });
 
+  it("does not overlap temperature collection cycles", async () => {
+    mockedGetCall.mockImplementation(() => new Promise(() => undefined));
+
+    fanControl();
+    await vi.advanceTimersByTimeAsync(3 * CYCLE_DURATION);
+
+    expect(mockedGetCall).toHaveBeenCalledTimes(1);
+  });
+
+  it("escapes a stalled collection and applies fixed mode after the read timeout", async () => {
+    mockedGetCall.mockImplementation(() => new Promise(() => undefined));
+
+    fanControl();
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION); // cycle starts, stalls
+
+    state.doFixedSpeed = true;
+    state.fixedPercentage = 75;
+
+    // The loop is not torn down on the switch: the stalled read holds the
+    // cycle lock until SENSOR_READ_TIMEOUT fails the collection.
+    await vi.advanceTimersByTimeAsync(SENSOR_READ_TIMEOUT);
+
+    // Recovery: the next collected cycle applies the fixed speed.
+    mockTemperatures(30, 30);
+    await waitUntilFanPercent(state.fixedPercentage);
+  });
+
+  it("serializes collections across restarts and aborts the stale run", async () => {
+    let resolveStalledRead: ((value: number) => void) | undefined;
+    mockedGetCall.mockImplementation((methodId: string) => {
+      if (resolveStalledRead === undefined) {
+        // First read of the first run stays pending until released
+        return new Promise<number>((resolve) => {
+          resolveStalledRead = resolve;
+        });
+      }
+      switch (methodId) {
+        case "0xe1":
+          return Promise.resolve(90);
+        default:
+          return Promise.resolve(30);
+      }
+    });
+
+    fanControl();
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION); // first cycle stalls
+    expect(mockedGetCall).toHaveBeenCalledTimes(1);
+
+    // Restart, as the DoFixedSpeed:false handler does. The new run's ticks
+    // must wait: collections never overlap, not even across runs.
+    fanControl();
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION);
+    expect(mockedGetCall).toHaveBeenCalledTimes(1);
+
+    // The old run's pending read finally settles: its collection aborts at
+    // this read boundary instead of issuing its remaining reads, which
+    // releases the cycle lock for the new run.
+    resolveStalledRead?.(30);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(mockedGetCall).toHaveBeenCalledTimes(1);
+
+    // The new run proceeds: first gradient step from 15% toward the 50%
+    // target at 90°C CPU. Only the new run issued reads after the restart.
+    await waitUntilFanPercent(33);
+    expect(mockedGetCall).toHaveBeenCalledTimes(1 + 9); // 1 old, 9 new (3 samples x 3)
+  });
+
+  it("aborts a mid-sampling collection from a previous run on restart", async () => {
+    mockTemperatures(90, 30);
+    fanControl();
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION); // first sample read
+    expect(mockedGetCall).toHaveBeenCalledTimes(3); // sample 0: cpu + 2 gpu reads
+
+    // Restart while the old cycle sleeps between samples. The old
+    // collection must abort at the next read boundary: no further reads
+    // from the old run before the new run's first tick.
+    fanControl();
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION - 10);
+    expect(mockedGetCall).toHaveBeenCalledTimes(3);
+
+    // The new run proceeds without waiting: first gradient step from 15%
+    // toward the 50% target at 90°C CPU.
+    await waitUntilFanPercent(33);
+    expect(mockedGetCall).toHaveBeenCalledTimes(3 + 9); // 1 old sample, 1 new cycle
+  });
+
   it("should handle fan table changes", async () => {
     fanControl();
 
@@ -269,5 +366,208 @@ describe("fan-control", () => {
 
     mockedGetCall.mockResolvedValue(NaN);
     await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
+  });
+
+  it("should use highest fan speed when temperature reads reject", async () => {
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    fanControl();
+
+    mockedGetCall.mockRejectedValue(new Error("WMI read failed"));
+    await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
+
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("failed"),
+      expect.any(Error),
+    );
+    warning.mockRestore();
+  });
+
+  it("fails hot when only a single temperature read fails", async () => {
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    let cpuReads = 0;
+    mockedGetCall.mockImplementation((methodId: string) => {
+      if (methodId === "0xe1") {
+        cpuReads++;
+        return cpuReads === 1
+          ? Promise.reject(new Error("transient WMI failure"))
+          : Promise.resolve(30);
+      }
+      return Promise.resolve(30);
+    });
+
+    fanControl();
+    // One failed read among good ones must not be diluted by averaging
+    await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
+
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("failed"),
+      expect.any(Error),
+    );
+    warning.mockRestore();
+  });
+
+  it("fails hot to the highest configured speed with non-monotonic tables", async () => {
+    // Nothing enforces monotonic speeds: the last row is not the maximum
+    state.gpuFanTable = [
+      [40, 15],
+      [78, 80],
+      [83, 100],
+      [90, 40],
+    ];
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    mockedGetCall.mockRejectedValue(new Error("WMI read failed"));
+    fanControl();
+
+    // Highest speed anywhere in the tables (100), not the last row (40)
+    await waitUntilFanPercent(100);
+
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("failed"),
+      expect.any(Error),
+    );
+    warning.mockRestore();
+  });
+
+  it("reports last-known temperatures instead of sentinel values on failure", async () => {
+    mockTemperatures(90, 30);
+    fanControl();
+    // One successful collection establishes the last-known averages (90/30)
+    // and applies the first gradient step from 15% toward the 50% target
+    await waitUntilFanPercent(33);
+    // Successful collections publish current measurements, no failure flag
+    expect(mockedPublishActivity).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        avgCPUTemp: 90,
+        avgGPUTemp: 30,
+        sensorFailure: false,
+      }),
+    );
+    mockedPublishActivity.mockClear();
+
+    let cpuReads = 0;
+    mockedGetCall.mockImplementation((methodId: string) => {
+      if (methodId === "0xe1") {
+        cpuReads++;
+        return cpuReads === 1
+          ? Promise.reject(new Error("transient WMI failure"))
+          : Promise.resolve(30);
+      }
+      return Promise.resolve(30);
+    });
+
+    await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
+
+    // Fans fail hot, but the published temperatures are the last real
+    // measurements — not a 200 sentinel displayed as a reading
+    expect(mockedPublishActivity).toHaveBeenCalledTimes(1);
+    expect(mockedPublishActivity).toHaveBeenLastCalledWith({
+      appliedSpeed: 100,
+      avgCPUTemp: 90,
+      avgGPUTemp: 30,
+      target: 100,
+      sensorFailure: true,
+    });
+  });
+
+  it("does not publish fabricated temperatures before any successful collection", async () => {
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    mockedGetCall.mockRejectedValue(new Error("WMI read failed"));
+    fanControl();
+
+    // Fans still fail hot...
+    await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
+    await vi.advanceTimersByTimeAsync(2 * CYCLE_DURATION);
+
+    // ...but no activity with fabricated temperatures is ever published
+    expect(mockedPublishActivity).not.toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("failed"),
+      expect.any(Error),
+    );
+    warning.mockRestore();
+  });
+
+  it("handles a read that rejects after the read timeout already fired", async () => {
+    // The global process is typed by Bun, whose `on` overloads don't accept
+    // a pre-declared listener for this event; cast to plain emitter
+    // signatures for the standard NodeJS behavior (same runtime object).
+    type UnhandledRejectionEvents = {
+      on(
+        event: "unhandledRejection",
+        listener: (reason: unknown) => void,
+      ): unknown;
+      off(
+        event: "unhandledRejection",
+        listener: (reason: unknown) => void,
+      ): unknown;
+    };
+    const nodeProcess = process as unknown as UnhandledRejectionEvents;
+    let unhandledRejections = 0;
+    const onUnhandledRejection = (reason: unknown) => {
+      void reason;
+      unhandledRejections++;
+    };
+    nodeProcess.on("unhandledRejection", onUnhandledRejection);
+    let rejectStalledRead: ((reason: Error) => void) | undefined;
+    mockedGetCall.mockImplementation(() => {
+      return new Promise<number>((_, reject) => {
+        if (!rejectStalledRead) {
+          rejectStalledRead = reject;
+        }
+      });
+    });
+
+    try {
+      fanControl();
+
+      // The stalled read times out and the cycle fails hot
+      await waitUntilFanPercent(lastSpeed(state.gpuFanTable));
+      expect(mockedGetCall).toHaveBeenCalledTimes(1);
+
+      // The underlying read rejects long after the timeout consumed it
+      rejectStalledRead?.(new Error("late rejection"));
+      await vi.advanceTimersByTimeAsync(10);
+
+      // withReadTimeout keeps a rejection handler attached, so this late
+      // rejection must not surface as an unhandledRejection — the server
+      // entry point turns those into process.exit(1)
+      expect(unhandledRejections).toBe(0);
+    } finally {
+      nodeProcess.off("unhandledRejection", onUnhandledRejection);
+    }
+  });
+
+  it("keeps collections serialized when sensor reads are slow", async () => {
+    let readsInFlight = 0;
+    let maxReadsInFlight = 0;
+    mockedGetCall.mockImplementation((methodId: string) => {
+      readsInFlight++;
+      maxReadsInFlight = Math.max(maxReadsInFlight, readsInFlight);
+      return new Promise<number>((resolve) => {
+        setTimeout(() => {
+          readsInFlight--;
+          resolve(methodId === "0xe1" ? 90 : 30);
+        }, 600);
+      });
+    });
+
+    fanControl();
+
+    // A full slow cycle takes ~6.4s (9 reads x 600ms + 2x 500ms sleeps), so
+    // several 2s ticks fire mid-cycle and must be skipped. The first
+    // gradient step from 15% toward the 50% target still gets applied.
+    await waitUntilFanPercent(33);
+
+    // No two sensor reads were ever in flight at the same time
+    expect(maxReadsInFlight).toBe(1);
   });
 });

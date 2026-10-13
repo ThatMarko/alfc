@@ -8,3 +8,5 @@ dist
 *.log
 **/*.js
 **/*.tsbuildinfo
+.context/
+.hoplite/archive/
