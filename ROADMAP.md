@@ -10,8 +10,8 @@
 What ships in v2.0.0:
 
 - **bun:ffi WMI bindings** — replaced the .NET Framework 4.8 helper process (`WmiAPI.exe`) with a C++ DLL (`WmiDll.dll`) loaded directly via `bun:ffi`. ~100,000x less call overhead, ~50-120 MB less memory, fewer failure modes.
-- **Performance-optimized fan control** — 10-second decision cycle (up from 1s), running-sum temperature averaging (zero per-cycle allocations), GC-safe FFI pointer caching, BSTR method name cache in the DLL.
-- **Relaxed WebSocket timers** — plasmoid keepalive 5s to 20s, pong watchdog 15s to 60s, reconnect backoff cap 5s to 30s, server idle timeout 30s to 120s. Fewer CPU wakeups across the stack.
+- **Performance-optimized fan control** — 2-second decision cycle (500ms sampling; 1-cycle ramp-up, 30-cycle / 60s ramp-down), running-sum temperature averaging (zero per-cycle allocations), GC-safe FFI pointer caching, dynamic BSTR method name cache in the DLL.
+- **Relaxed WebSocket timers** — plasmoid keepalive 5s to 20s, 60s pong timeout with 5s watchdog check, reconnect backoff cap 5s to 30s, server idle timeout 30s to 120s. Fewer CPU wakeups across the stack.
 - **KDE Plasma 6 widget** — panel, system tray, desktop widget modes with context-aware UI, rich tooltip, fan curve editor, accessibility annotations.
 - **CI/CD pipeline** — GitHub Actions builds Linux + Windows executables and plasmoid package on version tags.
 - **Service hardening** — WinSW `stopParentFirst` + `stopTimeout`, systemd security directives, exit handler restores BIOS fan control.
@@ -20,12 +20,12 @@ What ships in v2.0.0:
 
 | Software              | Sensor Polling | ALFC |
 | --------------------- | -------------- | ---- |
-| NBFC                  | 3s             | 10s  |
-| Thinkfan              | 5s (2s spikes) | 10s  |
-| FanControl (Rem0o)    | 1s             | 10s  |
-| lm-sensors/fancontrol | 10s            | 10s  |
-| Corsair iCUE          | < 1s           | 10s  |
-| NZXT CAM              | < 1s           | 10s  |
+| NBFC                  | 3s             | 2s   |
+| Thinkfan              | 5s (2s spikes) | 2s   |
+| FanControl (Rem0o)    | 1s             | 2s   |
+| lm-sensors/fancontrol | 10s            | 2s   |
+| Corsair iCUE          | < 1s           | 2s   |
+| NZXT CAM              | < 1s           | 2s   |
 
 ---
 
@@ -47,7 +47,7 @@ What ships in v2.0.0:
 - [ ] **Backend support** — add a `profiles` field to state/config with named presets. Add a `MessageToServerKind.SetProfile` message kind. Switching profiles swaps the fan tables and persists the choice.
 - [ ] **Frontend UI** — profile selector (dropdown or segmented control) above the fan curve editor. Active profile highlighted. Editing a fan table after selecting a profile switches to "Custom".
 - [ ] **Plasmoid integration** — profile switcher in the full representation and as a right-click context menu action for quick switching without opening the popup.
-- [ ] **Protocol version** — bump `protocolVersion` to `"1.1"` since this adds new message kinds. Older clients should gracefully ignore unknown fields.
+- [ ] **Protocol version** — bump `protocolVersion` to `"1.2"` since this adds new message kinds. Older clients should gracefully ignore unknown fields.
 
 ### Temperature History
 
@@ -59,10 +59,10 @@ What ships in v2.0.0:
 
 ### Dynamic Polling (Thinkfan-style)
 
-> The current 10s cycle is fixed. Thinkfan drops to 2s on temperature spikes and recovers to 5s when stable. We can do the same.
+> The current 2s cycle is fixed. Thinkfan drops to 2s on temperature spikes and relaxes to 5s+ when stable. We can do the same.
 
 - [ ] **Adaptive `CYCLE_DURATION`** — if temperature delta between consecutive cycles exceeds a threshold (e.g. 5 degrees C), temporarily halve the cycle duration for the next 2-3 cycles, then gradually recover.
-- [ ] **Adaptive `TEMP_POLL_INTERVAL`** — could increase the poll interval during stable periods (e.g. 5s instead of 2s when delta < 1 degree C per cycle), reducing ACPI/WMI calls further.
+- [ ] **Adaptive `TEMP_POLL_INTERVAL`** — could increase the poll interval during stable periods (e.g. 2s instead of 500ms when delta < 1 degree C per cycle), reducing ACPI/WMI calls further.
 - [ ] **Make thresholds configurable** — add to config file so users can tune aggressiveness vs. battery savings.
 
 ### Battery-Aware Mode
@@ -114,7 +114,6 @@ Windows 11 blocks Intel XTU from setting PL1/PL2 limits. The README notes this l
 ### Logging & Diagnostics
 
 - [ ] **Structured logging** — add log levels (debug/info/warn/error) with timestamps. Currently uses bare `console.log`/`console.warn`/`console.error`.
-- [ ] **Log rotation on Windows** — WinSW logs to `service.log` which grows unbounded. Add log rotation or size limits.
 - [ ] **Diagnostic endpoint** — `/api/status` HTTP endpoint returning current state, uptime, platform info, version. Useful for troubleshooting without opening the full UI.
 
 ---
@@ -173,6 +172,5 @@ The web UI already works from any browser on the local network. Could be extende
 > Known issues that don't affect functionality but should be cleaned up.
 
 - [ ] **`any` in protocol types** — `common/types.ts` line 72 uses `data?: any` on `MessageToServer`. Should be a discriminated union matching each `MessageToServerKind` with its specific payload type.
-- [ ] **`any` in test setup** — `test-setup.ts` line 25 has an `any` for the Vitest mock setup. Minor, but flagged by ESLint.
 - [ ] **Windows-only LSP noise** — `WmiDll.cpp` shows cascading errors on Linux (missing `windows.h`). Not a real issue (compiles fine on Windows CI) but clutters IDE diagnostics. Could add an `.editorconfig` or workspace setting to suppress.
 - [ ] **`acpi_call` installation friction** — the Linux setup requires manually building and loading a kernel module. The `LINUX.md` wishlist mentions automating this but secure boot signing and distro differences make it hard.
