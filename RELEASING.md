@@ -3,7 +3,7 @@
 ## How to create a release
 
 1. Update the version in `package.json` (used at build time by the frontend's
-   update check), the workspace manifests (`frontend/package.json`,
+   update check), the package manifests (`frontend/package.json`,
    `server/package.json`, `bootstrap/package.json`), `plasmoid/package/metadata.json`, and `aur/PKGBUILD` (`pkgver`)
 2. Commit: `git commit -am "chore: release vX.Y.Z"`
 3. Tag: `git tag vX.Y.Z`

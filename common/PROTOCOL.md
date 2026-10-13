@@ -14,7 +14,7 @@
 - **Endpoint:** `ws://localhost:5522/ws`
 - **Initial state push:** on `open`, the server immediately sends a `state` message containing the full `State` object, including `protocolVersion: "1.1"`.
 - **State broadcast:** after any successful state mutation (`fixedpercentage`, `dofixedspeed`, `fantable`, `tune`, supported `set` calls), the server publishes a fresh `state` snapshot to all connected sockets.
-- **Keepalive:** server has a ~30s idle timeout. Clients must send a plain-text `"ping"` at least every 30s; server responds with `"pong"`.
+- **Keepalive:** server has a 30s idle timeout (`idleTimeout: 30`). Clients should send a plain-text `"ping"` well under 30s (shipped clients send one every 25s); server responds with `"pong"`.
 - **Reconnect:** clients should auto-reconnect and expect the initial state push on every new connection.
 - **Activity stream:** to receive `fancontrolactivity` updates, the client must send `registeractivitysocket` once per connection.
 
