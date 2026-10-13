@@ -170,6 +170,7 @@ const exitWithError = () => {
 
     websocket: {
       ...websocketHandlers,
+      sendPings: true,
       idleTimeout: 120,
       backpressureLimit: 1024 * 1024,
     },
