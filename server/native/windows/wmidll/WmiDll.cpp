@@ -221,6 +221,10 @@ static int BuildNamedInParams(
         SetLastErr("GetMethod(%s) failed: 0x%08lX", method_name, hr);
         return -1;
     }
+    if (!pInParamsDef) {
+        SetLastErr("Method %s takes no input parameters", method_name);
+        return -1;
+    }
 
     hr = pInParamsDef->SpawnInstance(0, ppInParams);
     pInParamsDef->Release();
@@ -323,6 +327,7 @@ static int ExecuteGetAndEnumerate(
             count++;
         }
         SysFreeString(propName);
+        propName = nullptr;
         VariantClear(&varVal);
     }
 

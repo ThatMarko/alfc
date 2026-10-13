@@ -1,5 +1,6 @@
 global.Bun = {
   env: process.env,
+  isStandaloneExecutable: false,
   file: () => ({
     exists: () => Promise.resolve(true),
     text: () => Promise.resolve(""),
@@ -22,4 +23,4 @@ global.Bun = {
     stderr: Buffer.from(""),
   }),
   serve: () => ({ stop: () => {}, publish: () => 0 }),
-} as any;
+} as unknown as typeof Bun;

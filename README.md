@@ -82,7 +82,7 @@ If you want to keep using the color profiles:
 
 ## Development notes
 
-Requires [Bun](https://bun.sh) 1.4.0+.
+Requires [Bun](https://bun.sh) 1.4.3+.
 
 `sudo bun run start` — Frontend at `:3000`, server at `:5522`.
 
@@ -94,7 +94,7 @@ hex string for Linux.
 
 - **Lint**: `bun run lint` — ESLint with TypeScript, React, Prettier integration. `no-explicit-any` warns, `no-unreachable` errors.
 - **Type-check**: `bun run type-check` — Strict TypeScript with `noUncheckedIndexedAccess` enabled.
-- **Test**: `bun run test` — Vitest (74 tests across server + frontend).
+- **Test**: `bun run test` — Vitest (82 tests across server + frontend).
 - **Full check**: `bun run all-checks` — Runs lint, type-check, test, and build in sequence.
 - **Pre-commit**: Husky + lint-staged runs ESLint, type-check, and Prettier on staged files.
 

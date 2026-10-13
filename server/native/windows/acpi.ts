@@ -63,6 +63,12 @@ function getMethodPtr(name: string): Pointer {
 
 const MAX_WMI_ARGS = 16;
 const MAX_WMI_ARG_NAME_LENGTH = 63;
+const argNamesBuffer = Buffer.alloc(
+  MAX_WMI_ARGS * (MAX_WMI_ARG_NAME_LENGTH + 1),
+);
+const argValuesBuffer = new Uint8Array(MAX_WMI_ARGS);
+const argNamesPtr = ptr(argNamesBuffer);
+const argValuesPtr = ptr(argValuesBuffer);
 
 function getUint8Argument(
   methodName: string,
@@ -97,7 +103,8 @@ function getLastError(): string {
 
 // Multi-argument WMI methods (e.g. SetLightBar, GetLightBar) transport the
 // full argument map: NUL-separated names plus one uint8 value per name,
-// which is the type of every GB_WMIACPI input parameter.
+// which is the type of every GB_WMIACPI input parameter. Writes into
+// module-scoped buffers so FFI pointers stay GC-rooted across the call.
 function buildNamedArgBuffers(methodName: string, args: Args) {
   const entries = Object.entries(args);
   if (entries.length < 1 || entries.length > MAX_WMI_ARGS) {
@@ -106,28 +113,30 @@ function buildNamedArgBuffers(methodName: string, args: Args) {
     );
   }
 
-  const names: string[] = [];
-  const values = new Uint8Array(entries.length);
+  let namesByteLength = 0;
 
   entries.forEach(([name, value], index) => {
+    const nameBytes = Buffer.byteLength(name, "utf8");
     if (
-      name.length < 1 ||
-      name.length > MAX_WMI_ARG_NAME_LENGTH ||
+      nameBytes < 1 ||
+      nameBytes > MAX_WMI_ARG_NAME_LENGTH ||
       name.includes("\0")
     ) {
       throw new RangeError(
         `WMI '${methodName}' has an invalid argument name: ${JSON.stringify(name)}`,
       );
     }
-    names.push(name);
-    values[index] = getUint8Argument(methodName, name, value);
+    argNamesBuffer.write(name, namesByteLength, "utf8");
+    namesByteLength += nameBytes;
+    argNamesBuffer[namesByteLength] = 0;
+    namesByteLength += 1;
+    argValuesBuffer[index] = getUint8Argument(methodName, name, value);
   });
 
-  const namesBuf = Buffer.from(`${names.join("\0")}\0`);
   return {
-    namesBuf,
-    namesPtr: ptr(namesBuf),
-    valuesPtr: ptr(values),
+    namesPtr: argNamesPtr,
+    namesByteLength,
+    valuesPtr: argValuesPtr,
     count: entries.length,
   };
 }
@@ -179,14 +188,12 @@ export function setCall(_: string, methodName: string, args: Args) {
     const symbols = requireLib();
 
     if (usesNamedPath(args)) {
-      const { namesBuf, namesPtr, valuesPtr, count } = buildNamedArgBuffers(
-        methodName,
-        args,
-      );
+      const { namesPtr, namesByteLength, valuesPtr, count } =
+        buildNamedArgBuffers(methodName, args);
       const result = symbols.wmi_set_named(
         getMethodPtr(methodName),
         namesPtr,
-        namesBuf.length,
+        namesByteLength,
         valuesPtr,
         count,
       );
@@ -212,14 +219,12 @@ export function getCall(_: string, methodName: string, args?: Args) {
     const symbols = requireLib();
 
     if (args && usesNamedPath(args)) {
-      const { namesBuf, namesPtr, valuesPtr, count } = buildNamedArgBuffers(
-        methodName,
-        args,
-      );
+      const { namesPtr, namesByteLength, valuesPtr, count } =
+        buildNamedArgBuffers(methodName, args);
       const result = symbols.wmi_get_named(
         getMethodPtr(methodName),
         namesPtr,
-        namesBuf.length,
+        namesByteLength,
         valuesPtr,
         count,
         resultsPtr,

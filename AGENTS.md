@@ -43,7 +43,7 @@ alfc/
 ## CONVENTIONS
 
 - **Monorepo**: Bun workspaces (`frontend`, `server`)
-- **Bun 1.4+** required
+- **Bun 1.4.3+** required
 - **ESM imports**: Extensionless relative imports (Bun `moduleResolution: "bundler"` convention). Use `node:` prefix for Node built-in modules.
 - **No explicit `any`**: ESLint warns on `@typescript-eslint/no-explicit-any`. One known exception in `common/types.ts` (protocol data field).
 - **Underscore prefix**: Unused vars must use `_` prefix
@@ -74,7 +74,7 @@ bun run build             # Build all packages
 bun run all-checks        # Lint + type-check + test + build
 bun run lint              # ESLint (0 errors required, warnings OK)
 bun run type-check        # TypeScript (no emit, strict + noUncheckedIndexedAccess)
-bun run test              # Vitest (74 tests: server + frontend)
+bun run test              # Vitest (82 tests: server + frontend)
 
 # Windows Native Build (requires MSVC for WmiDll, .NET 8 SDK for CPUOC)
 cd server/native/windows/wmidll && build.bat

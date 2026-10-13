@@ -1,7 +1,10 @@
+import { rm } from "node:fs/promises";
+
 const isWindows = process.platform === "win32";
 const arch = process.arch;
 
-let target: string;
+let target:
+  "bun-windows-arm64" | "bun-windows-x64" | "bun-linux-arm64" | "bun-linux-x64";
 let outfile: string;
 
 if (isWindows) {
@@ -12,32 +15,22 @@ if (isWindows) {
   outfile = "dist/alfc";
 }
 
-if (isWindows) {
-  Bun.spawnSync(
-    ["cmd", "/c", "if", "exist", "dist", "rmdir", "/s", "/q", "dist"],
-    { stdio: ["inherit", "inherit", "inherit"] },
-  );
-} else {
-  Bun.spawnSync(["rm", "-rf", "dist"], {
-    stdio: ["inherit", "inherit", "inherit"],
-  });
-}
+await rm("dist", { recursive: true, force: true });
 
-const result = Bun.spawnSync(
-  [
-    "bun",
-    "build",
-    "index.ts",
-    "--compile",
-    "--target",
+const result = await Bun.build({
+  entrypoints: ["index.ts"],
+  compile: {
     target,
-    "--outfile",
     outfile,
-    "--minify",
-  ],
-  { stdio: ["inherit", "inherit", "inherit"] },
-);
+  },
+  format: "esm",
+  minify: true,
+  bytecode: true,
+});
 
-if (result.exitCode !== 0) {
-  process.exit(result.exitCode);
+if (!result.success) {
+  for (const log of result.logs) {
+    console.error(log);
+  }
+  process.exit(1);
 }

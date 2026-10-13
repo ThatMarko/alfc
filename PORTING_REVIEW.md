@@ -5,7 +5,7 @@ that future upgrades have a reproducible baseline.
 
 ## Current baseline
 
-- Bun is pinned to 1.3.9 in `packageManager`, CI, and both release jobs. The
+- Bun is pinned to 1.4.3 in `packageManager`, CI, and both release jobs. The
   declared engine floor is the same version.
 - Dependency updates stay within the currently declared major versions. This
   keeps the review focused: React 19, ESLint 10, Vitest 4, and other major
@@ -28,7 +28,7 @@ that future upgrades have a reproducible baseline.
   non-local browser origins, and returns protocol errors without exposing
   internal exception details.
 - Linux and Windows native implementations remain behind the platform
-  abstraction. Windows WMI runs in a helper process, while CPU overclocking is
+  abstraction. Windows WMI runs in-process via `WmiDll.dll` (`bun:ffi`), while CPU overclocking is
   an optional NativeAOT library.
 
 ### Plasma widget
@@ -43,7 +43,7 @@ that future upgrades have a reproducible baseline.
 ### Packaging and service lifecycle
 
 - Linux artifacts include systemd/OpenRC scripts and the Plasma package.
-- Windows artifacts include the .NET Framework WMI helper and WinSW wrapper;
+- Windows artifacts include `WmiDll.dll` (MSVC C++ COM wrapper) and the WinSW wrapper;
   optional CPU tuning binaries are intentionally not distributed.
 - CI uses a frozen lockfile, least-privilege token permissions, and one complete
   lint/type-check/test/build command.
