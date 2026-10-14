@@ -13,7 +13,7 @@ import { FanTableEditor } from "./FanTableEditor";
 import { Status } from "./Status";
 import { disabledFormStyle, enabledFormStyle } from "./styles/misc";
 
-export type FanTableItems = [temperature: string, speed: string][];
+export type FanTableItems = [temperature: string, speed: string, id: string][];
 
 const StyledForm = styled.form<{ disabled: boolean }>`
   position: relative;
@@ -39,13 +39,23 @@ export function FanTable({
   const [cpuTable, setCPUTable] = useBackendDraft(
     (state?.cpuFanTable ?? []).map(
       ([temperature, speed]) =>
-        [String(temperature), String(speed)] as [string, string],
+        // Valid backend temperatures are unique. Keep this initial identity
+        // when editing a row so insertion/removal cannot move input focus.
+        [
+          String(temperature),
+          String(speed),
+          String(temperature),
+        ] as FanTableItems[number],
     ),
   );
   const [gpuTable, setGPUTable] = useBackendDraft(
     (state?.gpuFanTable ?? []).map(
       ([temperature, speed]) =>
-        [String(temperature), String(speed)] as [string, string],
+        [
+          String(temperature),
+          String(speed),
+          String(temperature),
+        ] as FanTableItems[number],
     ),
   );
 
@@ -60,8 +70,12 @@ export function FanTable({
     }
     submitRef.current?.focus();
 
-    const cpuInvalidRow = getFanTableRowError(cpuTable);
-    const gpuInvalidRow = getFanTableRowError(gpuTable);
+    const cpuInvalidRow = getFanTableRowError(
+      cpuTable.map(([temperature, speed]) => [temperature, speed]),
+    );
+    const gpuInvalidRow = getFanTableRowError(
+      gpuTable.map(([temperature, speed]) => [temperature, speed]),
+    );
     const tableName = cpuInvalidRow ? "CPU" : "GPU";
     const invalidRow = cpuInvalidRow ?? gpuInvalidRow;
 

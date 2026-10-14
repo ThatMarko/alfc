@@ -13,6 +13,7 @@ const networkFixture = `
 import assert from 'node:assert/strict';
 import { listenOnLoopback } from ${JSON.stringify(path.join(repositoryRoot, "server/listeners.ts"))};
 import { websocketHandlers, setServers, publishActivity } from ${JSON.stringify(path.join(repositoryRoot, "server/websocket/index.ts"))};
+import { state } from ${JSON.stringify(path.join(repositoryRoot, "server/state/index.ts"))};
 
 function optionalIPv6(error) {
   return ['EAFNOSUPPORT', 'EADDRNOTAVAIL', 'ENODEV'].includes(error?.code);
@@ -64,15 +65,47 @@ try {
     await until(() => clients.every(client => client.messages.some(message => message.kind === 'state' && message.data.fixedPercentage === percentage)));
     for (const client of clients) assert.equal(client.messages.filter(message => message.kind === 'state' && message.data.fixedPercentage === percentage).length, 1);
   }
-  for (const client of clients) {
+  const source = clients[0];
+  source.socket.send(Buffer.concat([
+    Buffer.from('{"kind":"fixedpercentage","data":99,"requestId":"invalid-'),
+    Buffer.from([0xff]),
+    Buffer.from('"}'),
+  ]));
+  await until(() => source.messages.some(message => message.kind === 'error' && message.data.startsWith('INVALID_JSON:')));
+  assert.equal(state.fixedPercentage, 73, 'Malformed binary UTF-8 must not execute a mutation');
+  const binaryRequestId = 'binary-温度-🌡';
+  source.socket.send(Buffer.from(JSON.stringify({ kind: 'fixedpercentage', data: 74, requestId: binaryRequestId })));
+  await until(() => source.messages.some(message => message.kind === 'success' && message.requestId === binaryRequestId));
+  const prefix = '{"kind":"fixedpercentage","data":75,"requestId":"at-limit","padding":"';
+  const suffix = '"}';
+  const paddingBytes = 64 * 1024 - Buffer.byteLength(prefix + suffix);
+  const atLimit = prefix + 'é'.repeat(Math.floor(paddingBytes / 2)) + 'x'.repeat(paddingBytes % 2) + suffix;
+  assert.equal(Buffer.byteLength(atLimit), 64 * 1024);
+  source.socket.send(atLimit);
+  await until(() => source.messages.some(message => message.kind === 'success' && message.requestId === 'at-limit'));
+  source.socket.send(Buffer.from(atLimit.replace('at-limit', 'binlimit')));
+  await until(() => source.messages.some(message => message.kind === 'success' && message.requestId === 'binlimit'));
+  for (const binary of [false, true]) {
+    const oversized = await client('ws://127.0.0.1:' + servers[0].port + '/ws');
+    clients.push(oversized);
+    const message = atLimit.replace('at-limit', 'too-large').replace('"data":75', '"data":99');
+    assert.equal(Buffer.byteLength(message), 64 * 1024 + 1);
+    oversized.socket.send(binary ? Buffer.from(message) : message);
+    await until(() => oversized.socket.readyState === WebSocket.CLOSED);
+    assert(!oversized.messages.some(message => message.requestId === 'too-large'));
+  }
+  assert.equal(state.fixedPercentage, 75, 'Oversized text and binary messages must not reach a handler');
+  const connected = clients.filter(client => client.socket.readyState === WebSocket.OPEN);
+  for (const client of connected) {
     client.socket.send(JSON.stringify({ kind: 'registeractivitysocket' }));
     client.socket.send('ping');
   }
-  await until(() => clients.every(client => client.messages.includes('pong')));
+  await until(() => connected.every(client => client.messages.includes('pong')));
   const activity = { appliedSpeed: 73, avgCPUTemp: 48, avgGPUTemp: 46, target: 73 };
   publishActivity(activity);
-  await until(() => clients.every(client => client.messages.some(message => message.kind === 'fancontrolactivity')));
-  for (const client of clients) assert.deepEqual(client.messages.find(message => message.kind === 'fancontrolactivity').data, activity);
+  await until(() => connected.every(client => client.messages.some(message => message.kind === 'fancontrolactivity')));
+  for (const client of connected) assert.deepEqual(client.messages.find(message => message.kind === 'fancontrolactivity').data, activity);
+  console.log('PASS UTF-8 binary validation and exact 64 KiB text/binary payload limit');
   console.log('PASS real loopback HTTP, WebSocket mutations, and telemetry on ' + servers.length + ' address families');
 } finally {
   setServers([]);
@@ -98,6 +131,39 @@ if (occupied) {
     assert.equal(await (await fetch(occupied.url)).text(), 'foreign');
     console.log('PASS IPv6 conflict rolls back IPv4 and preserves the foreign listener');
   } finally { await occupied.stop(true); }
+}
+
+// Pause the actual client socket so a native pub/sub broadcast eventually fills
+// the kernel buffers and exercises Bun's production backpressure configuration.
+let pressureSocket;
+let pressureClosed = false;
+const pressureServer = Bun.serve({
+  ...options, hostname: '127.0.0.1',
+  websocket: {
+    ...websocketHandlers,
+    open(ws) { pressureSocket = ws; websocketHandlers.open(ws); },
+    close(ws, code, reason) { pressureClosed = true; websocketHandlers.close(ws, code, reason); },
+  },
+});
+const slowClient = new WebSocket('ws://127.0.0.1:' + pressureServer.port + '/ws');
+try {
+  await new Promise((resolve, reject) => { slowClient.onopen = resolve; slowClient.onerror = reject; });
+  assert.equal(slowClient.pause(), true);
+  await until(() => pressureSocket !== undefined);
+  const message = 'x'.repeat(64 * 1024);
+  let peakBufferedBytes = 0;
+  for (let index = 0; index < 512 && !pressureClosed; index++) {
+    pressureServer.publish('state', message);
+    await Bun.sleep(1);
+    peakBufferedBytes = Math.max(peakBufferedBytes, pressureSocket.getBufferedAmount());
+  }
+  assert(pressureClosed, 'A slow subscriber must close when outbound buffering exceeds 1 MiB');
+  assert(peakBufferedBytes <= 1024 * 1024 + message.length, 'Native buffering must remain within the 1 MiB budget plus one frame');
+  console.log('PASS native pub/sub closes a paused subscriber at the backpressure limit');
+} finally {
+  slowClient.resume();
+  slowClient.close();
+  await pressureServer.stop(true);
 }
 `;
 
@@ -164,6 +230,12 @@ describe("real Bun loopback networking", () => {
       );
       expect(stdout).toContain(
         "PASS real loopback HTTP, WebSocket mutations, and telemetry",
+      );
+      expect(stdout).toContain(
+        "PASS UTF-8 binary validation and exact 64 KiB text/binary payload limit",
+      );
+      expect(stdout).toContain(
+        "PASS native pub/sub closes a paused subscriber at the backpressure limit",
       );
       expect(stdout).toMatch(
         /PASS IPv6 conflict|IPv6 unavailable: conflict check/,

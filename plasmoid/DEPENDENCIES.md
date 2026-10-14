@@ -2,7 +2,7 @@
 
 ## Installed widget
 
-The widget requires a **Linux Plasma 6 session**, Qt 6 QML modules, and a running ALFC backend with protocol **1.1 or a newer major-1 minor version**. The package metadata declares Plasma `6.0` as its minimum API. Headless component checks have run with Qt `6.8.2` and Plasma `6.3.5`; complete shell compatibility still needs validation on the oldest supported and a current Plasma release.
+The widget requires a **Linux Plasma 6 session**, Qt 6 QML modules, and a running ALFC backend with protocol **1.1 or a newer major-1 minor version**. The package metadata declares Plasma `6.0` as its minimum API. Headless checks passed all 56 cases with Qt `6.8.2` and Plasma `6.3.5`. Qt `6.12.0` passed 48 cases, with eight editor cases explicitly skipped because matching Plasma modules were absent. Complete shell compatibility still needs validation on the oldest supported and a current Plasma release.
 
 Required imports are:
 
@@ -35,11 +35,11 @@ Run widget installation as the desktop user, not with `sudo`; see [README.md](RE
 
 ### Qt runtime tests
 
-Use a Python virtual environment for development dependencies. The CI-tested PySide6 version is `6.8.2.1`:
+Use separate Python virtual environments for development dependencies. CI checks PySide6 `6.8.2.1` (Qt `6.8.2`) and `6.12.0` (Qt `6.12.0`). To run the latest verified version:
 
 ```bash
 python3 -m venv /tmp/alfc-widget-venv
-/tmp/alfc-widget-venv/bin/python -m pip install PySide6==6.8.2.1
+/tmp/alfc-widget-venv/bin/python -m pip install PySide6==6.12.0
 /tmp/alfc-widget-venv/bin/python plasmoid/run_qml_tests.py
 ```
 
@@ -47,11 +47,13 @@ On Debian/Ubuntu, the wheel still dynamically links `libEGL.so.1` and `libGL.so.
 
 The runner sets `QT_QPA_PLATFORM=offscreen` and `QT_QUICK_BACKEND=software` by default and uses a temporary cache directory. This avoids requiring a display server or GPU. Existing environment overrides are respected when testing another platform/renderer. Qt documents this backend selection in its [scene-graph implementation](https://github.com/qt/qtdeclarative/blob/6.8/src/quick/scenegraph/qsgcontextplugin.cpp).
 
-PySide's wheel contains its own Qt libraries and QML modules. To test the actual editor, make **matching** Plasma/Kirigami modules discoverable; mixing a different Qt build's private-ABI plugins can fail to load. For a matching Debian installation, for example:
+PySide's wheel contains its own Qt libraries and QML modules. To test the actual editor, make **matching** Plasma/Kirigami modules discoverable; mixing a different Qt build's private-ABI plugins can fail to load. The verified Plasma `6.3.5` component run used PySide6 `6.8.2.1`; keep it in a separate environment from the Qt `6.12.0` checks. For a matching Debian Qt `6.8.2` installation, for example:
 
 ```bash
+python3 -m venv /tmp/alfc-widget-plasma-venv
+/tmp/alfc-widget-plasma-venv/bin/python -m pip install PySide6==6.8.2.1
 QML_IMPORT_PATH=/usr/lib/x86_64-linux-gnu/qt6/qml \
-  /tmp/alfc-widget-venv/bin/python plasmoid/run_qml_tests.py
+  /tmp/alfc-widget-plasma-venv/bin/python plasmoid/run_qml_tests.py
 ```
 
 Other distributions use paths such as `/usr/lib/qt6/qml` or `/usr/lib64/qt6/qml`. A Qt-only run explicitly skips editor cases when the Plasma import is absent. With matching Plasma modules present, editor loading/rendering/behavior must pass; other errors are not treated as successful coverage. These tests do not instantiate a complete Plasma shell or access fan hardware.

@@ -149,6 +149,32 @@ Item {
             compare(Object.keys(backend.pendingRequests).length, 0)
         }
 
+        function test_pendingRequestLimitAndRecovery() {
+            const requestIds = []
+            for (let index = 0; index < backend.maximumPendingRequests; index += 1) {
+                requestIds.push(backend.setFixedPercentage(index % 101))
+            }
+            tryVerify(function () {
+                return fixture.requests.length === backend.maximumPendingRequests
+            })
+            const rejected = backend.setFixedPercentage(75)
+            tryCompare(finished, "count", 1)
+            compare(finished.signalArguments[0][0], rejected)
+            compare(finished.signalArguments[0][1], false)
+            verify(finished.signalArguments[0][2].indexOf("Too many pending") >= 0)
+            compare(Object.keys(backend.pendingRequests).length, backend.maximumPendingRequests)
+            compare(fixture.requests.length, backend.maximumPendingRequests)
+
+            fixture.peer.sendTextMessage(JSON.stringify({ kind: "success", requestId: requestIds[0] }))
+            tryCompare(finished, "count", 2)
+            const admitted = backend.setFixedPercentage(80)
+            tryVerify(function () {
+                return fixture.requests.length === backend.maximumPendingRequests + 1
+            })
+            compare(fixture.requests[backend.maximumPendingRequests].requestId, admitted)
+            compare(Object.keys(backend.pendingRequests).length, backend.maximumPendingRequests)
+        }
+
         function test_disconnectAndReconnect() {
             const requestId = backend.setFixedPercentage(60)
             tryVerify(function () { return fixture.requests.length === 1 })

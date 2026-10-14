@@ -19,6 +19,10 @@ loss, and mark activity older than ten seconds stale. They resubscribe after
 reconnecting and do not replay uncertain writes. Sharing one machine or listening
 on a different loopback address does not create separate backend state.
 
+The server accepts JSON requests in text frames and valid UTF-8 binary frames,
+and sends responses in text frames. Malformed UTF-8 binary input receives
+`INVALID_JSON` without executing a command or echoing corrupted request metadata.
+
 A client accepting a major-1 minor version still requires the documented base
 fields and valid values. Unknown optional fields are ignored. Malformed version
 strings, protocol 1.0, and other major versions are rejected by current guards.

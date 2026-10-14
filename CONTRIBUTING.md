@@ -9,18 +9,27 @@ and follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Toolchain and development
 
-The checked toolchain is Bun 1.4.3 and one Node.js 24 installation:
+The checked toolchain is Bun 1.4.3 and one Node.js 24.11 or newer within major 24 installation:
 
-| Runtime    | Current uses                                                                                |
-| ---------- | ------------------------------------------------------------------------------------------- |
-| Bun 1.4.3  | Dependency installation, workspace scripts, backend, native FFI/workers, server compilation |
-| Node.js 24 | Vite, Vitest, ESLint, TypeScript, Playwright, Husky, and lint-staged CLIs                   |
+| Runtime        | Current uses                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| Bun 1.4.3      | Dependency installation, workspace scripts, backend, native FFI/workers, server compilation |
+| Node.js 24.11+ | Vite, Vitest, ESLint, TypeScript, Playwright, Husky, and lint-staged CLIs                   |
 
 `bun run` and `bunx` honor a CLI's `#!/usr/bin/env node` shebang unless explicitly
 forced to use Bun with `--bun`; invoking them through Bun does not switch every
 tool's JavaScript runtime. See the [versioned Bun documentation](https://github.com/oven-sh/bun/blob/bun-v1.4.3/docs/runtime/index.mdx#L134-L147).
 Node 26 was an alternative allowed by dependency engine ranges, not an additional
 requirement. ALFC declares Node 24 to match its Linux/Windows CI and release jobs.
+
+The Babel 8 transform requires Node 24.11 or newer within major 24. React 19
+and Vite 8 are used by the frontend; Vite's default browser target is
+`baseline-widely-available` (Chrome/Edge 111, Firefox 114, Safari 16.4).
+ESLint 10 uses the maintained `@eslint-react` plugin and React's official Hooks
+rules. TypeScript is pinned to 6.0.3 because typescript-eslint 8.71.2 supports
+compilers below 6.1; TypeScript 7's native compiler is not yet supported by this
+parser. Recheck that constraint before changing the compiler pin, and do not
+force incompatible peer dependencies.
 
 This is a development/build requirement. Packaged executables embed Bun and need
 neither a separate Node installation nor a separate Bun installation.
@@ -62,6 +71,7 @@ the executable and serves the packaged frontend.
 bun run all-checks       # ESLint, strict TypeScript, Vitest, workspace builds
 bunx playwright install chromium
 bun run test:web        # Chromium protocol and layout scenarios
+bun outdated --recursive # Available updates across all workspaces
 bun audit               # Current advisory data; network required
 bun run del:tscache     # Remove only this workspace's known compiler caches
 ```

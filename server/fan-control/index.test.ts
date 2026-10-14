@@ -247,7 +247,6 @@ describe("fan-control", () => {
     expect(cycles - WAIT_RAMP_UP_CYCLES).toBeLessThan(1);
 
     // Reaching target
-    currentPercentage = expectedPercentage;
     expectedPercentage = targetPercentage;
     cycles = await waitUntilFanPercent(expectedPercentage);
     expect(cycles - WAIT_RAMP_UP_CYCLES).toBeLessThan(1);

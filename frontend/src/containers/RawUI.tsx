@@ -63,7 +63,7 @@ const StyledForm = styled.form`
 `;
 
 export function RawUI() {
-  const refRun = useRef<HTMLButtonElement>(null);
+  const runRef = useRef<HTMLButtonElement>(null);
 
   const [kind, setKind] = useState<Kind>(Kind.Get);
   const [methodName, setMethodName] = useState("");
@@ -95,7 +95,7 @@ export function RawUI() {
 
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
-    refRun.current?.focus();
+    runRef.current?.focus();
     if (!selectedMethod || isRunning || isManaged || isUnavailableBoost) return;
     const parsedArgs: { [key: string]: number } = {};
     for (const arg of selectedMethod.inArgs) {
@@ -258,7 +258,7 @@ export function RawUI() {
             <button
               disabled={!isRunnable || isRunning}
               type="submit"
-              ref={refRun}
+              ref={runRef}
             >
               Run
             </button>

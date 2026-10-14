@@ -996,6 +996,72 @@ describe("websocket contract", () => {
     });
   });
 
+  it("accepts valid UTF-8 binary JSON and binary heartbeats", async () => {
+    const ws = createSocket();
+    await dispatchMessage(
+      ws,
+      Buffer.from(
+        JSON.stringify({
+          kind: MessageToServerKind.FixedPercentage,
+          requestId: "binary-温度-🌡",
+          data: 70,
+        }),
+      ),
+    );
+    expect(state.fixedPercentage).toBe(70);
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Success,
+      requestId: "binary-温度-🌡",
+      data: 70,
+    });
+    await dispatchMessage(ws, Buffer.from("ping"));
+    expect(ws.send).toHaveBeenLastCalledWith("pong");
+  });
+
+  it.each([[0xff], [0xc0, 0xaf], [0xf4, 0x90, 0x80, 0x80], [0xe2, 0x82]])(
+    "rejects corrupted UTF-8 binary JSON before admitting a mutation: %j",
+    async (...bytes) => {
+      const ws = createSocket();
+      await dispatchMessage(
+        ws,
+        Buffer.concat([
+          Buffer.from(
+            '{"kind":"fixedpercentage","data":70,"requestId":"binary-',
+          ),
+          Buffer.from(bytes),
+          Buffer.from('"}'),
+        ]),
+      );
+      expect(getLastSentJson(ws)).toEqual({
+        kind: MessageToClientKind.Error,
+        data: "INVALID_JSON: Failed to parse message",
+      });
+      expect(state.fixedPercentage).toBe(DEFAULT_STATE.fixedPercentage);
+      expect(mockedPersistState).not.toHaveBeenCalled();
+      expect(server.publish).not.toHaveBeenCalled();
+      // A failed decode must not leave the shared decoder in a streaming state.
+      await dispatchMessage(
+        ws,
+        Buffer.from(JSON.stringify({ kind: "fixedpercentage", data: 65 })),
+      );
+      expect(state.fixedPercentage).toBe(65);
+      expect(getLastSentJson(ws).kind).toBe(MessageToClientKind.Success);
+    },
+  );
+
+  it("rejects a binary BOM consistently with a text JSON message", async () => {
+    const ws = createSocket();
+    await dispatchMessage(
+      ws,
+      Buffer.from('\uFEFF{"kind":"fixedpercentage","data":70}'),
+    );
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      data: "INVALID_JSON: Failed to parse message",
+    });
+    expect(mockedPersistState).not.toHaveBeenCalled();
+  });
+
   it("returns UNKNOWN_KIND while preserving method metadata", async () => {
     const ws = createSocket();
 

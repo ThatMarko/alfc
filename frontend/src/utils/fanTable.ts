@@ -1,7 +1,7 @@
 // A valid curve may use adjacent IEEE-754 temperatures. Inserting a midpoint
 // must never round back to an existing row and create a duplicate temperature.
 export function fanTableInsertionTemperature(
-  table: readonly (readonly [string, string])[],
+  table: readonly (readonly [string, string, ...unknown[]])[],
   row: number,
 ): number | null {
   const raw = table[row]?.[0];

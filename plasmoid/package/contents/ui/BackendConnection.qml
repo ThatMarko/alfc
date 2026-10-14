@@ -33,6 +33,7 @@ Item {
     property string lastRequestError: ""
     property string receivedProtocolVersion: ""
     property var pendingRequests: ({})
+    readonly property int maximumPendingRequests: 64
     property int requestSequence: 0
     property int requestTimeout: 30000
     property var latestState: null
@@ -128,6 +129,10 @@ Item {
     function sendRequest(kind, data, methodName, methodId) {
         if (!root.ready) {
             return root.rejectRequest(kind, i18n("Backend connection is not ready."))
+        }
+        if (Object.keys(root.pendingRequests).length >= root.maximumPendingRequests) {
+            return root.rejectRequest(kind,
+                i18n("Too many pending requests. Wait for the backend before applying more changes."))
         }
         const requestId = nextRequestId(kind)
         const payload = {

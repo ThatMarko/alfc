@@ -100,7 +100,7 @@ runtime capability messages before changing settings.
 
 ## Development and verification
 
-Install Bun 1.4.3 and Node.js 24 for the checked development toolchain. Bun runs
+Install Bun 1.4.3 and Node.js 24.11 or newer within major 24 for the checked development toolchain. Bun runs
 the backend and manages dependencies; Node runs the current Vite, Vitest, and
 other Node-shebang development CLIs. `bun run` preserves those CLI shebangs.
 Node 24 is the checked version, not a requirement to install both Node 24 and 26.

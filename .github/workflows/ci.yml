@@ -44,6 +44,30 @@ jobs:
       - name: Verify web UI against backend protocol scenarios
         run: bun run test:web
 
+      - name: Verify native WMI output packing
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror server/native/windows/wmidll/WmiOutput.test.cpp -o "$RUNNER_TEMP/alfc-wmi-output-test"
+          "$RUNNER_TEMP/alfc-wmi-output-test"
+
+      - name: Setup .NET for CPU tuning export checks
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Verify CPU tuning native exports
+        run: dotnet run --project server/native/windows/cpuoc-dotnet/CPUOC.Tests.csproj
+
+  qt:
+    name: Qt ${{ matrix.pyside }} widget
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pyside: ["6.8.2.1", "6.12.0"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Setup Python for Qt client runtime checks
         uses: actions/setup-python@v6
         with:
@@ -54,7 +78,7 @@ jobs:
           # The Qt GUI wheel links these even when Quick uses software rendering.
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y libegl1 libgl1
-          python -m pip install PySide6==6.8.2.1
+          python -m pip install "PySide6==${{ matrix.pyside }}"
 
       - name: Verify widget connection and protocol with Qt
         run: |
@@ -78,19 +102,6 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QUICK_BACKEND: software
-
-      - name: Verify native WMI output packing
-        run: |
-          c++ -std=c++17 -Wall -Wextra -Werror server/native/windows/wmidll/WmiOutput.test.cpp -o "$RUNNER_TEMP/alfc-wmi-output-test"
-          "$RUNNER_TEMP/alfc-wmi-output-test"
-
-      - name: Setup .NET for CPU tuning export checks
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: "8.0.x"
-
-      - name: Verify CPU tuning native exports
-        run: dotnet run --project server/native/windows/cpuoc-dotnet/CPUOC.Tests.csproj
 
   windows:
     runs-on: windows-latest

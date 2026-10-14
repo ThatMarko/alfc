@@ -1,4 +1,4 @@
-import type { Server, ServerWebSocket } from "bun";
+import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import {
   type Args,
   type FanControlActivity,
@@ -24,6 +24,13 @@ let messageQueue: Promise<void> = Promise.resolve();
 let queuedMessages = 0;
 let isShuttingDown = false;
 const MAX_QUEUED_MESSAGES = 64;
+// Binary WebSocket messages are Buffers by default. Buffer.toString() would
+// replace invalid UTF-8 and could execute a corrupted request with a changed ID.
+// Keep a BOM in the decoded text so JSON.parse treats binary and text equally.
+const binaryMessageDecoder = new TextDecoder("utf-8", {
+  fatal: true,
+  ignoreBOM: true,
+});
 
 export function startWebSocketShutdown(): Promise<void> {
   isShuttingDown = true;
@@ -499,6 +506,12 @@ async function handleMessage(
 }
 
 export const websocketHandlers = {
+  sendPings: true,
+  idleTimeout: 120,
+  maxPayloadLength: 64 * 1024,
+  backpressureLimit: 1024 * 1024,
+  closeOnBackpressureLimit: true,
+
   open(ws: ServerWebSocket<unknown>) {
     console.log("[WebSocket] Client connected");
     ws.subscribe("state");
@@ -506,8 +519,16 @@ export const websocketHandlers = {
   },
 
   message(ws: ServerWebSocket<unknown>, message: string | Buffer) {
-    const messageString =
-      typeof message === "string" ? message : message.toString();
+    let messageString: string;
+    try {
+      messageString =
+        typeof message === "string"
+          ? message
+          : binaryMessageDecoder.decode(message);
+    } catch (_) {
+      sendError(ws, null, "INVALID_JSON: Failed to parse message");
+      return Promise.resolve();
+    }
     if (messageString === "ping") {
       ws.send("pong");
       return Promise.resolve();
@@ -563,4 +584,4 @@ export const websocketHandlers = {
       `[WebSocket] Client disconnected (code: ${code}${reason ? `, reason: ${reason}` : ""})`,
     );
   },
-};
+} satisfies WebSocketHandler<unknown>;

@@ -71,7 +71,7 @@ intact, with project/reporting links clarified.
 ## Toolchain and repeatable checks
 
 Bun 1.4.3 was confirmed as the latest stable npm release during this audit and
-is pinned by the package manager and workflows. Node.js 24 runs development
+is pinned by the package manager and workflows. Node.js 24.11 or newer within major 24 runs development
 tooling; production executables embed Bun. The root Node engine matches the
 major 24 used by CI. Node-shebang CLIs retain Node execution under `bun run`/`bunx`.
 A forced-Bun test probe fails at the current whole-global fixture replacement;
@@ -82,6 +82,46 @@ Vitest 5.0.4 and lint-staged 17.6.0
 replace the vulnerable older toolchain. The unused deletion dependency was
 replaced with exact workspace cache deletion, and source-map-js was patched.
 No advisory was suppressed.
+
+The 2026-10-14 package review upgrades React/React DOM to 19.3.1, Vite to
+8.3.4, its React plugin to 6.1.2, Babel to 8.0.7, ESLint to 10.12.0, and
+Playwright to 1.64.1. Vite 8 uses Rolldown, so the Emotion transform now uses
+`@rolldown/plugin-babel` and only processes TSX. The Node minimum is 24.11 for
+Babel 8. Floating UI replaces the single Reactstrap tooltip, the fan-mode
+button is native HTML, and unused Bootstrap is removed. React Toastify uses its
+supported unstyled entry with the existing static stylesheet, avoiding duplicate
+runtime CSS injection. The frontend follows Vite 8's documented
+`baseline-widely-available` target; an unused Browserslist declaration does not
+change that target.
+
+TypeScript is pinned to 6.0.3. The latest 7.0.2 native compiler is deferred:
+typescript-eslint 8.71.2 declares support for `>=4.8.4 <6.1.0`, and the new native
+compiler does not expose the legacy compiler API used by current tooling.
+ESLint 10 uses `@eslint-react/eslint-plugin` 5.26.7 instead of the classic React
+plugin whose peer range stops at ESLint 9. Duplicate direct parser/plugin and
+obsolete ESLint declaration packages are removed. Node declarations track the
+supported Node 24 line (24.19.2), not the unrelated latest Node major. The
+post-upgrade `bun outdated --recursive` check lists only the intentionally
+deferred TypeScript major and Node 26 declarations outside the supported runtime
+line. The advisory audit reports no vulnerabilities across 293 packages.
+
+WebSocket binary commands now use fatal UTF-8 decoding: malformed bytes cannot
+be replacement-decoded into otherwise valid commands. Production and actual Bun
+socket fixtures share the same 64 KiB input and 1 MiB output-pressure settings.
+The web client sends on its validated current socket, rejects closed/busy
+transports immediately, ignores superseded connection callbacks, and retries
+only after close. Both clients cap outstanding commands at 64. Compiled servers
+explicitly disable ambient working-directory `.env` and `bunfig.toml` loading;
+a real compile-and-run fixture checks this alongside embedded worker RPC and
+resource paths.
+
+The frontend upgrade trades a larger React 19 renderer and Font Awesome 7 core
+for current supported releases. A controlled Vite 8 build of just the renderer
+entry measured about 79 kB more minified JavaScript (23 kB gzip) for React 19
+than React 18; this is not a whole-app runtime benchmark. The production icon
+collection remains tree-shaken to the used glyphs. Removing unused Bootstrap,
+Reactstrap, and duplicate Toastify CSS avoids unnecessary work, but the overall
+frontend bundle is larger than before this major upgrade.
 
 ```bash
 bun install --frozen-lockfile
@@ -104,11 +144,13 @@ For Qt tests, use a separate development environment:
 
 ```bash
 python3 -m venv /tmp/alfc-qt
-/tmp/alfc-qt/bin/python -m pip install PySide6==6.8.2.1
+/tmp/alfc-qt/bin/python -m pip install PySide6==6.12.0
 /tmp/alfc-qt/bin/python plasmoid/run_qml_tests.py
 ```
 
-Full editor/layout tests require compatible Plasma/Kirigami modules. Qt-only CI
+Full editor/layout tests require compatible Plasma/Kirigami modules; the verified
+Plasma 6.3.5 environment uses Qt 6.8.2, in a separate environment from Qt 6.12.
+Qt-only CI checks both PySide6 6.8.2.1 and 6.12.0 and
 reports those missing modules as explicit skips. Linked EGL/GL libraries and Qt
 Quick software rendering are required by the headless setup. See
 [plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md). This is not a full Plasma
@@ -144,13 +186,14 @@ loaded until process exit.
 ## Verification results
 
 - Frozen installation, ESLint, strict TypeScript, and both workspace builds pass.
-  Vitest executes 21 files: 290 tests pass on Linux and one Windows-only effective
+  Vitest executes 23 files: 302 tests pass on Linux and one Windows-only effective
   token test is explicitly skipped there. That test runs on Windows CI.
-- All 13 Chromium scenarios pass, covering authoritative state, independent
-  drafts, correlated failures, reconnect/no replay, capability changes, invalid
+- All 15 Chromium scenarios pass, covering authoritative state, independent
+  drafts, correlated failures, reconnect/no replay, retired-socket callbacks, transport pressure, capability changes, invalid
   versions, stale activity, exact raw values, tooltips, and a 320px layout.
-- All 55 Qt checks pass with matching Plasma/Kirigami modules. Qt-only execution
-  passes 47 and explicitly skips eight Plasma editor cases. A broken installed
+- All 56 Qt checks pass with matching Plasma/Kirigami modules. Qt-only execution
+  passes 48 and explicitly skips eight Plasma editor cases on both Qt 6.8.2
+  and Qt 6.12.0. A broken installed
   Plasma plugin is a failure, not an unavailable-module skip.
 - Portable C++ packing checks and the strict MinGW Windows DLL compile/link pass.
   The C# native-export regression project passes against its controlled SDK;
@@ -181,9 +224,14 @@ Linux/Windows outcomes, including MSVC and the Windows COM regression executable
 - [Bun audit](https://bun.com/docs/pm/cli/audit): read-only audit versus intentional
   fixes, with installed Vitest/lint-staged manifests for Node requirements.
 - [React](https://react.dev/reference/react/useEffect), installed
-  `react-use-websocket`/Reactstrap APIs, and
+  `react-use-websocket` APIs, [Floating UI](https://floating-ui.com/docs/tooltip), and
   [WAI tooltips](https://www.w3.org/WAI/ARIA/apg/patterns/tooltip/): event delivery,
   cleanup, request replay prevention, keyboard and descriptive associations.
+- [Vite 8 migration](https://vite.dev/guide/migration),
+  [React 19 upgrade](https://react.dev/blog/2024/04/25/react-19-upgrade-guide),
+  [React plugin v6](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md),
+  [ESLint React](https://eslint-react.xyz/docs/getting-started), and installed
+  package peer/engine declarations: supported major upgrades and compiler pin.
 - [Playwright WebSocket routing](https://playwright.dev/docs/api/class-websocketroute):
   controlled protocol scenarios alongside actual backend smoke checks.
 - [Microsoft WMI](https://learn.microsoft.com/en-us/windows/win32/wmisdk/calling-a-method)

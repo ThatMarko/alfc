@@ -41,6 +41,10 @@ backpressure are closed. At most **64** queued or executing JSON hardware/config
 requests are admitted across all connections. An excess request receives `BUSY`;
 subscription and heartbeat traffic remain available.
 
+Requests may use text frames or UTF-8 binary frames. Invalid UTF-8 binary input
+receives `INVALID_JSON` before any work is admitted; it is never decoded using
+replacement characters. Responses and pushes use text frames.
+
 ## Protocol versions and correlation
 
 Current shipped clients require **1.1 or a later minor version of major 1**.
@@ -173,7 +177,7 @@ and unknown properties cannot be injected through a config file.
 
 | Error code            | Trigger                                                                                 |
 | --------------------- | --------------------------------------------------------------------------------------- |
-| `INVALID_JSON`        | The message cannot be parsed as JSON.                                                   |
+| `INVALID_JSON`        | The message is invalid UTF-8 binary input or cannot be parsed as JSON.                  |
 | `UNKNOWN_KIND`        | Missing or unsupported operation kind.                                                  |
 | `MISSING_DATA`        | A required `data` value is absent or `null`.                                            |
 | `INVALID_PAYLOAD`     | Wrong shape, invalid curve/signature, opcode/name mismatch, or invalid GPU-boost value. |
@@ -197,7 +201,7 @@ For example:
 }
 ```
 
-Malformed JSON cannot provide trusted correlation metadata. Valid JSON requests
+Malformed UTF-8 or JSON cannot provide trusted correlation metadata. Valid JSON requests
 retain their string metadata in error responses, including shutdown rejection.
 
 A `get` returns an ordinary JSON number within `Number.MAX_SAFE_INTEGER`, or an

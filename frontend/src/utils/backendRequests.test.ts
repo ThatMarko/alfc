@@ -143,4 +143,57 @@ describe("backend request lifecycle", () => {
     ).rejects.toThrow("Socket closed");
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("does not settle a request from malformed wire responses", async () => {
+    const requests = new BackendRequests();
+    let requestId: string | undefined;
+    const promise = requests.send(
+      { kind: MessageToServerKind.Tune },
+      (sent) => {
+        requestId = sent.requestId;
+      },
+    );
+    for (const message of [
+      null,
+      [],
+      { kind: "success", requestId: 1 },
+      { kind: "error", requestId, data: { message: "invalid error" } },
+      { kind: "success", requestId, methodName: 3 },
+      { kind: "state", requestId, data: {} },
+    ]) {
+      expect(requests.receive(message)).toBe(false);
+      expect(vi.getTimerCount()).toBe(1);
+    }
+    expect(
+      requests.receive({ kind: "success", requestId, data: "confirmed" }),
+    ).toBe(true);
+    await expect(promise).resolves.toMatchObject({ data: "confirmed" });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("bounds pending requests and releases capacity after confirmation", async () => {
+    const requests = new BackendRequests();
+    const sent: MessageToServer[] = [];
+    const promises = Array.from({ length: 64 }, () =>
+      requests.send({ kind: MessageToServerKind.Tune }, (message) => {
+        sent.push(message);
+      }),
+    );
+    const send = vi.fn();
+    await expect(
+      requests.send({ kind: MessageToServerKind.Tune }, send),
+    ).rejects.toThrow("Too many requests");
+    expect(send).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(64);
+    requests.receive({ kind: "success", requestId: sent[0]?.requestId });
+    await expect(promises[0]).resolves.toMatchObject({ kind: "success" });
+    const next = requests.send({ kind: MessageToServerKind.Tune }, send);
+    expect(send).toHaveBeenCalledOnce();
+    const assertions = [...promises.slice(1), next].map((promise) =>
+      expect(promise).rejects.toThrow("Connection lost"),
+    );
+    requests.disconnect();
+    await Promise.all(assertions);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

@@ -2,7 +2,7 @@
 
 ## Validate the source revision
 
-Use Bun 1.4.3 or newer and Node 24. Run `bun install --frozen-lockfile`,
+Use Bun 1.4.3 or newer and Node 24.11 or newer within major 24. Run `bun install --frozen-lockfile`,
 `bun run all-checks`, and the documented browser and Qt runtime checks before
 creating a tag. CI runs the shared checks on Linux and Windows, browser/Qt checks
 on Linux, and builds the Windows WMI DLL with MSVC. Native SDK substitute tests
@@ -20,7 +20,7 @@ Node runs the current Vite, Vitest, and other Node-shebang development CLIs:
 simple switch to `--bun`. See [the toolchain explanation](CONTRIBUTING.md#toolchain-and-development)
 for the runtime roles and versioned API reference.
 
-Use one Node.js 24 installation, matching both platform workflows. Node 26 was
+Use one Node.js 24.11 or newer within major 24 installation, matching both platform workflows. Node 26 was
 an upstream-compatible alternative, not a second required installation; ALFC's
 declared engine now matches the checked Node 24 workflow. Release users install
 neither development runtime: the compiled executable embeds Bun.

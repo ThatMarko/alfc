@@ -23,8 +23,37 @@ const initialState: State = {
   isGpuBoostAvailable: true,
 };
 
-async function backend(page: Page, overrides: Partial<State> = {}) {
+async function trackBackendSockets(page: Page) {
+  await page.addInitScript(() => {
+    const sockets: WebSocket[] = [];
+    Object.defineProperty(window, "testBackendSockets", { value: sockets });
+    const track = (BrowserWebSocket: typeof WebSocket) =>
+      class extends BrowserWebSocket {
+        constructor(url: string | URL, protocols?: string | string[]) {
+          super(url, protocols);
+          if (new URL(url).pathname === "/ws") sockets.push(this);
+        }
+      };
+    // Playwright installs its routed WebSocket constructor through a separate
+    // init script; support either initialization order and exclude Vite HMR.
+    let browserWebSocket = track(window.WebSocket);
+    Object.defineProperty(window, "WebSocket", {
+      configurable: true,
+      get: () => browserWebSocket,
+      set: (replacement: typeof WebSocket) => {
+        browserWebSocket = track(replacement);
+      },
+    });
+  });
+}
+
+async function backend(
+  page: Page,
+  overrides: Partial<State> = {},
+  { stateOnReconnect = true } = {},
+) {
   const requests: MessageToServer[] = [];
+  const subscriptions: WebSocketRoute[] = [];
   const connections: WebSocketRoute[] = [];
   const errors: string[] = [];
   let state = { ...structuredClone(initialState), ...overrides };
@@ -37,9 +66,11 @@ async function backend(page: Page, overrides: Partial<State> = {}) {
     connections.push(socket);
     socket.onMessage((raw) => {
       const message = JSON.parse(String(raw)) as MessageToServer;
-      if (message.kind !== "registeractivitysocket") requests.push(message);
+      if (message.kind === "registeractivitysocket") subscriptions.push(socket);
+      else requests.push(message);
     });
-    socket.send(JSON.stringify({ kind: "state", data: state }));
+    if (connections.length === 1 || stateOnReconnect)
+      socket.send(JSON.stringify({ kind: "state", data: state }));
   });
   const send = (message: object) => {
     const socket = connections.at(-1);
@@ -52,7 +83,7 @@ async function backend(page: Page, overrides: Partial<State> = {}) {
   };
   await page.goto("/");
   await expect(page.getByLabel("Fixed fan speed percentage")).toBeVisible();
-  return { requests, connections, errors, send, push };
+  return { requests, subscriptions, connections, errors, send, push };
 }
 
 test("mode follows backend snapshots and only its own response settles a command", async ({
@@ -66,6 +97,11 @@ test("mode follows backend snapshots and only its own response settles a command
   await expect.poll(() => server.requests.length).toBe(1);
   await expect(mode).toBeDisabled();
   server.send({ kind: "success", requestId: "other-client", data: true });
+  server.send({
+    kind: "error",
+    requestId: server.requests[0]?.requestId,
+    data: { message: "Malformed error must not settle the request" },
+  });
   server.push({ pl1: 45 });
   await expect(mode).toBeDisabled();
   await expect(fixed).toBeDisabled();
@@ -190,6 +226,106 @@ test("disconnect aborts pending work and reconnect never replays a hardware writ
   ).toBeEnabled();
   await expect(page.getByLabel("Fixed fan speed percentage")).toBeDisabled();
   expect(server.requests).toHaveLength(1);
+  expect(server.errors).toEqual([]);
+});
+
+test("a replacement connection requires its own snapshot and ignores retired socket events", async ({
+  page,
+}) => {
+  await trackBackendSockets(page);
+  const server = await backend(page, {}, { stateOnReconnect: false });
+  await page.getByRole("button", { name: "Switch to fixed mode" }).click();
+  await expect.poll(() => server.requests.length).toBe(1);
+  await page.clock.install();
+  await page.evaluate(() => {
+    const socket = (window as Window & { testBackendSockets?: WebSocket[] })
+      .testBackendSockets?.[0];
+    if (!socket) throw new Error("Original socket missing");
+    socket.dispatchEvent(new Event("error"));
+  });
+  await server.connections[0]?.close({ code: 1012, reason: "Service restart" });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as Window & { testBackendSockets?: WebSocket[] })
+            .testBackendSockets?.[0]?.readyState,
+      ),
+    )
+    .toBe(3);
+  await page.clock.fastForward(1000);
+  await expect.poll(() => server.connections.length).toBe(2);
+  await expect(page.getByLabel("Fixed fan speed percentage")).toHaveCount(0);
+  server.send({ kind: "success", requestId: server.requests[0]?.requestId });
+  await expect(
+    page.getByRole("button", { name: "Switch to fixed mode" }),
+  ).toHaveCount(0);
+  server.push({});
+  await expect(
+    page.getByRole("button", { name: "Switch to fixed mode" }),
+  ).toBeEnabled();
+  await page.evaluate(() => {
+    const socket = (window as Window & { testBackendSockets?: WebSocket[] })
+      .testBackendSockets?.[0];
+    if (!socket) throw new Error("Original socket missing");
+    socket.dispatchEvent(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          kind: "state",
+          data: { protocolVersion: "2.0" },
+        }),
+      }),
+    );
+    socket.dispatchEvent(new Event("error"));
+    socket.dispatchEvent(new CloseEvent("close", { code: 1000 }));
+  });
+  await page.clock.fastForward(10001);
+  await expect(
+    page.getByRole("button", { name: "Switch to fixed mode" }),
+  ).toBeEnabled();
+  await expect(
+    page.getByText("incompatible or invalid state", { exact: false }),
+  ).toHaveCount(0);
+  expect(server.connections).toHaveLength(2);
+  expect(server.subscriptions).toEqual(server.connections);
+  expect(server.requests).toHaveLength(1);
+  expect(server.errors).toEqual([]);
+});
+
+test("transport backpressure rejects an unsent command immediately and allows a later retry", async ({
+  page,
+}) => {
+  await trackBackendSockets(page);
+  const server = await backend(page);
+  await page.evaluate(() => {
+    const socket = (
+      window as Window & { testBackendSockets?: WebSocket[] }
+    ).testBackendSockets?.at(-1);
+    if (!socket) throw new Error("Backend socket missing");
+    Object.defineProperty(socket, "bufferedAmount", {
+      configurable: true,
+      get: () => 64 * 1024,
+    });
+  });
+  const mode = page.getByRole("button", { name: "Switch to fixed mode" });
+  await mode.click();
+  await expect(page.getByRole("alert")).toContainText("connection is busy");
+  await expect(mode).toBeEnabled();
+  expect(server.requests).toEqual([]);
+  await page.evaluate(() => {
+    const socket = (
+      window as Window & { testBackendSockets?: WebSocket[] }
+    ).testBackendSockets?.at(-1);
+    if (!socket) throw new Error("Backend socket missing");
+    Object.defineProperty(socket, "bufferedAmount", {
+      configurable: true,
+      get: () => 0,
+    });
+  });
+  await mode.click();
+  await expect.poll(() => server.requests.length).toBe(1);
+  server.send({ kind: "success", requestId: server.requests[0]?.requestId });
+  await expect(mode).toBeEnabled();
   expect(server.errors).toEqual([]);
 });
 
@@ -387,6 +523,18 @@ test("fan row controls cannot insert duplicate floating-point temperatures", asy
     .getByRole("button", { name: "Append CPU fan curve row", exact: true })
     .click();
   await expect(page.getByLabel("CPU temperature for row 3")).toHaveValue("1");
+  await page
+    .getByRole("button", { name: "Add CPU row before row 3", exact: true })
+    .focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Add CPU row before row 4", exact: true }),
+  ).toBeFocused();
+  const originalRow = page.getByLabel("CPU temperature for row 4");
+  await expect(originalRow).toHaveValue("1");
+  await originalRow.fill("2");
+  await expect(originalRow).toBeFocused();
+  await expect(originalRow).toHaveValue("2");
   expect(server.requests).toEqual([]);
   expect(server.errors).toEqual([]);
 });

@@ -23,11 +23,12 @@ branch and preserve unrelated user work.
 
 ## Toolchain and commands
 
-Use Bun 1.4.3 (the package-manager and workflow pin) and Node.js 24 for the
+Use Bun 1.4.3 (the package-manager and workflow pin) and Node.js 24.11 or newer within major 24 for the
 checked development tools. Node 24 is the one supported development major, matching
 CI. `bun run`/`bunx` preserve Node shebangs for CLIs such as Vite, Vitest, ESLint,
 TypeScript, Playwright, Husky, and lint-staged. Packaged production embeds Bun and
-requires neither a separate Node nor Bun installation. A Bun-only test migration
+requires neither a separate Node nor Bun installation. TypeScript stays pinned to 6.0.3 while the ESLint parser requires <6.1.
+A Bun-only test migration
 must first replace whole-global `Bun` mocks; forcing the current suite fails setup.
 
 ```bash

@@ -40,6 +40,10 @@ const result = await Bun.build({
   compile: {
     target,
     outfile: path.join(serverDir, outfile),
+    // Packaged settings live beside the executable. Avoid reading unrelated
+    // .env or bunfig.toml files from the service's working directory.
+    autoloadDotenv: false,
+    autoloadBunfig: false,
   },
   format: "esm",
   minify: true,

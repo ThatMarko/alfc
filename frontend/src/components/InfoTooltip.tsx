@@ -1,8 +1,21 @@
 import styled from "@emotion/styled";
 import { faInfoCircle } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { useId, useRef, type ReactNode } from "react";
-import { SimpleTooltip } from "./SimpleTooltip";
+import { useState, type ReactNode } from "react";
+import {
+  autoUpdate,
+  flip,
+  FloatingPortal,
+  offset,
+  safePolygon,
+  shift,
+  useDismiss,
+  useFloating,
+  useFocus,
+  useHover,
+  useInteractions,
+  useRole,
+} from "@floating-ui/react";
 
 const StyledInfoButton = styled.button`
   display: inline-flex;
@@ -14,6 +27,17 @@ const StyledInfoButton = styled.button`
   cursor: help;
 `;
 
+const StyledContent = styled.div`
+  z-index: 1080;
+  background-color: white;
+  color: #202027;
+  box-shadow: 0 4px 16px #0006;
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  border-radius: 4px;
+  padding: 16px;
+`;
+
 export function InfoTooltip({
   label,
   children,
@@ -21,21 +45,50 @@ export function InfoTooltip({
   label: string;
   children: ReactNode;
 }) {
-  const target = useRef<HTMLButtonElement>(null);
-  const id = useId();
+  const [isOpen, setIsOpen] = useState(false);
+  const {
+    refs: { setReference, setFloating },
+    floatingStyles,
+    context,
+  } = useFloating({
+    open: isOpen,
+    onOpenChange: setIsOpen,
+    placement: "top",
+    middleware: [offset(8), flip(), shift({ padding: 16 })],
+    whileElementsMounted: autoUpdate,
+  });
+  const hover = useHover(context, { move: false, handleClose: safePolygon() });
+  const focus = useFocus(context, { visibleOnly: false });
+  const dismiss = useDismiss(context);
+  const role = useRole(context, { role: "tooltip" });
+  const { getReferenceProps, getFloatingProps } = useInteractions([
+    hover,
+    focus,
+    dismiss,
+    role,
+  ]);
+
   return (
     <>
       <StyledInfoButton
         type="button"
-        ref={target}
+        ref={setReference}
         aria-label={label}
-        aria-describedby={id}
+        {...getReferenceProps()}
       >
         <FontAwesomeIcon icon={faInfoCircle} aria-hidden="true" />
       </StyledInfoButton>
-      <SimpleTooltip id={id} target={target}>
-        {children}
-      </SimpleTooltip>
+      {isOpen && (
+        <FloatingPortal>
+          <StyledContent
+            ref={setFloating}
+            style={floatingStyles}
+            {...getFloatingProps()}
+          >
+            {children}
+          </StyledContent>
+        </FloatingPortal>
+      )}
     </>
   );
 }

@@ -3,7 +3,7 @@ const { mockSuccess, mockError } = vi.hoisted(() => ({
   mockError: vi.fn(),
 }));
 
-vi.mock("react-toastify", () => ({
+vi.mock("react-toastify/unstyled", () => ({
   toast: {
     success: mockSuccess,
     error: mockError,

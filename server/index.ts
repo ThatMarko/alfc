@@ -250,14 +250,7 @@ async function runServer() {
       return new Response("Nothing to see here.");
     },
 
-    websocket: {
-      ...websocketHandlers,
-      sendPings: true,
-      idleTimeout: 120,
-      maxPayloadLength: 64 * 1024,
-      backpressureLimit: 1024 * 1024,
-      closeOnBackpressureLimit: true,
-    },
+    websocket: websocketHandlers,
   } satisfies Bun.Serve.Options<undefined>;
 
   const listeners = await listenOnLoopback(options);

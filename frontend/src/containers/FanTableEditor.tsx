@@ -35,7 +35,7 @@ export function FanTableEditor({
   const inputs = value.map((tableItem, idx) => {
     const insertionTemperature = fanTableInsertionTemperature(value, idx);
     return (
-      <tr key={idx}>
+      <tr key={tableItem[2]}>
         <td>
           <StyledInput
             type="number"
@@ -49,7 +49,7 @@ export function FanTableEditor({
             size={4}
             onChange={(event) => {
               const nextValue = value.slice();
-              nextValue[idx] = [event.target.value, tableItem[1]];
+              nextValue[idx] = [event.target.value, tableItem[1], tableItem[2]];
               onChange(nextValue);
             }}
             value={tableItem[0]}
@@ -68,7 +68,7 @@ export function FanTableEditor({
             size={4}
             onChange={(event) => {
               const nextValue = value.slice();
-              nextValue[idx] = [tableItem[0], event.target.value];
+              nextValue[idx] = [tableItem[0], event.target.value, tableItem[2]];
               onChange(nextValue);
             }}
             value={tableItem[1]}
@@ -89,6 +89,7 @@ export function FanTableEditor({
               nextValue.splice(idx, 0, [
                 String(insertionTemperature),
                 String(percentage),
+                crypto.randomUUID(),
               ]);
               onChange(nextValue);
             }}
@@ -151,7 +152,10 @@ export function FanTableEditor({
           const temperature = Number.isFinite(previousTemperature)
             ? Math.min(110, previousTemperature + 1)
             : 0;
-          onChange([...value, [String(temperature), last?.[1] ?? "0"]]);
+          onChange([
+            ...value,
+            [String(temperature), last?.[1] ?? "0", crypto.randomUUID()],
+          ]);
         }}
       >
         Add row

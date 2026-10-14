@@ -41,7 +41,7 @@ permission checks use Advapi32 directly and do not require the LanmanServer serv
 
 ## Development and validation
 
-Use Bun 1.4.3 or newer and Node 24 for the repository's current Vitest toolchain.
+Use Bun 1.4.3 or newer and Node 24.11 or newer within major 24 for the repository's current Vitest toolchain.
 `bun run --cwd server start` watches the backend; the frontend dev server runs
 separately on port 3000. `bun run build` compiles the packages. A production
 executable needs `frontend/` and `alfc.config.json` alongside it; use the assembled

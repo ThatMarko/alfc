@@ -2,9 +2,8 @@ import styled from "@emotion/styled";
 import { faExchangeAlt } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { MessageToServerKind } from "../../common/types";
-import { ToastContainer } from "react-toastify";
+import { ToastContainer } from "react-toastify/unstyled";
 import "react-toastify/dist/ReactToastify.css";
-import { Button } from "reactstrap";
 import { CPUTuning } from "./containers/CPUTuning";
 import { FanTable } from "./containers/FanTable";
 import { FixedSpeed } from "./containers/FixedSpeed";
@@ -69,7 +68,8 @@ function App() {
           />
           {isConnected && (
             <StyledChangeModeContainer>
-              <Button
+              <button
+                type="button"
                 disabled={!isFanControlAvailable || isPending}
                 onClick={onChangeMode}
                 aria-label={
@@ -82,7 +82,7 @@ function App() {
                 <FontAwesomeIcon icon={faExchangeAlt} aria-hidden="true" />
                 <br />
                 Fixed
-              </Button>
+              </button>
             </StyledChangeModeContainer>
           )}
           <FixedSpeed

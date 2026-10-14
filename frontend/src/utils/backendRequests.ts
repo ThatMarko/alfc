@@ -11,6 +11,28 @@ type PendingRequest = {
   timeout: ReturnType<typeof setTimeout>;
 };
 
+type BackendResponse = Extract<
+  MessageToClient,
+  { kind: MessageToClientKind.Success | MessageToClientKind.Error }
+>;
+
+function isBackendResponse(message: unknown): message is BackendResponse {
+  if (!message || typeof message !== "object" || Array.isArray(message))
+    return false;
+  const response = message as Record<string, unknown>;
+  return (
+    typeof response.requestId === "string" &&
+    response.requestId.length > 0 &&
+    (response.methodId === undefined ||
+      typeof response.methodId === "string") &&
+    (response.methodName === undefined ||
+      typeof response.methodName === "string") &&
+    (response.kind === MessageToClientKind.Success ||
+      (response.kind === MessageToClientKind.Error &&
+        typeof response.data === "string"))
+  );
+}
+
 // Replies are handled as socket events, rather than render effects: several
 // replies may arrive before React renders, and each must settle its own request.
 export class BackendRequests {
@@ -22,6 +44,12 @@ export class BackendRequests {
     message: Omit<MessageToServer, "requestId">,
     send: (message: MessageToServer) => void,
   ): Promise<MessageToClient> {
+    if (this.pending.size >= 64)
+      return Promise.reject(
+        new Error(
+          "Too many requests are awaiting confirmation. Wait for pending requests before applying more changes.",
+        ),
+      );
     const requestId = nextRequestId(message.kind);
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -43,23 +71,12 @@ export class BackendRequests {
     });
   }
 
-  receive(message: MessageToClient): boolean {
-    if (
-      !message.requestId ||
-      (message.kind !== MessageToClientKind.Success &&
-        message.kind !== MessageToClientKind.Error)
-    )
-      return false;
+  receive(message: unknown): boolean {
+    if (!isBackendResponse(message) || !message.requestId) return false;
     const pending = this.finish(message.requestId);
     if (!pending) return false;
     if (message.kind === MessageToClientKind.Error) {
-      pending.reject(
-        new Error(
-          typeof message.data === "string"
-            ? message.data
-            : "The backend rejected the request.",
-        ),
-      );
+      pending.reject(new Error(message.data));
     } else {
       pending.resolve(message);
     }
