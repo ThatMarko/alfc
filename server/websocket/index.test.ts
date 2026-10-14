@@ -9,8 +9,10 @@ import { applyFixedFan, fanControl } from "../fan-control/index";
 import { getCall, setCall, tune } from "../native/index";
 import { persistState, state } from "../state/index";
 import {
+  publishActivity,
   publishState,
   setServer,
+  setServers,
   startWebSocketShutdown,
   websocketHandlers,
 } from "./index";
@@ -170,6 +172,62 @@ describe("websocket contract", () => {
       ...state,
       protocolVersion: "1.1",
     });
+  });
+
+  it("synchronizes state and telemetry across both loopback listeners", async () => {
+    const ipv6 = createServer();
+    setServers([server, ipv6]);
+    const ws = createSocket();
+    await dispatchMessage(ws, {
+      kind: MessageToServerKind.FixedPercentage,
+      data: 72,
+    });
+    const activity = {
+      appliedSpeed: 72,
+      avgCPUTemp: 65,
+      avgGPUTemp: 60,
+      target: 72,
+      sensorFailure: false,
+    };
+    publishActivity(activity);
+    for (const listener of [server, ipv6]) {
+      expect(listener.publish).toHaveBeenCalledTimes(2);
+      expect(listener.publish).toHaveBeenNthCalledWith(
+        1,
+        "state",
+        expect.any(String),
+      );
+      expect(
+        JSON.parse(String(listener.publish.mock.calls[0]?.[1])).data
+          .fixedPercentage,
+      ).toBe(72);
+      expect(listener.publish).toHaveBeenNthCalledWith(
+        2,
+        "activity",
+        JSON.stringify({
+          kind: MessageToClientKind.FanControlActivity,
+          data: activity,
+        }),
+      );
+    }
+    expect(server.publish.mock.calls).toEqual(ipv6.publish.mock.calls);
+  });
+
+  it("publishes once per listener and replaces the registry for a single server", () => {
+    const other = createServer();
+    setServers([server, server, other]);
+    publishState();
+    expect(server.publish).toHaveBeenCalledTimes(1);
+    expect(other.publish).toHaveBeenCalledTimes(1);
+    server.publish.mockClear();
+    other.publish.mockClear();
+    setServer(server as unknown as import("bun").Server<unknown>);
+    publishState();
+    expect(server.publish).toHaveBeenCalledTimes(1);
+    expect(other.publish).not.toHaveBeenCalled();
+    setServers([]);
+    publishState();
+    expect(server.publish).toHaveBeenCalledTimes(1);
   });
 
   it("broadcasts runtime capability changes to every connected client", async () => {

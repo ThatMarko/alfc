@@ -8,7 +8,7 @@ import { state } from "./state/index";
 import { isDev } from "./utils/consts";
 import {
   websocketHandlers,
-  setServer,
+  setServers,
   startWebSocketShutdown,
 } from "./websocket/index";
 import {
@@ -19,6 +19,7 @@ import {
 } from "./fan-control/index";
 import { isAllowedWebSocketOrigin, resolveFrontendPath } from "./http";
 import { isElevated } from "./permissions";
+import { listenOnLoopback } from "./listeners";
 
 const PORT = 5522;
 const DRAIN_TIMEOUT_MS = 5_000;
@@ -44,7 +45,7 @@ const exitWithError = () => {
   }
 };
 
-let server: Bun.Server<undefined> | undefined;
+const servers: Bun.Server<undefined>[] = [];
 let nativeInitialization: Promise<void> | undefined;
 let isShuttingDown = false;
 let shutdownPromise: Promise<void> | undefined;
@@ -80,9 +81,9 @@ function shutdown(code: number): Promise<void> {
   isShuttingDown = true;
   startFanControlShutdown();
   const mutationsDrained = startWebSocketShutdown();
-  const connectionsClosed = server?.stop(true) ?? Promise.resolve();
+  setServers([]);
 
-  shutdownPromise = (async () => {
+  shutdownPromise = Promise.resolve().then(async () => {
     // Register a hard deadline before awaiting anything: hardware calls can
     // stall, and WinSW only grants 15 seconds for graceful service shutdown.
     const deadline = setTimeout(
@@ -94,6 +95,11 @@ function shutdown(code: number): Promise<void> {
       },
       DRAIN_TIMEOUT_MS + RESTORE_FAN_TIMEOUT_MS + CLEANUP_TIMEOUT_MS,
     );
+    // Each callback turns even a synchronous stop error into a rejection. One
+    // failed listener must not prevent closing the others or restoring BIOS.
+    const connectionsClosed = servers.map(
+      async (server) => await server.stop(true),
+    );
 
     try {
       // Stop accepting work first, then finish admitted mutations and fan
@@ -101,7 +107,7 @@ function shutdown(code: number): Promise<void> {
       await withShutdownTimeout(
         (async () => {
           const drained = await Promise.allSettled([
-            connectionsClosed,
+            ...connectionsClosed,
             mutationsDrained,
             nativeInitialization,
           ]);
@@ -155,7 +161,7 @@ function shutdown(code: number): Promise<void> {
       clearTimeout(deadline);
       process.exit(shutdownExitCode);
     }
-  })();
+  });
 
   return shutdownPromise;
 }
@@ -197,11 +203,10 @@ async function runServer() {
 
   console.log("[Server] Starting server...");
 
-  server = Bun.serve({
+  const options = {
     port: PORT,
-    hostname: "localhost",
 
-    async fetch(req, server) {
+    async fetch(req: Request, server: Bun.Server<undefined>) {
       if (isShuttingDown) {
         return new Response("Service Unavailable", { status: 503 });
       }
@@ -260,9 +265,18 @@ async function runServer() {
       backpressureLimit: 1024 * 1024,
       closeOnBackpressureLimit: true,
     },
-  });
+  } satisfies Bun.Serve.Options<undefined>;
 
-  setServer(server);
+  const listeners = await listenOnLoopback(options);
+  servers.push(...listeners);
+  if (isShuttingDown) {
+    await Promise.allSettled(
+      listeners.map(async (server) => await server.stop(true)),
+    );
+    return;
+  }
+
+  setServers(servers);
 
   console.log(
     `[Server] Start finished - UI available @ http://localhost:${PORT}`,

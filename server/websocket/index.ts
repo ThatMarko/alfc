@@ -18,7 +18,8 @@ import { getCall, setCall, tune } from "../native/index";
 import { persistState, state } from "../state/index";
 import { applyFixedFan } from "../fan-control/index";
 
-let server: Server<unknown> | null = null;
+type Publisher = Pick<Server<unknown>, "publish">;
+let servers: readonly Publisher[] = [];
 let messageQueue: Promise<void> = Promise.resolve();
 let queuedMessages = 0;
 let isShuttingDown = false;
@@ -126,7 +127,12 @@ function validateNativeCall(
 }
 
 export function setServer(s: Server<unknown>) {
-  server = s;
+  setServers([s]);
+}
+
+export function setServers(listeners: readonly Publisher[]) {
+  // One publisher per listener, even if the caller repeats a reference.
+  servers = [...new Set(listeners)];
 }
 
 function buildStateSnapshot(): State {
@@ -137,23 +143,21 @@ function buildStateSnapshot(): State {
 }
 
 export function publishState() {
-  if (!server) return;
-
-  server.publish(
-    "state",
-    JSON.stringify({
-      kind: MessageToClientKind.State,
-      data: buildStateSnapshot(),
-    }),
-  );
+  if (servers.length === 0) return;
+  const message = JSON.stringify({
+    kind: MessageToClientKind.State,
+    data: buildStateSnapshot(),
+  });
+  for (const server of servers) server.publish("state", message);
 }
 
 export function publishActivity(data: FanControlActivity) {
-  if (!server) return;
-  server.publish(
-    "activity",
-    JSON.stringify({ kind: MessageToClientKind.FanControlActivity, data }),
-  );
+  if (servers.length === 0) return;
+  const message = JSON.stringify({
+    kind: MessageToClientKind.FanControlActivity,
+    data,
+  });
+  for (const server of servers) server.publish("activity", message);
 }
 
 function sendState(ws: ServerWebSocket<unknown>) {

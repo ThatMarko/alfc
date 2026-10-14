@@ -13,6 +13,7 @@
 ## Connection lifecycle & client expectations
 
 - **Endpoint:** `ws://localhost:5522/ws`
+- **Loopback addresses:** `ws://127.0.0.1:5522/ws` and, when IPv6 is available, `ws://[::1]:5522/ws` reach the same backend. State and subscribed telemetry broadcasts reach clients on both listeners.
 - **Initial state push:** on `open`, the server immediately sends a `state` message containing the full `State` object, including `protocolVersion: "1.1"`.
 - **State broadcast:** after any successful state mutation (`fixedpercentage`, `dofixedspeed`, `fantable`, `tune`, supported `set` calls), the server publishes a fresh `state` snapshot to all connected sockets.
 - **Keepalive:** server sets `idleTimeout: 120` (120s) and `sendPings: true` (automatic WebSocket protocol `PING` frames, which browsers answer automatically). The server also replies `"pong"` to plain-text `"ping"` frames (used by the KDE Plasma widget's 25s heartbeat / 60s watchdog).

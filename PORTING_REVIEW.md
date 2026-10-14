@@ -48,6 +48,9 @@ repeatable checks, and remaining platform validation for PR #1.
 - HTTP paths and WebSocket origins are validated. Message size, request queue,
   and backpressure are bounded. Keepalive and subscriptions remain responsive
   while hardware requests are pending.
+- IPv4 and IPv6 loopback listeners share authoritative state and telemetry.
+  All listeners stop together; unavailable IPv6 permits IPv4-only operation,
+  while an occupied IPv6 port fails startup and closes the owned IPv4 listener.
 - Signal handlers are registered before initialization. Shutdown stops incoming
   work, drains fan writes, attempts both BIOS restoration commands, and releases
   WMI resources with a bounded deadline.
@@ -92,7 +95,8 @@ Implementation choices were checked against authoritative references:
   [FFI](https://bun.com/docs/runtime/ffi): explicit compile entrypoints, worker
   lifecycle, and retained buffers behind native pointers.
 - [Bun WebSockets](https://bun.com/docs/runtime/http/websockets) and installed
-  `bun-types/serve.d.ts`: protocol pings, limits, backpressure, and `stop(true)`.
+  `bun-types/serve.d.ts`: protocol pings, limits, backpressure, explicit
+  loopback binding with `ipv6Only`, and `stop(true)`.
 - [React context](https://react.dev/reference/react/useContext),
   [effect cleanup](https://react.dev/reference/react/useEffect), and the
   `react-use-websocket` API: callback delivery and
@@ -118,7 +122,7 @@ inspected directly; this does not establish driver compatibility.
 ## Verified in the cloud checkout
 
 - Frozen installation and `bun run all-checks`: zero lint errors/warnings,
-  strict type checks, 239 passing Vitest tests, UI build, and Linux executable.
+  strict type checks, 243 passing Vitest tests, UI build, and Linux executable.
 - Eight Chromium scenarios passed, including concurrent replies, failed mode
   changes, drafts, capability changes, disconnect/reconnect, invalid snapshots,
   exact large raw values, ten-second telemetry expiry, and a 320px layout.
@@ -131,10 +135,16 @@ inspected directly; this does not establish driver compatibility.
   regression project executed successfully. NativeAOT publishing is not
   established by a normal C# compile.
 - Source and compiled Bun worker smoke checks passed from different working
-  directories. Four startup/shutdown scenarios and eleven real Bun HTTP and
+  directories. Seven startup/shutdown scenarios and eleven real Bun HTTP and
   WebSocket checks passed using controlled native fixtures.
 - The actual packaged Linux executable served the built UI and passed protocol
   state, origin, keepalive, malformed JSON, and unavailable ACPI checks.
+- Chromium exercised the actual packaged backend through `localhost`,
+  `127.0.0.1`, and `::1`: disabled controls matched unavailable capabilities,
+  and raw hardware errors settled the originating request correctly.
+- Persisted real Bun networking tests verify cross-listener mutations and
+  telemetry, occupied IPv6 rollback, and continued BIOS restoration after a
+  synchronous listener-stop failure.
 
 ## Remaining release gates
 
