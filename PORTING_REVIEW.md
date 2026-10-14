@@ -115,6 +115,18 @@ explicitly disable ambient working-directory `.env` and `bunfig.toml` loading;
 a real compile-and-run fixture checks this alongside embedded worker RPC and
 resource paths.
 
+Windows CI with an independent paused Node TCP receiver exposed a Bun 1.4.3
+pressure gap: the connection remained open with 1,048,736 buffered bytes despite
+`closeOnBackpressureLimit: true` ([observed run](https://github.com/ThatMarko/alfc/actions/runs/38622171005)).
+ALFC therefore also enforces its 1 MiB bound around direct sends and native
+broadcasts, with one deferred check after corked output flushes. Slow peers are
+terminated and removed from tracking; healthy peers keep native pub/sub delivery.
+Dropped direct replies force reconnection, while an already queued `send() === -1`
+is never retried. Close/shutdown clear tracking and pending checks. The real
+socket regression calls the production publisher with a valid snapshot and
+uses [Node's documented TCP pause](https://nodejs.org/docs/latest-v24.x/api/net.html#socketpause)
+to keep receiver behavior independent of Bun's client implementation.
+
 The frontend upgrade trades a larger React 19 renderer and Font Awesome 7 core
 for current supported releases. A controlled Vite 8 build of just the renderer
 entry measured about 79 kB more minified JavaScript (23 kB gzip) for React 19
@@ -186,7 +198,7 @@ loaded until process exit.
 ## Verification results
 
 - Frozen installation, ESLint, strict TypeScript, and both workspace builds pass.
-  Vitest executes 23 files: 302 tests pass on Linux and one Windows-only effective
+  Vitest executes 23 files: 308 tests pass on Linux and one Windows-only effective
   token test is explicitly skipped there. That test runs on Windows CI.
 - All 15 Chromium scenarios pass, covering authoritative state, independent
   drafts, correlated failures, reconnect/no replay, retired-socket callbacks, transport pressure, capability changes, invalid

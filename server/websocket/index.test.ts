@@ -79,7 +79,12 @@ const DEFAULT_STATE: State = {
 type MockSocket = {
   send: ReturnType<typeof vi.fn>;
   subscribe: ReturnType<typeof vi.fn>;
+  getBufferedAmount: ReturnType<typeof vi.fn>;
+  terminate: ReturnType<typeof vi.fn>;
+  readyState: number;
 };
+
+let createdSockets: MockSocket[] = [];
 
 type MockServer = ReturnType<typeof createServer>;
 
@@ -105,10 +110,15 @@ function resetStateToDefaults() {
 }
 
 function createSocket(): MockSocket {
-  return {
-    send: vi.fn(),
+  const ws = {
+    send: vi.fn().mockReturnValue(1),
     subscribe: vi.fn(),
+    getBufferedAmount: vi.fn().mockReturnValue(0),
+    terminate: vi.fn(),
+    readyState: WebSocket.OPEN,
   };
+  createdSockets.push(ws);
+  return ws;
 }
 
 function createServer() {
@@ -147,6 +157,7 @@ describe("websocket contract", () => {
   let server: MockServer;
 
   beforeEach(() => {
+    createdSockets = [];
     vi.clearAllMocks();
     resetStateToDefaults();
     mockedGetCall.mockResolvedValue(0);
@@ -156,6 +167,142 @@ describe("websocket contract", () => {
     mockedApplyFixedFan.mockResolvedValue(undefined);
     server = createServer();
     setServer(server as unknown as import("bun").Server<unknown>);
+  });
+
+  afterEach(() => {
+    for (const ws of createdSockets)
+      websocketHandlers.close(
+        ws as unknown as import("bun").ServerWebSocket<unknown>,
+        1000,
+        "",
+      );
+  });
+
+  function openSocket(ws: MockSocket) {
+    websocketHandlers.open(
+      ws as unknown as import("bun").ServerWebSocket<unknown>,
+    );
+  }
+
+  it("retires only pressured peers while keeping native broadcasts on both listeners", () => {
+    const ipv6 = createServer();
+    setServers([server, ipv6]);
+    const slow = createSocket();
+    const healthy = createSocket();
+    const otherListener = createSocket();
+    for (const ws of [slow, healthy, otherListener]) openSocket(ws);
+    slow.getBufferedAmount.mockReturnValue(1024 * 1024);
+    publishState();
+    expect(slow.terminate).toHaveBeenCalledOnce();
+    expect(healthy.terminate).not.toHaveBeenCalled();
+    expect(otherListener.terminate).not.toHaveBeenCalled();
+    for (const listener of [server, ipv6])
+      expect(listener.publish).toHaveBeenCalledExactlyOnceWith(
+        "state",
+        JSON.stringify({ kind: "state", data: state }),
+      );
+    // The native close callback need not arrive before the next publication.
+    slow.getBufferedAmount.mockClear();
+    publishActivity({
+      appliedSpeed: 50,
+      avgCPUTemp: 50,
+      avgGPUTemp: 50,
+      target: 50,
+    });
+    expect(slow.getBufferedAmount).not.toHaveBeenCalled();
+    expect(slow.terminate).toHaveBeenCalledOnce();
+    for (const listener of [server, ipv6])
+      expect(listener.publish).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a backpressured direct send and terminates its slow peer", async () => {
+    const ws = createSocket();
+    openSocket(ws);
+    ws.send.mockClear();
+    ws.send.mockImplementationOnce(() => {
+      ws.getBufferedAmount.mockReturnValue(1024 * 1024);
+      return -1;
+    });
+    await dispatchMessage(ws, "ping");
+    expect(ws.send).toHaveBeenCalledExactlyOnceWith("pong");
+    expect(ws.terminate).toHaveBeenCalledOnce();
+  });
+
+  it("retires an open socket when a direct reply is dropped", async () => {
+    const ws = createSocket();
+    openSocket(ws);
+    ws.send.mockReturnValueOnce(0);
+    await dispatchMessage(ws, "ping");
+    expect(ws.terminate).toHaveBeenCalledOnce();
+    ws.getBufferedAmount.mockClear();
+    publishState();
+    expect(ws.getBufferedAmount).not.toHaveBeenCalled();
+  });
+
+  it("checks pressure after an asynchronous native pub/sub flush", () => {
+    vi.useFakeTimers();
+    try {
+      const ws = createSocket();
+      openSocket(ws);
+      server.publish.mockImplementation(() => {
+        setTimeout(() => ws.getBufferedAmount.mockReturnValue(1024 * 1024), 0);
+        return -1;
+      });
+      publishState();
+      expect(ws.terminate).not.toHaveBeenCalled();
+      vi.runOnlyPendingTimers();
+      expect(ws.terminate).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("checks a direct reply after its callback flushes without retrying it", async () => {
+    vi.useFakeTimers();
+    try {
+      const ws = createSocket();
+      openSocket(ws);
+      ws.send.mockClear();
+      ws.send.mockImplementationOnce(() => {
+        setTimeout(() => ws.getBufferedAmount.mockReturnValue(1024 * 1024), 0);
+        return -1;
+      });
+      await dispatchMessage(ws, "ping");
+      expect(ws.terminate).not.toHaveBeenCalled();
+      vi.runOnlyPendingTimers();
+      expect(ws.terminate).toHaveBeenCalledOnce();
+      expect(ws.send).toHaveBeenCalledExactlyOnceWith("pong");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("removes closed sockets and cancels their deferred pressure check", () => {
+    vi.useFakeTimers();
+    try {
+      const ws = createSocket();
+      openSocket(ws);
+      publishState();
+      publishActivity({
+        appliedSpeed: 50,
+        avgCPUTemp: 50,
+        avgGPUTemp: 50,
+        target: 50,
+      });
+      expect(vi.getTimerCount()).toBe(1);
+      websocketHandlers.close(
+        ws as unknown as import("bun").ServerWebSocket<unknown>,
+        1000,
+        "",
+      );
+      expect(vi.getTimerCount()).toBe(0);
+      ws.getBufferedAmount.mockClear();
+      publishState();
+      expect(ws.getBufferedAmount).not.toHaveBeenCalled();
+      expect(ws.terminate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sends a protocol versioned state snapshot on open", () => {
@@ -1154,7 +1301,24 @@ describe("websocket contract", () => {
       requestId: "queued",
       data: 80,
     });
-    const drained = startWebSocketShutdown();
+    const tracked = createSocket();
+    const drained = (() => {
+      vi.useFakeTimers();
+      try {
+        openSocket(tracked);
+        tracked.getBufferedAmount.mockClear();
+        expect(vi.getTimerCount()).toBe(1);
+        const pending = startWebSocketShutdown();
+        expect(vi.getTimerCount()).toBe(0);
+        return pending;
+      } finally {
+        vi.useRealTimers();
+      }
+    })();
+    const lateConnection = createSocket();
+    openSocket(lateConnection);
+    expect(lateConnection.terminate).toHaveBeenCalledOnce();
+    expect(lateConnection.send).not.toHaveBeenCalled();
     const rejected = createSocket();
     await dispatchMessage(rejected, {
       kind: MessageToServerKind.FixedPercentage,
@@ -1172,6 +1336,7 @@ describe("websocket contract", () => {
     await Promise.all([first, second, drained]);
     expect(state.pl1).toBe(45);
     expect(state.fixedPercentage).toBe(DEFAULT_STATE.fixedPercentage);
+    expect(tracked.getBufferedAmount).not.toHaveBeenCalled();
     expect(getLastSentJson(queued)).toEqual({
       kind: MessageToClientKind.Error,
       requestId: "queued",

@@ -22,6 +22,10 @@ on a different loopback address does not create separate backend state.
 The server accepts JSON requests in text frames and valid UTF-8 binary frames,
 and sends responses in text frames. Malformed UTF-8 binary input receives
 `INVALID_JSON` without executing a command or echoing corrupted request metadata.
+The server enforces its 1 MiB outbound buffering threshold in application code
+as well as Bun's native configuration, terminating slow peers individually while
+continuing broadcasts to healthy clients on both listeners. A dropped direct
+reply also retires its connection; clients reconnect without replaying writes.
 
 A client accepting a major-1 minor version still requires the documented base
 fields and valid values. Unknown optional fields are ignored. Malformed version

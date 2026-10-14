@@ -24,6 +24,9 @@ let messageQueue: Promise<void> = Promise.resolve();
 let queuedMessages = 0;
 let isShuttingDown = false;
 const MAX_QUEUED_MESSAGES = 64;
+const MAX_BACKPRESSURE_BYTES = 1024 * 1024;
+const openSockets = new Set<ServerWebSocket<unknown>>();
+let backpressureCheck: ReturnType<typeof setTimeout> | undefined;
 // Binary WebSocket messages are Buffers by default. Buffer.toString() would
 // replace invalid UTF-8 and could execute a corrupted request with a changed ID.
 // Keep a BOM in the decoded text so JSON.parse treats binary and text equally.
@@ -34,7 +37,73 @@ const binaryMessageDecoder = new TextDecoder("utf-8", {
 
 export function startWebSocketShutdown(): Promise<void> {
   isShuttingDown = true;
+  openSockets.clear();
+  clearBackpressureCheck();
   return messageQueue;
+}
+
+function clearBackpressureCheck() {
+  if (backpressureCheck !== undefined) clearTimeout(backpressureCheck);
+  backpressureCheck = undefined;
+}
+
+function forgetSocket(ws: ServerWebSocket<unknown>) {
+  openSockets.delete(ws);
+  if (openSockets.size === 0) clearBackpressureCheck();
+}
+
+function retireSocket(ws: ServerWebSocket<unknown>) {
+  // Remove before terminate: a close callback may run synchronously, or the
+  // platform may deliver it later. Neither case should retain the slow peer.
+  forgetSocket(ws);
+  if (ws.readyState === WebSocket.OPEN) ws.terminate();
+}
+
+function enforceBackpressure(ws: ServerWebSocket<unknown>): boolean {
+  if (ws.readyState !== WebSocket.OPEN) {
+    forgetSocket(ws);
+    return false;
+  }
+  if (ws.getBufferedAmount() < MAX_BACKPRESSURE_BYTES) return true;
+  retireSocket(ws);
+  return false;
+}
+
+function checkBackpressure() {
+  for (const ws of openSockets) enforceBackpressure(ws);
+}
+
+function scheduleBackpressureCheck() {
+  if (isShuttingDown || openSockets.size === 0) return;
+  // Bun corks callbacks and may flush pub/sub after publish() returns. One
+  // coalesced check follows the latest output, including a later native flush
+  // queued after an earlier check. Keep at most one outstanding timer.
+  clearBackpressureCheck();
+  backpressureCheck = setTimeout(() => {
+    backpressureCheck = undefined;
+    checkBackpressure();
+  }, 0);
+  backpressureCheck.unref();
+}
+
+function sendText(ws: ServerWebSocket<unknown>, message: string) {
+  if (!enforceBackpressure(ws)) return;
+  const status = ws.send(message);
+  // -1 already enqueued this reply: retrying would duplicate it. A dropped
+  // reply on an open transport instead needs a reconnect and fresh snapshot.
+  if (status === 0) {
+    retireSocket(ws);
+    return;
+  }
+  enforceBackpressure(ws);
+  scheduleBackpressureCheck();
+}
+
+function publish(topic: string, message: string) {
+  checkBackpressure();
+  for (const server of servers) server.publish(topic, message);
+  checkBackpressure();
+  scheduleBackpressureCheck();
 }
 
 type MessageMetadata = Partial<
@@ -155,7 +224,7 @@ export function publishState() {
     kind: MessageToClientKind.State,
     data: buildStateSnapshot(),
   });
-  for (const server of servers) server.publish("state", message);
+  publish("state", message);
 }
 
 export function publishActivity(data: FanControlActivity) {
@@ -164,11 +233,12 @@ export function publishActivity(data: FanControlActivity) {
     kind: MessageToClientKind.FanControlActivity,
     data,
   });
-  for (const server of servers) server.publish("activity", message);
+  publish("activity", message);
 }
 
 function sendState(ws: ServerWebSocket<unknown>) {
-  ws.send(
+  sendText(
+    ws,
     JSON.stringify({
       kind: MessageToClientKind.State,
       data: buildStateSnapshot(),
@@ -181,7 +251,8 @@ function sendSuccess(
   payload: MessageToServer,
   data?: unknown,
 ) {
-  ws.send(
+  sendText(
+    ws,
     JSON.stringify({
       ...getMessageMetadata(payload),
       kind: MessageToClientKind.Success,
@@ -239,7 +310,8 @@ function sendError(
   payload: unknown,
   errorMessage: string,
 ) {
-  ws.send(
+  sendText(
+    ws,
     JSON.stringify({
       ...getMessageMetadata(payload),
       kind: MessageToClientKind.Error,
@@ -509,11 +581,16 @@ export const websocketHandlers = {
   sendPings: true,
   idleTimeout: 120,
   maxPayloadLength: 64 * 1024,
-  backpressureLimit: 1024 * 1024,
+  backpressureLimit: MAX_BACKPRESSURE_BYTES,
   closeOnBackpressureLimit: true,
 
   open(ws: ServerWebSocket<unknown>) {
     console.log("[WebSocket] Client connected");
+    if (isShuttingDown) {
+      ws.terminate();
+      return;
+    }
+    openSockets.add(ws);
     ws.subscribe("state");
     sendState(ws);
   },
@@ -530,7 +607,7 @@ export const websocketHandlers = {
       return Promise.resolve();
     }
     if (messageString === "ping") {
-      ws.send("pong");
+      sendText(ws, "pong");
       return Promise.resolve();
     }
     let payload: unknown;
@@ -579,7 +656,8 @@ export const websocketHandlers = {
     return result;
   },
 
-  close(_ws: ServerWebSocket<unknown>, code: number, reason: string) {
+  close(ws: ServerWebSocket<unknown>, code: number, reason: string) {
+    forgetSocket(ws);
     console.log(
       `[WebSocket] Client disconnected (code: ${code}${reason ? `, reason: ${reason}` : ""})`,
     );

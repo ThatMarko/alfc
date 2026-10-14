@@ -36,8 +36,13 @@ pings. ALFC also accepts a plain text `ping` message and answers plain text `pon
 The Plasma client uses this application heartbeat every 25 seconds, with a
 60-second response watchdog. Heartbeats bypass the hardware queue.
 
-Messages are limited to **64 KiB**. Connections exceeding **1 MiB** of outbound
-backpressure are closed. At most **64** queued or executing JSON hardware/config
+Incoming messages are limited to **64 KiB**. Connections reaching **1 MiB** of outbound
+backpressure are terminated. The application checks buffered bytes around direct
+replies and native broadcasts, and after Bun flushes corked output; Bun's own
+backpressure limit remains enabled. A direct reply dropped on an open connection
+also terminates that connection so its client reconnects for a fresh snapshot.
+Backpressured replies are already queued and are never resent. At most **64**
+queued or executing JSON hardware/config
 requests are admitted across all connections. An excess request receives `BUSY`;
 subscription and heartbeat traffic remain available.
 

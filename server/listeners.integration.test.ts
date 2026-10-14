@@ -64,7 +64,7 @@ process.stdin.on('end', finish);
 const networkFixture = `
 import assert from 'node:assert/strict';
 import { listenOnLoopback } from ${JSON.stringify(path.join(repositoryRoot, "server/listeners.ts"))};
-import { websocketHandlers, setServers, publishActivity } from ${JSON.stringify(path.join(repositoryRoot, "server/websocket/index.ts"))};
+import { websocketHandlers, setServers, publishActivity, publishState } from ${JSON.stringify(path.join(repositoryRoot, "server/websocket/index.ts"))};
 import { state } from ${JSON.stringify(path.join(repositoryRoot, "server/state/index.ts"))};
 
 function optionalIPv6(error) {
@@ -216,17 +216,22 @@ try {
     } finally { reader.releaseLock(); }
     assert.equal(readiness.trim(), 'READY');
     await until(() => pressureSocket !== undefined);
-    const message = 'x'.repeat(64 * 1024);
+    // A large, valid curve exercises the same confirmed-state publication as
+    // production, including its application guard around native pub/sub.
+    state.cpuFanTable = Array.from({ length: 4096 }, (_, index) => [index / 40, 50]);
+    const messageBytes = Buffer.byteLength(JSON.stringify({ kind: 'state', data: state }));
+    assert(messageBytes <= 64 * 1024, 'The pressure fixture snapshot must fit the input budget');
+    setServers([pressureServer]);
     let peakBufferedBytes = 0;
     let publishedFrames = 0;
     for (; publishedFrames < 512 && !pressureClosed; publishedFrames++) {
-      pressureServer.publish('state', message);
+      publishState();
       await Bun.sleep(1);
       peakBufferedBytes = Math.max(peakBufferedBytes, pressureSocket.getBufferedAmount());
     }
     const pressureDetails = ' (peakBufferedBytes=' + peakBufferedBytes + ', readyState=' + pressureSocket.readyState + ', publishedFrames=' + publishedFrames + ')';
     assert(pressureClosed, 'A slow subscriber must close when outbound buffering exceeds 1 MiB' + pressureDetails);
-    assert(peakBufferedBytes <= 1024 * 1024 + message.length, 'Native buffering must remain within the 1 MiB budget plus one frame' + pressureDetails);
+    assert(peakBufferedBytes <= 1024 * 1024 + messageBytes, 'Native buffering must remain within the 1 MiB budget plus one frame' + pressureDetails);
     console.log('PASS native pub/sub closes a paused TCP subscriber at the backpressure limit' + pressureDetails);
   } finally {
     slowClient.stdin.end();
@@ -234,6 +239,7 @@ try {
     assert.equal(exitCode, 0, await clientErrors);
   }
 } finally {
+  setServers([]);
   await pressureServer.stop(true);
 }
 `;
