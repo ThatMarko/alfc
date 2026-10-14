@@ -27,6 +27,11 @@ jobs:
         with:
           bun-version: "1.4.3"
 
+      - name: Setup Node for Vitest
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -99,6 +104,11 @@ jobs:
         with:
           bun-version: "1.4.3"
 
+      - name: Setup Node for Vitest
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -112,3 +122,11 @@ jobs:
         run: build.bat
         shell: cmd
         working-directory: server/native/windows/wmidll
+
+      - name: Verify Windows COM completion and integer decoding
+        shell: cmd
+        working-directory: server/native/windows/wmidll
+        run: |
+          cl /nologo /EHsc WmiNative.test.cpp /Fe:"%RUNNER_TEMP%\alfc-wmi-native-test.exe" /link ole32.lib oleaut32.lib wbemuuid.lib
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\alfc-wmi-native-test.exe"

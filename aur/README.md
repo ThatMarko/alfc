@@ -1,75 +1,68 @@
-# AUR Package: alfc-bin
+# AUR package: alfc-bin
 
-Arch User Repository package for ALFC (precompiled binary).
+This directory prepares an **unpublished** x86_64 package for the glibc Linux
+release. A stable, published release and its verified archive digest are required
+before submitting it to the AUR. The current `SKIP` checksum is a development
+placeholder and must never be shipped as a published package.
 
-## Files
+## Package sources and service
 
-- `PKGBUILD` — Package build script
-- `alfc.install` — Post-install/upgrade/remove hooks
-- `alfc.service` — Pre-baked reference copy (for local testing; PKGBUILD generates from the template in the release tarball)
+`PKGBUILD` downloads `alfc-v${pkgver}-linux-x64.tar.gz` from the matching GitHub tag.
+It installs the executable and UI into `/usr/lib/alfc`, creates `/usr/bin/alfc`,
+marks `usr/lib/alfc/alfc.config.json` as a pacman backup file, and places docs and
+license files under the usual `/usr/share` locations. Widget scripts retain their
+executable permission; the widget itself is installed in each user's account.
+The documentation directory preserves root/common/widget/AUR Markdown paths so
+relative links in the installed README remain usable.
 
-## How the service file works
+The service is generated from the archive's
+`bootstrap/scripts/linux/alfc.service` template, delivered at archive root as
+`alfc.service`. `@@INSTALL_DIR@@` becomes `/usr/lib/alfc`. `aur/alfc.service` is a
+rendered reference copy and must remain identical after that substitution.
+The service uses root for ACPI/sysfs access, loopback-only networking, a 15-second
+shutdown allowance, and systemd filesystem hardening. It is not enabled by the
+package automatically.
 
-The systemd service template lives at `bootstrap/scripts/linux/alfc.service` with `@@INSTALL_DIR@@` placeholders. Both the manual `install.sh` and the PKGBUILD `sed` the template to substitute the install path (`/opt/alfc` for manual, `/usr/lib/alfc` for AUR). This ensures hardening rules, ordering, and other service config stay in sync.
+Do not run the manual `/opt/alfc` installer over an AUR installation. The manual
+installer rejects a command owned by another installation; use pacman to remove
+or update the AUR package instead.
 
-The `alfc.service` in this directory is a pre-rendered copy for reference and local `makepkg` testing.
+## Prepare and verify a release
 
-## Updating the Package
+1. Set `pkgver` to the release version without the `v` prefix and reset `pkgrel` to 1.
+2. Download the published archive and `SHA256SUMS`. Verify the release asset digest,
+   then run `updpkgsums` to replace `SKIP` with that pinned digest.
+3. Generate `.SRCINFO` with `makepkg --printsrcinfo > .SRCINFO`.
+4. Review `PKGBUILD`, `.SRCINFO`, and hooks; run `makepkg --verifysource` and test
+   `makepkg -si` on an isolated Arch machine. This changes system packages and is
+   not part of cloud unit tests.
+5. Validate service start, stop, upgrade, preserved configuration, and widget
+   installation on supported hardware before publishing.
 
-1. Update `pkgver` in `PKGBUILD` to match the new release tag (reset `pkgrel` to 1)
-2. Update `sha256sums` with the real checksum of the release tarball (published
-   packages must pin checksums — a `SKIP` entry is unacceptable to AUR review):
-   ```bash
-   updpkgsums
-   ```
-3. Generate `.SRCINFO`:
-   ```bash
-   makepkg --printsrcinfo > .SRCINFO
-   ```
-4. Test the build:
-   ```bash
-   makepkg -si
-   ```
+For the first submission, clone `ssh://aur@aur.archlinux.org/alfc-bin.git` and copy
+`PKGBUILD` and `alfc.install` from this checkout. Generate `.SRCINFO` in that AUR
+checkout, commit those three files, and push it. Later updates follow the same
+version/checksum/source-info sequence. Do not assume a path such as `../PKGBUILD`
+points back to this repository after cloning elsewhere.
 
-## Publishing to AUR
+## User operations
 
-The AUR package can only be submitted once a stable release exists — the PKGBUILD
-downloads `alfc-v${pkgver}-linux-x64.tar.gz` from GitHub Releases.
+After the package is published, install with an AUR helper, install a matching
+`acpi_call` or `acpi_call-dkms` module and kernel headers, then run:
 
-First time:
-
-```bash
-git clone ssh://aur@aur.archlinux.org/alfc-bin.git
-cd alfc-bin
-cp ../PKGBUILD ../alfc.install .
-updpkgsums
-makepkg --printsrcinfo > .SRCINFO
-git add PKGBUILD .SRCINFO alfc.install
-git commit -m "Initial upload: alfc-bin 2.0.0"
-git push
+```sh
+sudo modprobe acpi_call
+sudo systemctl enable --now alfc
+journalctl -u alfc -f
 ```
 
-Subsequent updates:
+The UI is at `http://localhost:5522`; explicit IPv4 and IPv6 loopback URLs also
+work when the respective address family is available. Install the optional KDE
+widget as the desktop user:
 
-```bash
-# Update PKGBUILD version, pin checksums, and regenerate .SRCINFO
-updpkgsums
-makepkg --printsrcinfo > .SRCINFO
-git add -u
-git commit -m "Update to X.Y.Z"
-git push
+```sh
+kpackagetool6 --type Plasma/Applet --install /usr/lib/alfc/plasmoid/package
 ```
 
-## File Layout (Installed)
-
-```
-/usr/bin/alfc                          -> symlink to /usr/lib/alfc/alfc
-/usr/lib/alfc/alfc                     # Server binary
-/usr/lib/alfc/frontend/                # Web UI static files
-/usr/lib/alfc/alfc.config.json         # Config (preserved on upgrade)
-/usr/lib/alfc/plasmoid/                # KDE Plasma 6 widget package
-/usr/lib/systemd/system/alfc.service   # systemd service
-/usr/share/licenses/alfc-bin/LICENSE
-/usr/share/doc/alfc-bin/README.md
-/usr/share/doc/alfc-bin/LINUX.md
-```
+After an upgrade, restart the service and use `--upgrade` for an already installed
+widget. Pacman preserves a modified configuration as `.pacsave` on removal.

@@ -213,13 +213,6 @@ function initFanControl(runId: number) {
   });
 }
 
-function initialFanSpeed() {
-  return Math.max(
-    state.cpuFanTable[0]?.[1] ?? 0,
-    state.gpuFanTable[0]?.[1] ?? 0,
-  );
-}
-
 // Highest percentage anywhere in both tables — the fail-hot target when the
 // thermal state is unknown. Speeds are not guaranteed to be monotonic (the
 // last row is not necessarily the maximum), so every entry is considered.
@@ -241,7 +234,7 @@ async function collectAverageTemps(runId: number): Promise<TempCollection> {
     : Math.round((CYCLE_DURATION - TEMP_POLL_INTERVAL) / TEMP_POLL_INTERVAL);
   const sampleInterval = isFixedMode ? CYCLE_DURATION : TEMP_POLL_INTERVAL;
 
-  // Running sums instead of array allocations — zero per-cycle heap pressure
+  // Accumulate readings directly instead of allocating temperature arrays.
   let cpuSum = 0;
   let gpuSum = 0;
 
@@ -280,9 +273,12 @@ export async function fanControl() {
 
   await initFanControl(runId);
   if (isFanControlShuttingDown || runId !== fanControlRunId) return;
+  // Before the first valid thermal sample, use the same fail-hot policy as a
+  // failed collection. Never replace BIOS control with a minimum blind speed.
+  let needsFirstAutomaticTarget = !state.doFixedSpeed;
   let appliedPercentage = state.doFixedSpeed
     ? state.fixedPercentage
-    : initialFanSpeed();
+    : highestFanTarget();
   await writeFanPercentage(appliedPercentage);
   if (isFanControlShuttingDown || runId !== fanControlRunId) return;
 
@@ -392,8 +388,19 @@ export async function fanControl() {
       if (collection.status === "failed") {
         cycleSensorFailure = true;
         if (state.doFixedSpeed) {
-          // The user-pinned speed stands; only the telemetry degrades to
-          // the last known measurements.
+          needsFirstAutomaticTarget = false;
+          currRampDownCycle = 1;
+          currRampUpCycle = 1;
+          prevCPUFanTable = state.cpuFanTable;
+          prevGPUFanTable = state.gpuFanTable;
+          // A failed/partial write can leave the physical fans inconsistent
+          // with the saved fixed target. Recover it even while sensors fail.
+          if (appliedFanPercentage !== state.fixedPercentage) {
+            await writeFanPercentage(state.fixedPercentage, cycleWriteVersion);
+            appliedPercentage = state.fixedPercentage;
+          }
+          // The user-pinned target stands; telemetry retains the last known
+          // measurements instead of inventing new temperatures.
           if (lastAverages) {
             publishActivity({
               appliedSpeed: appliedFanPercentage,
@@ -435,6 +442,7 @@ export async function fanControl() {
       lastAverages = { avgCPUTemp, avgGPUTemp };
 
       if (state.doFixedSpeed) {
+        needsFirstAutomaticTarget = false;
         if (appliedFanPercentage !== state.fixedPercentage) {
           await writeFanPercentage(state.fixedPercentage, cycleWriteVersion);
           appliedPercentage = state.fixedPercentage;
@@ -468,6 +476,7 @@ export async function fanControl() {
       // between cycles. Start curve ramping from that actual applied speed.
       appliedPercentage = appliedFanPercentage ?? appliedPercentage;
       if (
+        needsFirstAutomaticTarget ||
         prevCPUFanTable !== state.cpuFanTable ||
         prevGPUFanTable !== state.gpuFanTable ||
         appliedFanPercentage === null
@@ -475,6 +484,7 @@ export async function fanControl() {
         // Apply the new curve at the current temperature. Resetting to its
         // first row can abruptly slow fans while the machine is hot.
         await writeFanPercentage(target, cycleWriteVersion);
+        needsFirstAutomaticTarget = false;
         appliedPercentage = target;
         prevCPUFanTable = state.cpuFanTable;
         prevGPUFanTable = state.gpuFanTable;

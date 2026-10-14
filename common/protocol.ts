@@ -10,8 +10,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function isSupportedProtocolVersion(value: unknown): value is string {
-  // Minor versions extend the protocol without invalidating existing clients.
-  return typeof value === "string" && /^1\.\d+$/.test(value);
+  if (typeof value !== "string") return false;
+  const version = /^1\.(\d+)$/.exec(value);
+  // New clients require 1.1 requestId correlation. Future major-1 minors
+  // remain additive; the entire value must be a supported version string.
+  return version !== null && version[0] === value && Number(version[1]) >= 1;
 }
 
 export function isFanTable(value: unknown): value is FanTable {

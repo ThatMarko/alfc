@@ -254,7 +254,7 @@ Item {
             width: Kirigami.Units.smallSpacing * 2
             height: width
             radius: width / 2
-            color: compactRoot.isCritical || compactRoot.restartRequired
+            color: compactRoot.isCritical || compactRoot.restartRequired || compactRoot.sensorFailure
                 || !compactRoot.protocolCompatible
                 ? Kirigami.Theme.negativeTextColor
                 : (compactRoot.isWarm
@@ -394,7 +394,8 @@ Item {
                 }
 
                 PlasmaComponents.Label {
-                    text: compactRoot.hasActivity
+                    text: compactRoot.hasActivity && !compactRoot.sensorFailure
+                        && !compactRoot.restartRequired && compactRoot.protocolCompatible
                         ? i18n("%1°C", Math.round(compactRoot.safeActivity.avgCPUTemp))
                         : compactRoot.primaryText
                     font.bold: true

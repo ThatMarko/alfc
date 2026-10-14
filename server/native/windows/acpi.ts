@@ -7,12 +7,14 @@ import {
   type WmiMethods,
 } from "../../../common/methods";
 import type { Args, NativeResult } from "../../../common/types";
-import { isDev } from "../../utils/consts";
+import { isCompiledBinary } from "../../utils/consts";
 
-const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
-const dllPath = isDev
-  ? path.join(baseDir, "wmidll", "WmiDll.dll")
-  : path.join(baseDir, "WmiDll.dll");
+const baseDir = isCompiledBinary
+  ? path.dirname(process.execPath)
+  : import.meta.dirname;
+const dllPath = isCompiledBinary
+  ? path.join(baseDir, "WmiDll.dll")
+  : path.join(baseDir, "wmidll", "WmiDll.dll");
 
 // Loaded lazily inside wmiInit() so a missing or blocked DLL is a recoverable
 // initialization failure (matching cpuoc.ts) instead of a module-evaluation crash.
@@ -114,11 +116,24 @@ function nativeFailure(operation: string, result: number): never {
   });
 }
 
-function validateCall(methods: WmiMethods, methodName: string, args?: Args) {
+function validateCall(
+  methods: WmiMethods,
+  methodId: string,
+  methodName: string,
+  args?: Args,
+) {
   const method = Object.hasOwn(methods, methodName)
     ? methods[methodName]
     : undefined;
   if (!method) throw new TypeError(`Unknown WMI method '${methodName}'`);
+  if (
+    !/^(?:0x[\da-f]+|\d+)$/i.test(methodId) ||
+    Number(methodId) !== Number(method.methodId)
+  ) {
+    throw new RangeError(
+      `Unknown or mismatched WMI method: ${methodId} ${methodName}`,
+    );
+  }
 
   const entries = Object.entries(args ?? {});
   for (const [name, value] of entries) {
@@ -255,10 +270,10 @@ export function wmiInit() {
   }));
 }
 
-export function setCall(_: string, methodName: string, args: Args) {
+export function setCall(methodId: string, methodName: string, args: Args) {
   return Promise.resolve().then(() => {
     const symbols = requireLib();
-    validateCall(setMethods, methodName, args);
+    validateCall(setMethods, methodId, methodName, args);
 
     if (usesNamedPath(args)) {
       const { namesPtr, namesByteLength, valuesPtr, count } =
@@ -288,13 +303,13 @@ export function setCall(_: string, methodName: string, args: Args) {
 }
 
 export function getCall(
-  _: string,
+  methodId: string,
   methodName: string,
   args?: Args,
 ): Promise<NativeResult> {
   return Promise.resolve().then(() => {
     const symbols = requireLib();
-    const method = validateCall(getMethods, methodName, args);
+    const method = validateCall(getMethods, methodId, methodName, args);
     countBuffer[0] = 0;
     resultsBuffer.fill(Number.NaN);
 
@@ -381,5 +396,5 @@ export function wmiCleanup() {
 
 if (import.meta.main) {
   await wmiInit();
-  console.log("RPM1", await getCall("doesntmatter", "getRpm1"));
+  console.log("RPM1", await getCall("0xe4", "getRpm1"));
 }

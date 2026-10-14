@@ -4,11 +4,11 @@
   "scripts": {
     "setup": {
       "enabled": true,
-      "command": "bun install && apt-get update -qq && apt-get install -y -qq git-lfs"
+      "command": "bun install --frozen-lockfile"
     },
     "run": { "enabled": true, "command": "bun run start" },
     "archive": { "enabled": true, "command": null },
-    "check": { "enabled": true, "command": null }
+    "check": { "enabled": true, "command": "bun run all-checks" }
   },
   "mcpServers": []
 }

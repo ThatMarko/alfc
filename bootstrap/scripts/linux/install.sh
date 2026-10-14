@@ -36,11 +36,19 @@ install_files() {
   echo "Installing to ${INSTALL_DIR}..."
 
   # Stop existing service before overwriting files
-  if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
-    systemctl stop "${SERVICE_NAME}"
-  elif command -v rc-service >/dev/null 2>&1; then
-    rc-service "${SERVICE_NAME}" stop 2>/dev/null || true
-  fi
+  case "${INIT_SYSTEM}" in
+    systemd)
+      if [[ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]] ||
+        systemctl is-active --quiet "${SERVICE_NAME}"; then
+        systemctl stop "${SERVICE_NAME}"
+      fi
+      ;;
+    openrc)
+      if [[ -f "/etc/init.d/${SERVICE_NAME}" ]]; then
+        rc-service "${SERVICE_NAME}" stop
+      fi
+      ;;
+  esac
 
   mkdir -p "${INSTALL_DIR}"
 
@@ -116,14 +124,15 @@ INITEOF
 
 command="${INSTALL_DIR}/alfc"
 command_background=true
+retry="TERM/15/KILL/5"
 pidfile="/run/\${name}.pid"
 directory="${INSTALL_DIR}"
 
 export NODE_ENV=production
 
 depend() {
-    need net
-    after net
+    need localmount
+    after modules
 }
 
 start_pre() {
@@ -139,18 +148,39 @@ EOF
   echo "Service installed via OpenRC and started."
 }
 
-install_files
-
 INIT_SYSTEM="$(detect_init)"
+if [[ "${INIT_SYSTEM}" == "unknown" ]]; then
+  echo "Could not detect init system (systemd or OpenRC); no files were changed."
+  echo "You can run the extracted release manually with: sudo ./run.sh"
+  exit 1
+fi
+
+for required in frontend alfc.config.json uninstall.sh run.sh; do
+  if [[ ! -e "${SCRIPT_DIR}/${required}" ]]; then
+    echo "Release is incomplete: missing ${required}; no files were changed."
+    exit 1
+  fi
+done
+if [[ "${INIT_SYSTEM}" == "systemd" && ! -f "${SCRIPT_DIR}/alfc.service" ]]; then
+  echo "Release is incomplete: missing alfc.service; no files were changed."
+  exit 1
+fi
+if [[ "${SCRIPT_DIR}" == "${INSTALL_DIR}" ]]; then
+  echo "Extract the new release outside ${INSTALL_DIR} before installing."
+  exit 1
+fi
+if [[ -e /usr/bin/alfc || -L /usr/bin/alfc ]]; then
+  if [[ "$(readlink /usr/bin/alfc || true)" != "${INSTALL_DIR}/alfc" ]]; then
+    echo "/usr/bin/alfc belongs to another installation; remove it with its package manager first."
+    exit 1
+  fi
+fi
+
+install_files
 
 case "${INIT_SYSTEM}" in
   systemd) install_systemd ;;
   openrc)  install_openrc ;;
-  *)
-    echo "Could not detect init system (systemd or OpenRC)."
-    echo "You can still run alfc manually with: sudo alfc"
-    exit 1
-    ;;
 esac
 
 echo ""

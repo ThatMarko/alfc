@@ -140,7 +140,7 @@ Item {
             payload.data = data
         }
         root.pendingRequests = Object.assign({}, root.pendingRequests, {
-            [requestId]: { kind: kind, methodId: payload.methodId, sentAt: Date.now() }
+            [requestId]: { kind: kind, sentAt: Date.now() }
         })
         root.lastRequestError = ""
         if (!send(payload)) {
@@ -153,15 +153,9 @@ Item {
     }
 
     function responseRequestId(message) {
-        if (typeof message.requestId === "string") {
-            return message.requestId
-        }
-        // Protocol 1.0 did not echo requestId. Only accept an unambiguous
-        // methodId belonging to this connection, never a different client's reply.
-        const matches = Object.keys(root.pendingRequests).filter(function (key) {
-            return root.pendingRequests[key].methodId === message.methodId
-        })
-        return matches.length === 1 ? matches[0] : ""
+        // Protocol 1.1 guarantees requestId echo. An opcode alone cannot
+        // distinguish simultaneous requests or a late reply after a timeout.
+        return typeof message.requestId === "string" ? message.requestId : ""
     }
 
     function handleMessage(message) {
@@ -188,7 +182,7 @@ Item {
                 root.latestActivity = null
                 root.lastError = root.protocolCompatible
                     ? i18n("The backend sent an invalid state snapshot.")
-                    : i18n("Unsupported backend protocol %1. This widget supports ALFC 1.x.",
+                    : i18n("Unsupported backend protocol %1. This widget requires ALFC 1.1 or a newer 1.x version.",
                         root.protocolVersion)
                 root.failPendingRequests(root.lastError)
                 return
@@ -274,7 +268,7 @@ Item {
             if (socket.status === WebSocket.Connecting) {
                 reconnectTimer.stop()
             } else if (socket.status === WebSocket.Open) {
-                console.info("BackendConnection: Connected to " + root.url)
+                console.info("BackendConnection: Connected")
                 root.lastError = ""
                 root.lastPongTime = Date.now()
                 root.reconnectDelay = 1000

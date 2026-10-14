@@ -112,7 +112,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
               "The server sent an invalid state. Check the server before applying more changes; pending requests could not be confirmed.",
             );
             setConnectionError(
-              "The server sent an incompatible or invalid state. Update the server and web UI together.",
+              "The server sent an incompatible or invalid state. This web UI requires ALFC protocol 1.1 or a compatible later 1.x version.",
             );
           }
         } else if (

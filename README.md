@@ -1,132 +1,139 @@
-# Aorus Laptop Fan Control (alfc)
+# Aorus Laptop Fan Control (ALFC)
 
 [![CI](https://github.com/ThatMarko/alfc/actions/workflows/ci.yml/badge.svg)](https://github.com/ThatMarko/alfc/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> Modern fork of [s-h-a-d-o-w/alfc](https://github.com/s-h-a-d-o-w/alfc) — rewritten on [Bun](https://bun.sh) with native platform bindings, a KDE Plasma 6 widget, and cross-platform service management. Original work by [Andreas Opferkuch](https://github.com/s-h-a-d-o-w).
+ALFC controls compatible Gigabyte Aorus/Aero laptop fans through a local Bun
+backend, a React web UI, and an optional KDE Plasma 6 widget. This fork builds
+on [Andreas Opferkuch's original project](https://github.com/s-h-a-d-o-w/alfc).
+The `feat/wmi-ffi` branch is the implementation under review in
+[PR #1](https://github.com/ThatMarko/alfc/pull/1); a package version of `2.0.0`
+is not evidence that a stable release has been published.
 
-**Please note that if you're using Windows 10 _and_ a CPU other than the i7-10875H, you would have to look up and set the PL1 and PL2 values in order not to possibly limit the performance of your CPU** - e.g. [tech powerup database](https://www.techpowerup.com/cpu-specs/core-i7-10875h.c2277). (`alfc` will attempt to set those levels whenever it starts or you change them, using Intel XTU on Windows 10 and `constraint_0_power_limit_uw` and `constraint_1_power_limit_uw` on Linux. Windows 11 forbids using Intel XTU, at least for this. As far as I'm aware, there's no danger to setting those values too high, since CPUs won't consume more than a certain maximum, regardless of these values. On the other hand, throttling due to low values is possible!)
+## Hardware and platform support
 
-## Other tools for Aorus laptops
+The backend detects fan control, GPU boost, and CPU power tuning separately.
+The web UI and widget use those runtime capabilities; a supported fan controller
+does not establish CPU-tuning or GPU-boost support.
 
-[Gigabyte-Aorus-Battery-Manager](https://github.com/lxmoonlily/Gigabyte-Aorus-Battery-Manager) (**Windows only** - charging threshold control tool)
+| Function                          | Linux                                          | Windows                                                               |
+| --------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------- |
+| Fan control and temperature reads | `acpi_call`, with compatible firmware methods  | ABI 2 `WmiDll.dll`, with compatible vendor WMI provider               |
+| GPU boost                         | Supported vendor ACPI method, when detected    | Supported vendor WMI method, when detected                            |
+| CPU power limits                  | Writable Intel RAPL constraints, when detected | Optional experimental CPUOC adapter; not included in release archives |
+| Desktop widget                    | KDE Plasma 6                                   | Use the web UI                                                        |
 
-## Compatibility
+The bundled Intel SDK is a legacy managed .NET Framework assembly with additional
+XTU/WCF dependencies. Its presence does **not** make the experimental .NET 8
+NativeAOT CPUOC adapter deployable. NativeAOT publishing and actual driver
+compatibility remain unverified; see [PORTING_REVIEW.md](PORTING_REVIEW.md).
+Windows version alone does not determine whether CPU tuning works.
 
-| Model        | Fan control     | CPU limits tweaking | GPU boost       |
-| ------------ | --------------- | ------------------- | --------------- |
-| Aorus 15G    | W10, W11, Linux | W10, Linux          | W10, W11, Linux |
-| Aorus 15G XC | W10, Linux      | W10, Linux          |                 |
-| Aorus 15P XD | W10             | W10                 |                 |
-| Aorus 15 FSB | W11             |                     |                 |
-| Aorus 5 SE4  | W11             |                     |                 |
-| Aero 15 SA   | W10, W11, Linux |                     |                 |
+These are historical community reports from earlier ALFC implementations, not
+certification of the current native bindings:
 
-Please [open an issue](https://github.com/ThatMarko/alfc/issues) or submit a pull request if you can confirm a model that is not yet in the table.
+| Model        | Fan control reports  | CPU limit reports | GPU boost reports    |
+| ------------ | -------------------- | ----------------- | -------------------- |
+| Aorus 15G    | Windows 10/11, Linux | Windows 10, Linux | Windows 10/11, Linux |
+| Aorus 15G XC | Windows 10, Linux    | Windows 10, Linux | Unconfirmed          |
+| Aorus 15P XD | Windows 10           | Windows 10        | Unconfirmed          |
+| Aorus 15 FSB | Windows 11           | Unconfirmed       | Unconfirmed          |
+| Aorus 5 SE4  | Windows 11           | Unconfirmed       | Unconfirmed          |
+| Aero 15 SA   | Windows 10/11, Linux | Unconfirmed       | Unconfirmed          |
 
-GPU boost is likely to not work on models other than the 15G though because the way that is controlled is highly model-dependent.
+Report the exact model, firmware, OS, driver, and ALFC revision when confirming
+support. GPU boost methods are particularly model-dependent. Avoid running
+multiple fan-control tools against the same firmware at once.
+
+## Operation
+
+![Example web UI](assets/screenshot.png)
+
+- Open `http://localhost:5522`. Explicit IPv4 loopback (`127.0.0.1`) and available
+  IPv6 loopback (`::1`) share the same backend. The service does not listen on
+  the LAN, and the WebSocket API has no authentication.
+- Automatic mode selects threshold steps from the CPU and GPU fan tables and
+  applies the higher target to both fans. The normal decision interval is two
+  seconds; temperature collection and hardware latency affect actual timing.
+  Startup uses the highest configured target until a valid temperature collection
+  selects the first curve target. Later ramp-up needs one qualifying cycle and
+  ramp-down needs 30.
+- Fixed mode applies the configured percentage. Telemetry distinguishes the
+  target from the last confirmed write; an unknown result is not shown as a
+  confirmed speed. Clients mark telemetry stale after ten seconds.
+- Settings change after backend validation and hardware acceptance where a
+  hardware call is required. A fan-table acknowledgement means the table was
+  accepted (and persisted in production), not that a particular fan speed was
+  measured. Unrelated state updates
+  preserve unsaved edits.
+- Production settings live in `alfc.config.json` beside the executable
+  (`/opt/alfc` for manual Linux installs, `/usr/lib/alfc` for AUR packaging).
+  Stop the service before editing it, then restart. Development loads the
+  repository config but does not persist UI changes.
+- Shutdown attempts to disable fixed control and restore BIOS automatic control.
+  Firmware and driver hangs can prevent that handoff; automated tests cannot
+  guarantee restoration on physical hardware.
+
+Review the configuration before starting ALFC: startup automatically applies
+stored power limits when a tuner is available. The shipped 37W/106W values are
+historical defaults, not recommendations for every CPU. The accepted 0–200W
+range is input validation, not a hardware safety rating. Excessive limits can
+increase heat and power draw; restrictive limits can reduce performance.
+
+## Installation
+
+For Linux, follow [LINUX.md](LINUX.md), including kernel-module and service
+requirements. For the optional widget, see [plasmoid/README.md](plasmoid/README.md).
+The web UI works without KDE.
+
+For Windows, extract a release archive and run `install.bat` with administrator
+rights. `run.bat` starts a temporary elevated instance; `uninstall.bat` removes
+the service. Keep the executable, ABI-compatible WMI DLL, frontend directory,
+configuration, and WinSW files together. CPUOC is not part of the standard
+archive. Windows logs are `alfc-service.out.log` and `alfc-service.err.log` in
+that directory.
+
+Vendor WMI registration and drivers must already match the laptop. ALFC does
+not install or safely reconstruct them. Avoid applying another model's registry
+or driver instructions. If hardware access fails, retain the log and check the
+runtime capability messages before changing settings.
+
+## Development and verification
+
+Install Bun 1.4.3 and Node.js 24 for the checked toolchain. Compiled production
+executables do not require a separate Node installation.
+
+```bash
+bun install --frozen-lockfile
+bun run all-checks
+bunx playwright install chromium
+bun run test:web
+```
+
+Use two terminals: `bun run --cwd frontend start` for the normal-user Vite UI
+on port 3000, and `sudo bun run --cwd server start` for the Linux backend on
+port 5522. On Windows, run the server command in an administrator terminal
+without `sudo`. `bun run start` combines both processes and therefore requires
+elevation for the entire command. Source development is detected automatically;
+compiled production serving includes the packaged frontend.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for tooling, native builds, Qt tests,
+and meaningful hardware validation. [RELEASING.md](RELEASING.md) covers complete
+release packaging; `bun run build` alone builds workspace outputs.
 
 ## Documentation
 
-| Document                                             | Purpose                                                       |
-| ---------------------------------------------------- | ------------------------------------------------------------- |
-| [LINUX.md](LINUX.md)                                 | Linux installation and troubleshooting guide                  |
-| [RELEASING.md](RELEASING.md)                         | How releases are cut, tagged, and published                   |
-| [common/PROTOCOL.md](common/PROTOCOL.md)             | WebSocket protocol reference (client/server message contract) |
-| [common/COMPATIBILITY.md](common/COMPATIBILITY.md)   | Client compatibility matrix and protocol evolution policy     |
-| [plasmoid/README.md](plasmoid/README.md)             | KDE Plasma 6 widget documentation                             |
-| [plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md) | Plasmoid runtime dependencies by distribution                 |
-| [aur/README.md](aur/README.md)                       | AUR package (`alfc-bin`) maintenance notes                    |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Development setup, conventions, and the pull request process  |
-| [SECURITY.md](SECURITY.md)                           | Vulnerability reporting policy and threat model               |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)             | Community participation standards                             |
-| [PORTING_REVIEW.md](PORTING_REVIEW.md)               | Bun and KDE Plasma 6 port validation baseline                 |
-
-## How it works
-
-![Screenshot](/assets/screenshot.png?raw=true)
-
-- Web interface available @ `http://localhost:5522`
-- Ramping up and down doesn't happen immediately, to prevent frequent fluctuations.
-  (Ramping up happens quite quickly while ramping down requires the temperature to
-  be lower for a while.)
-- Fans are controlled as if they were one (since most heat pipes are shared). And so
-  whatever is the higher target fan speed gets applied.
-- Config is stored in `alfc.config.json` next to the binary (`/opt/alfc/` for manual installs, `/usr/lib/alfc/` for AUR). If you prefer not to use the UI, you can edit this and restart the service to apply your changes.
-- Uses about `0.4%` CPU and `500 mW` package power. (Measured in Windows at idle
-  using hwinfo.)
-
-## Usage
-
-### Linux
-
-See [HERE](./LINUX.md).
-
-### Windows
-
-If you want to use this to reduce noise, ensure that "USB Selective Suspend"
-is always enabled in your power plan! Having it disabled can cause significant CPU
-power consumption and thus drive temperatures up.
-
-- Download the latest release and extract it to wherever you want to run it.
-- Run `install.bat`. It takes about 20 seconds, the installer is not frozen. 😉
-  (In case you need to allow firewall access, you might find it interesting to know that
-  the UI only responds to requests from your local machine.)
-
-You can also simply run `run.bat` from an admin command prompt to run the fan
-control temporarily or to try it out before installing it as a service.
-
-Once you either uninstall the tool or quit after running it using `run.bat`, it
-is recommended to reboot your machine to ensure that control is handed back to
-either BIOS or Gigabyte's Control Center.
-
-## Troubleshooting
-
-On Windows, WinSW writes the service logs to `alfc-service.out.log` and
-`alfc-service.err.log` in the ALFC directory; they might contain useful
-information.
-
-### Getting rid of Gigabyte Control Center
-
-If that is something you're interested in, you need to do this:
-
-- Install Intel XTU
-- Extract the Control Center installer and copy `acpimof.dll` to `C:\Windows\SysWOW64`,
-  create a string value in the Registry at
-  `Computer\HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\WmiAcpi` called `MofImagePath`
-  that contains `C:\Windows\SysWOW64\acpimof.dll` and reboot. (For more on this, [see here](https://docs.microsoft.com/en-us/samples/microsoft/windows-driver-samples/wmi-acpi-sample/))
-
-If you want to keep using the color profiles:
-
-- Extract the Control Center installer and install the ICM file for the color temperature you
-  want yourself. Unfortunately, I don't remember how I figured out the model name of the panel in the Aorus 15G (`color\P75\SHP14C5`).
-
-## Development notes
-
-Requires [Bun](https://bun.sh) 1.4.3+.
-
-`sudo bun run start` — Frontend at `:3000`, server at `:5522`.
-
-In the direction frontend -> server, arguments are not provided as hex strings, since
-WMI uses named arguments and it is easier to strip this info and convert to a
-hex string for Linux.
-
-### Quality tooling
-
-- **Lint**: `bun run lint` — ESLint with TypeScript, React, Prettier integration. `no-explicit-any` warns, `no-unreachable` errors.
-- **Type-check**: `bun run type-check` — Strict TypeScript with `noUncheckedIndexedAccess` enabled.
-- **Test**: `bun run test` — Vitest suites across native adapters, backend, frontend, and shared protocol.
-- **Browser checks**: `bun run test:web` — Chromium scenarios for backend state, commands, reconnection, capabilities, telemetry, and mobile layout. See [PORTING_REVIEW.md](PORTING_REVIEW.md) for browser and Qt checks.
-- **Full check**: `bun run all-checks` — Runs lint, type-check, test, and build in sequence.
-- **Pre-commit**: Husky + lint-staged runs ESLint, type-check, and Prettier on staged files.
-
-## Contributing
-
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the development
-setup, project conventions, and the pull request process. Bug reports and feature
-requests go to the [issue tracker](https://github.com/ThatMarko/alfc/issues); please
-report security issues privately as described in [SECURITY.md](SECURITY.md).
-
-## Roadmap
-
-See [ROADMAP.md](./ROADMAP.md) for the full list of planned features, nice-to-haves, and areas where contributions are welcome.
+| Document                                             | Purpose                                                  |
+| ---------------------------------------------------- | -------------------------------------------------------- |
+| [LINUX.md](LINUX.md)                                 | Linux installation and troubleshooting                   |
+| [RELEASING.md](RELEASING.md)                         | Build targets, artifacts, and release gates              |
+| [common/PROTOCOL.md](common/PROTOCOL.md)             | Wire messages, validation, and errors                    |
+| [common/COMPATIBILITY.md](common/COMPATIBILITY.md)   | Client versions and feature parity                       |
+| [plasmoid/README.md](plasmoid/README.md)             | Widget installation and operation                        |
+| [plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md) | Qt/KDE runtime and test requirements                     |
+| [aur/README.md](aur/README.md)                       | Arch package maintenance                                 |
+| [PORTING_REVIEW.md](PORTING_REVIEW.md)               | Audit evidence, references, and unverified release gates |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Development and contribution workflow                    |
+| [SECURITY.md](SECURITY.md)                           | Vulnerability reporting and trust boundaries             |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)             | Community standards and contact                          |
+| [ROADMAP.md](ROADMAP.md)                             | Implemented scope and proposed work                      |

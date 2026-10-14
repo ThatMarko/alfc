@@ -30,6 +30,7 @@ export const SimpleTooltip = ({
     // https://github.com/reactstrap/reactstrap/issues/2819
     <Tooltip
       isOpen={isOpen}
+      autohide={false}
       style={{ zIndex: 1080 }}
       toggle={() => setIsOpen((prevIsOpen) => !prevIsOpen)}
       {...props}

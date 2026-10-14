@@ -13,6 +13,8 @@ PURGE=false
 for arg in "$@"; do
   case "${arg}" in
     --purge) PURGE=true ;;
+    --help) echo "Usage: $0 [--purge]"; exit 0 ;;
+    *) echo "Unknown argument: ${arg}"; exit 1 ;;
   esac
 done
 
@@ -29,7 +31,9 @@ detect_init() {
 uninstall_systemd() {
   local service_file="/etc/systemd/system/${SERVICE_NAME}.service"
 
-  systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
+  if [[ -f "${service_file}" ]] || systemctl is-active --quiet "${SERVICE_NAME}"; then
+    systemctl stop "${SERVICE_NAME}"
+  fi
   systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
   rm -f "${service_file}"
   systemctl daemon-reload
@@ -40,7 +44,9 @@ uninstall_systemd() {
 uninstall_openrc() {
   local init_script="/etc/init.d/${SERVICE_NAME}"
 
-  rc-service "${SERVICE_NAME}" stop 2>/dev/null || true
+  if [[ -f "${init_script}" ]]; then
+    rc-service "${SERVICE_NAME}" stop
+  fi
   rc-update del "${SERVICE_NAME}" default 2>/dev/null || true
   rm -f "${init_script}"
   echo "Service removed (OpenRC)."
@@ -53,13 +59,16 @@ case "${INIT_SYSTEM}" in
   systemd) uninstall_systemd ;;
   openrc)  uninstall_openrc ;;
   *)
-    echo "Could not detect init system. Killing alfc if running..."
-    killall alfc 2>/dev/null || true
+    echo "Could not detect init system; no files were removed."
+    echo "Stop ALFC with its service manager before removing ${INSTALL_DIR}."
+    exit 1
     ;;
 esac
 
 # Remove symlink
-rm -f /usr/bin/alfc
+if [[ "$(readlink /usr/bin/alfc || true)" == "${INSTALL_DIR}/alfc" ]]; then
+  rm -f /usr/bin/alfc
+fi
 
 # Remove installed files
 if [[ -d "${INSTALL_DIR}" ]]; then
@@ -68,9 +77,8 @@ if [[ -d "${INSTALL_DIR}" ]]; then
     echo "Removed ${INSTALL_DIR} (including config)."
   else
     # Keep config, remove everything else
-    find "${INSTALL_DIR}" -mindepth 1 ! -name 'alfc.config.json' -delete 2>/dev/null || true
-    # find -delete doesn't remove non-empty dirs, so clean up
-    find "${INSTALL_DIR}" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+    find "${INSTALL_DIR}" -mindepth 1 -maxdepth 1 ! -name 'alfc.config.json' \
+      -exec rm -rf -- {} +
     if [[ -f "${INSTALL_DIR}/alfc.config.json" ]]; then
       echo "Config preserved at ${INSTALL_DIR}/alfc.config.json"
       echo "  Use --purge to remove everything including config."

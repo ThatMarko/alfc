@@ -8,5 +8,10 @@ if ! command -v kpackagetool6 &>/dev/null; then
   exit 1
 fi
 
-kpackagetool6 --type Plasma/Applet --remove "${PLUGIN_ID}" || echo "Plasmoid not installed."
+if ! kpackagetool6 --type Plasma/Applet --show "${PLUGIN_ID}" &>/dev/null; then
+  echo "Plasmoid not installed for this user."
+  exit 0
+fi
+
+kpackagetool6 --type Plasma/Applet --remove "${PLUGIN_ID}"
 echo "Plasmoid removed."

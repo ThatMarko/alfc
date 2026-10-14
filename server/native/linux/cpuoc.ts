@@ -5,8 +5,10 @@ const RAPL_DIRECTORIES = [
 ];
 
 let limits: { pl1: string; pl2: string } | undefined;
+let poisonedError: Error | undefined;
 
 export async function tuneInit() {
+  if (poisonedError) throw poisonedError;
   if (limits) return;
   for (const directory of RAPL_DIRECTORIES) {
     const paths = [0, 1].map(
@@ -93,12 +95,17 @@ export async function tune(pl1: number, pl2: number) {
     } catch (restoreError) {
       errors.push(restoreError);
     }
-    throw new AggregateError(
-      errors,
-      errors.length > 1
-        ? "CPU tuning failed and previous power limits could not be fully restored"
-        : "CPU tuning failed; previous power limits restored",
+    const failure = Object.assign(
+      new AggregateError(
+        errors,
+        errors.length > 1
+          ? "CPU tuning failed and previous power limits could not be fully restored"
+          : "CPU tuning failed; previous power limits restored",
+      ),
+      { restartRequired: errors.length > 1 },
     );
+    if (failure.restartRequired) poisonedError = failure;
+    throw failure;
   }
 }
 

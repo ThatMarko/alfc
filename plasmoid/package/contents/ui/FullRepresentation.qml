@@ -148,6 +148,7 @@ PlasmaExtras.Representation {
     property bool fixedDraftDirty: false
     property bool pl1DraftDirty: false
     property bool pl2DraftDirty: false
+    property string draftSourceUrl: ""
     property string pendingModeRequestId: ""
     property string pendingFixedRequestId: ""
     property string pendingBoostRequestId: ""
@@ -189,17 +190,28 @@ PlasmaExtras.Representation {
             return
         }
 
+        const sourceUrl = String(fullRoot.backend.url ?? "")
+        const sourceChanged = sourceUrl !== fullRoot.draftSourceUrl
+        if (sourceChanged) {
+            fullRoot.draftSourceUrl = sourceUrl
+            fullRoot.fixedDraftDirty = false
+            fullRoot.pl1DraftDirty = false
+            fullRoot.pl2DraftDirty = false
+            fullRoot.feedbackText = ""
+            fullRoot.feedbackTone = ""
+            feedbackTimer.stop()
+        }
         fullRoot.syncModeSelection()
 
-        if (fullRoot.canSyncFixedDraft && typeof fullRoot.safeState.fixedPercentage === "number") {
+        if ((sourceChanged || fullRoot.canSyncFixedDraft) && typeof fullRoot.safeState.fixedPercentage === "number") {
             fullRoot.draftFixedPercentage = String(fullRoot.safeState.fixedPercentage)
         }
 
-        if (fullRoot.canSyncPl1Draft && typeof fullRoot.safeState.pl1 === "number") {
+        if ((sourceChanged || fullRoot.canSyncPl1Draft) && typeof fullRoot.safeState.pl1 === "number") {
             fullRoot.draftPl1 = String(fullRoot.safeState.pl1)
         }
 
-        if (fullRoot.canSyncPl2Draft && typeof fullRoot.safeState.pl2 === "number") {
+        if ((sourceChanged || fullRoot.canSyncPl2Draft) && typeof fullRoot.safeState.pl2 === "number") {
             fullRoot.draftPl2 = String(fullRoot.safeState.pl2)
         }
     }
@@ -417,8 +429,9 @@ PlasmaExtras.Representation {
                 Layout.column: 0
                 Layout.row: 1
                 Layout.columnSpan: fullRoot.isWide ? 2 : 1
-                messageText: fullRoot.feedbackText
-                tone: fullRoot.feedbackTone
+                messageText: fullRoot.feedbackText.length > 0
+                    ? fullRoot.feedbackText : (fullRoot.backend?.lastRequestError ?? "")
+                tone: fullRoot.feedbackText.length > 0 ? fullRoot.feedbackTone : "error"
             }
 
             Kirigami.InlineMessage {
@@ -502,12 +515,12 @@ PlasmaExtras.Representation {
                             ? (fullRoot.safeActivity.appliedSpeed != null
                                 ? i18n("%1%", Math.round(fullRoot.safeActivity.appliedSpeed))
                                 : i18n("Unconfirmed"))
-                            : (fullRoot.fixedModeEnabled
-                                ? i18n("%1%", fullRoot.safeState.fixedPercentage)
-                                : "--")
+                            : "--"
+                        valueColor: fullRoot.hasActivity
+                            ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor
                         subtitle: fullRoot.hasTelemetrySnapshot
                             ? i18n("Target %1%", Math.round(fullRoot.safeActivity.target))
-                            : i18n("Current output")
+                            : i18n("Waiting for fan telemetry")
                     }
 
                     MetricTile {
@@ -599,32 +612,8 @@ PlasmaExtras.Representation {
                             text: fullRoot.fixedModeEnabled
                                 ? i18n("Fixed speed")
                                 : i18n("Fixed preset")
-                            Layout.preferredWidth: Kirigami.Units.gridUnit * 6
-                        }
-
-                        PlasmaComponents.Slider {
-                            id: speedSlider
-
                             Layout.fillWidth: true
-                            from: 0
-                            to: 100
-                            stepSize: 1
-                            enabled: fullRoot.hasState
-                                && !fullRoot.fixedBusy
-                            Accessible.name: i18n("Fixed fan speed")
-                            Accessible.description: i18n("Choose the fixed fan speed percentage.")
-
-                            Binding on value {
-                                value: fullRoot.fixedDraftValid
-                                    ? Number(fullRoot.draftFixedPercentage) : 0
-                                when: !speedSlider.pressed
-                                restoreMode: Binding.RestoreBinding
-                            }
-
-                            onMoved: {
-                                fullRoot.fixedDraftDirty = true
-                                fullRoot.draftFixedPercentage = String(Math.round(value))
-                            }
+                            wrapMode: Text.WordWrap
                         }
 
                         PlasmaComponents.TextField {
@@ -664,6 +653,31 @@ PlasmaExtras.Representation {
                             Accessible.name: i18n("Apply fixed fan speed")
                             Accessible.description: i18n("Send the selected fixed fan speed to the backend.")
                             onClicked: fullRoot.requestFixedPercentage()
+                        }
+                    }
+
+                    PlasmaComponents.Slider {
+                        id: speedSlider
+
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 100
+                        stepSize: 1
+                        enabled: fullRoot.hasState
+                            && !fullRoot.fixedBusy
+                        Accessible.name: i18n("Fixed fan speed")
+                        Accessible.description: i18n("Choose the fixed fan speed percentage.")
+
+                        Binding on value {
+                            value: fullRoot.fixedDraftValid
+                                ? Number(fullRoot.draftFixedPercentage) : 0
+                            when: !speedSlider.pressed
+                            restoreMode: Binding.RestoreBinding
+                        }
+
+                        onMoved: {
+                            fullRoot.fixedDraftDirty = true
+                            fullRoot.draftFixedPercentage = String(Math.round(value))
                         }
                     }
                 }
@@ -752,9 +766,11 @@ PlasmaExtras.Representation {
                         Layout.fillWidth: true
                     }
 
-                    RowLayout {
+                    GridLayout {
+                        columns: 2
                         Layout.fillWidth: true
-                        spacing: Kirigami.Units.smallSpacing
+                        columnSpacing: Kirigami.Units.smallSpacing
+                        rowSpacing: Kirigami.Units.smallSpacing
 
                         PlasmaComponents.Label {
                             text: i18n("PL1")
@@ -821,6 +837,8 @@ PlasmaExtras.Representation {
                         }
 
                         PlasmaComponents.Button {
+                            Layout.columnSpan: 2
+                            Layout.fillWidth: true
                             text: fullRoot.tuningBusy
                                 ? i18n("Applying…")
                                 : i18n("Apply")
@@ -851,7 +869,7 @@ PlasmaExtras.Representation {
         width: parent.width - Kirigami.Units.gridUnit * 2
         iconName: !fullRoot.connected
             ? "network-disconnect-symbolic"
-            : (!fullRoot.hasState
+            : (!fullRoot.protocolCompatible ? "dialog-error-symbolic" : !fullRoot.hasState
                 ? "view-refresh-symbolic"
                 : "dialog-error-symbolic")
         text: fullRoot.backend != null && fullRoot.backend.lastError.length > 0
@@ -864,17 +882,17 @@ PlasmaExtras.Representation {
                     : i18n("Waiting for the ALFC backend"))
                 : (!fullRoot.hasState
                     ? i18n("Connected to the ALFC backend, waiting for the initial state snapshot")
-                    : i18n("Unsupported backend protocol %1. This widget supports ALFC 1.x.",
+                    : i18n("Unsupported backend protocol %1. This widget requires ALFC 1.1 or a newer 1.x version.",
                         fullRoot.protocolVersion)))
         helpfulAction: Kirigami.Action {
-            icon.name: !fullRoot.connected || !fullRoot.hasState
+            icon.name: !fullRoot.connected || (fullRoot.protocolCompatible && !fullRoot.hasState)
                 ? "view-refresh"
                 : "configure"
-            text: !fullRoot.connected || !fullRoot.hasState
+            text: !fullRoot.connected || (fullRoot.protocolCompatible && !fullRoot.hasState)
                 ? i18nc("@action:button", "Reconnect")
                 : i18n("Configure Widget")
             onTriggered: {
-                if (!fullRoot.connected || !fullRoot.hasState) {
+                if (!fullRoot.connected || (fullRoot.protocolCompatible && !fullRoot.hasState)) {
                     fullRoot.backend?.reconnect()
                 } else {
                     const action = Plasmoid.internalAction("configure")

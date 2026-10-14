@@ -8,6 +8,7 @@ export function successToast(content: ToastContent) {
     position: "bottom-right",
     style: {
       background: theme.primary,
+      color: "#202027",
     },
   });
 }

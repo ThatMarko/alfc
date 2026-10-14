@@ -114,6 +114,8 @@ describe("KDE Plasma 6 widget QML contract", () => {
       "1.1",
       "1.99",
       "1.1.0",
+      "1.1\n",
+      "1.00",
       "1garbage",
       "2.0",
       ...malformed,

@@ -49,7 +49,7 @@ const {
 } = acpiModule;
 const { cpuocCleanup, tuneInit, tune: tuneNative } = cpuocModule;
 
-acpiModule.onHardwareFailure?.((channel, error) => {
+function reportNativeFailure(channel: "wmi" | "cpuoc", error: Error) {
   if (channel === "wmi") {
     state.isFanControlAvailable = false;
     state.isGpuBoostAvailable = false;
@@ -60,7 +60,9 @@ acpiModule.onHardwareFailure?.((channel, error) => {
   state.restartRequired = true;
   console.error("[Native]", error.message);
   publishState();
-});
+}
+
+acpiModule.onHardwareFailure?.(reportNativeFailure);
 
 let acpiCallQueue: Promise<void> = Promise.resolve();
 let cpuCallQueue: Promise<void> = Promise.resolve();
@@ -90,13 +92,30 @@ function setCall(methodId: string, methodName: string, args: Args) {
 }
 
 function tune(pl1 = state.pl1, pl2 = state.pl2) {
-  return enqueueCpuCall(() => tuneNative(pl1, pl2));
+  return enqueueCpuCall(() => tuneNative(pl1, pl2)).catch((error: unknown) => {
+    // Windows workers report permanent failures immediately; Linux RAPL
+    // reports an unverifiable rollback through the same error contract.
+    if (
+      error instanceof Error &&
+      "restartRequired" in error &&
+      error.restartRequired === true &&
+      (state.isCpuTuningAvailable !== false || !state.restartRequired)
+    )
+      reportNativeFailure("cpuoc", error);
+    throw error;
+  });
 }
 
 function enqueueCpuCall<T>(operation: () => Promise<T>) {
   if (servicesClosed)
     return Promise.reject(new Error("Native services are closed"));
-  const result = cpuCallQueue.then(operation, operation);
+  const run = () => {
+    // Shutdown may begin while an earlier optional tuning operation is still
+    // running. Do not start another queued hardware mutation afterwards.
+    if (servicesClosed) throw new Error("Native services are closed");
+    return operation();
+  };
+  const result = cpuCallQueue.then(run, run);
   cpuCallQueue = result.then(
     () => undefined,
     () => undefined,

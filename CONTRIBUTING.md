@@ -1,93 +1,113 @@
 # Contributing to ALFC
 
-Thanks for considering a contribution. This project controls real hardware, so a
-little extra care in how changes are made and verified goes a long way.
+ALFC changes hardware state with elevated privileges. Describe the behavior you
+changed, how you verified it, and which physical platforms remain untested.
+Use [the issue templates](https://github.com/ThatMarko/alfc/issues/new/choose)
+for reproducible bugs and feature requests. An issue is useful context, not a
+prerequisite for a focused fix. Report vulnerabilities through [SECURITY.md](SECURITY.md)
+and follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-## Report issues first
+## Toolchain and development
 
-If something is broken or missing, open an issue before writing code:
-
-- **Bugs** — use the bug report template. Include your laptop model, OS/distro,
-  ALFC version, and the relevant logs (`alfc-service.out.log` on Windows,
-  `journalctl -u alfc` on Linux). Most bugs are model- and OS-specific; without
-  that context they are hard to reproduce.
-- **Feature requests** — use the feature request template and describe the
-  problem you are trying to solve, not just the feature you want.
-
-Security issues must not be reported in public issues — see
-[SECURITY.md](SECURITY.md).
-
-## Development setup
-
-1. Install [Bun](https://bun.sh) `>=1.4.3` (CI, release workflows, and
-   `packageManager` pin 1.4.3).
-2. `bun install` in the repository root (Bun workspaces: `frontend`, `server`).
-3. `sudo bun run start` — frontend at `:3000`, server at `:5522`. The server
-   requires elevation and exits otherwise.
-
-### Required checks
-
-Run everything that CI runs before pushing:
+The checked toolchain is Bun 1.4.3 and Node.js 24. Bun owns workspaces, package
+installation, scripts, native FFI, and production compilation. Node runs Vitest
+and lint-staged; installing Bun alone does not satisfy those development tools.
 
 ```bash
-bun run all-checks   # lint + type-check + test + build
+bun install --frozen-lockfile
+bun run --cwd frontend start
 ```
 
-Run `bun run test:web` for the Chromium UI protocol scenarios. See
-[PORTING_REVIEW.md](PORTING_REVIEW.md) for browser setup, native packing, and Qt
-runtime checks.
+Start the backend separately in an elevated terminal:
 
-Individual commands: `bun run lint`, `bun run type-check`, `bun run test`.
-Husky + lint-staged also runs ESLint, type-check, and Prettier on staged files
-at commit time.
+```bash
+# Linux; use the same command without sudo in a Windows administrator terminal.
+sudo bun run --cwd server start
+```
 
-## Where things live
+Vite serves port 3000; the backend listens only on loopback port 5522.
+`bun run start` launches both workspaces together and requires elevation for
+the combined command. The backend exits when elevation is missing. Do not run
+real hardware entrypoints as a normal user to bypass that requirement; use
+isolated mocks for tests. Development loads `alfc.config.json` from the repo
+and deliberately skips persistence. Packaged production uses the file beside
+the executable and serves the packaged frontend.
 
-| Area            | Location                         | Notes                                                                |
-| --------------- | -------------------------------- | -------------------------------------------------------------------- |
-| Fan control     | `server/fan-control/`            | Ramping logic, tests colocated                                       |
-| Hardware access | `server/native/{linux,windows}/` | ACPI/WMI platform abstraction                                        |
-| WebSocket API   | `server/websocket/` + `common/`  | Protocol documented in `common/PROTOCOL.md`                          |
-| Web UI          | `frontend/`                      | React + Vite, WebSocket hook in `frontend/src/utils/useWebSocket.ts` |
-| Plasma widget   | `plasmoid/package/`              | Pure QML, all user-visible strings wrapped in `i18n()`               |
-| Service scripts | `bootstrap/scripts/`             | Shell scripts + WinSW config, no TypeScript                          |
+## Checks
 
-## Conventions
+```bash
+bun run all-checks       # ESLint, strict TypeScript, Vitest, workspace builds
+bunx playwright install chromium
+bun run test:web        # Chromium protocol and layout scenarios
+bun audit               # Current advisory data; network required
+bun run del:tscache     # Remove only this workspace's known compiler caches
+```
 
-These come from `AGENTS.md` and are enforced by checks:
+The lockfile is committed. Use a normal `bun install` only when intentionally
+changing dependencies, then review the manifest and lockfile diff and repeat
+a frozen install. Do not suppress advisories or change version pins merely to
+obtain a passing report. Audit findings depend on current registry data.
 
-- **ESM imports**: extensionless relative imports; `node:` prefix for built-ins.
-- **TypeScript**: `strict` + `noUncheckedIndexedAccess` — handle `undefined`
-  from indexed access; no explicit `any`; unused variables get `_` prefix.
-- **Accessibility**: `aria-label` on all interactive frontend elements; QML uses
-  `Accessible.role` / `Accessible.name`.
-- **i18n**: every user-visible QML string goes through `i18n()`.
-- **No containers**: build with `bun run build`, tests are colocated `*.test.ts`.
+Browser tests launch Vite and provide controlled WebSocket scenarios. They are
+not physical firmware tests. They use an installed `/usr/bin/chromium` outside
+CI, or a Playwright browser; `ALFC_CHROMIUM_EXECUTABLE` selects another binary.
+Avoid an unrelated server on port 3000 when running them.
 
-## Pull request process
+Additional checks, with prerequisites and limits, are in
+[PORTING_REVIEW.md](PORTING_REVIEW.md):
 
-1. Fork the repository and create a branch off `master`.
-2. Make the change. Keep it small; split unrelated work into separate PRs.
-3. Run `bun run all-checks` locally.
-4. Describe hardware testing in the PR description when the change touches
-   native or fan-control code — automated tests mock hardware and cannot prove
-   ACPI/WMI behavior on a real laptop.
-5. Protocol changes must keep `common/PROTOCOL.md` and
-   `common/COMPATIBILITY.md` in sync, and follow the versioning policy there.
+- Qt Quick tests execute widget connection, protocol, URLs, and editor behavior.
+  Missing Plasma/Kirigami editor modules produce explicit skips in Qt-only CI.
+- Native C++ output packing tests run without Windows. CI also compiles the
+  actual WMI DLL with MSVC on Windows.
+- .NET export tests use a controlled SDK fixture. They do not establish that
+  the legacy Intel SDK can be published or executed through NativeAOT.
+- Real Bun subprocess tests exercise loopback networking and entrypoint cleanup
+  with hardware replaced by fixtures.
 
-### Commit messages
+Husky runs lint-staged before commits: ESLint on staged JS/TS, workspace type
+checks for TS changes, and Prettier on staged JSON/CSS/Markdown. QML library JS
+uses Qt syntax and is checked by the Qt runner instead of ESLint.
 
-Use the conventional commit style already used in this repository
-(`type(scope): subject`), e.g. `feat(plasmoid): ...`, `fix(windows): ...`,
-`docs: ...`, `chore: ...`.
+## Source map and conventions
 
-## What to test on hardware
+| Area                          | Location                                                   | Contract                                               |
+| ----------------------------- | ---------------------------------------------------------- | ------------------------------------------------------ |
+| Shared catalog and validation | `common/`                                                  | Canonical method names, IDs, widths, protocol guards   |
+| Native hardware               | `server/native/`                                           | Async ordered platform calls; Windows worker ownership |
+| Fan controller                | `server/fan-control/`                                      | Paired fan writes, ramping, telemetry, restoration     |
+| State and commands            | `server/state/`, `server/websocket/`                       | Serialized mutations, persistence, correlated replies  |
+| HTTP and lifecycle            | `server/index.ts`, `server/http.ts`, `server/listeners.ts` | Loopback-only serving and bounded shutdown             |
+| React UI                      | `frontend/`                                                | Backend snapshots, request IDs, per-field drafts       |
+| Plasma widget                 | `plasmoid/`                                                | QML/JS client with the same validated primary controls |
+| Deployment                    | `bootstrap/`, `aur/`, `.github/workflows/`                 | Service management and artifact contents               |
 
-The CI matrix cannot cover:
+Use extensionless relative ESM imports and `node:` for built-ins. TypeScript
+uses `strict` and `noUncheckedIndexedAccess`; explicit `any` is an ESLint error.
+Unused parameters may use an underscore prefix. Give interactive controls an
+accessible name and keep authored QML UI text translatable through `i18n()`.
+Colocate tests with the code. Use Bun scripts rather than Makefiles or Docker.
 
-- Real ACPI/WMI calls on Aorus hardware (Linux and Windows)
-- Fan ramp behavior and safe restore of BIOS automatic control on exit
-- Plasmoid behavior inside Plasma 6 (use `plasmoidviewer -a plasmoid/package`)
+Respect [AGENTS.md](AGENTS.md) and the applicable nested agent instructions.
+Do not move blocking Windows FFI onto the main thread, unload a NativeAOT
+library, bypass managed fan setters through raw commands, or replay a hardware
+write queued during disconnection. Hardware acceptance, saved configuration,
+and telemetry-confirmed output are separate facts.
 
-If you changed something in these areas and cannot test it on hardware, say so
-explicitly in the PR — that is still valuable, it just needs a reviewer who can.
+## Pull requests
+
+Work from the intended branch; PR #1 is `feat/wmi-ffi`. New unrelated changes
+normally start from the appropriate target branch. Keep commits focused and
+use conventional messages such as `fix(windows): ...` or `docs: ...`.
+
+Include the problem, resulting behavior, actual checks, and limitations. Changes
+to the protocol must update both [PROTOCOL.md](common/PROTOCOL.md) and
+[COMPATIBILITY.md](common/COMPATIBILITY.md), including client version needs.
+Current web/widget commands require protocol 1.1 request correlation; the
+server still accepts legacy requests without a request ID.
+
+For native or fan-control changes, report the exact laptop, OS, firmware, and
+driver used, if any. Test failed writes, partial initialization, backend restart,
+and service stop/BIOS handoff. A complete Plasma shell session is also needed
+for desktop integration claims. If hardware is unavailable, say so explicitly;
+passing mock, browser, or headless Qt tests does not certify a laptop.

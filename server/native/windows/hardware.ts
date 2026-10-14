@@ -1,4 +1,5 @@
 import type { Args } from "../../../common/types";
+import { isCompiledBinary } from "../../utils/consts";
 import type {
   HardwareOperation,
   HardwareRequest,
@@ -65,7 +66,7 @@ class HardwareChannel {
     if (this.closed)
       throw new Error(`Windows ${this.name} hardware services are closed`);
     if (!this.worker) {
-      const workerPath = Bun.isStandaloneExecutable
+      const workerPath = isCompiledBinary
         ? "./native/windows/hardware.worker.js"
         : "./hardware.worker.ts";
       this.worker = new Worker(new URL(workerPath, import.meta.url).href);
@@ -86,6 +87,11 @@ class HardwareChannel {
         event.preventDefault();
         this.fail(new Error(`hardware worker failed: ${event.message}`));
       };
+      this.worker.addEventListener("close", () => {
+        if (!this.closed && !this.failure) {
+          this.fail(new Error("hardware worker exited unexpectedly"));
+        }
+      });
     }
     return this.worker;
   }

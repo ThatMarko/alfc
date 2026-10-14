@@ -23,6 +23,7 @@ ColumnLayout {
     property string statusMessage: ""
     property string statusTone: ""
     property int currentTab: 0
+    property string draftSourceUrl: ""
 
     enabled: root.canEdit && !root.saving
 
@@ -73,7 +74,8 @@ ColumnLayout {
             return
         }
 
-        if (root.dirty && !force) {
+        const sourceUrl = String(root.backend.url ?? "")
+        if (root.dirty && !force && root.draftSourceUrl === sourceUrl) {
             return
         }
 
@@ -82,11 +84,9 @@ ColumnLayout {
 
         root.loaded = true
         root.dirty = false
+        root.draftSourceUrl = sourceUrl
         root.curveRevision += 1
-
-        if (!force) {
-            clearStatus()
-        }
+        clearStatus()
     }
 
     function numberFromText(value) {
@@ -157,6 +157,12 @@ ColumnLayout {
 
     function addRow() {
         const model = activeModel()
+        const currentTable = modelToArray(model)
+        const error = validateTable(currentTable, activeCurveLabel())
+        if (error.length > 0) {
+            setStatus(error, "error")
+            return
+        }
         let newTemp = 40
         let newSpeed = 30
 
@@ -164,6 +170,25 @@ ColumnLayout {
             const lastItem = model.get(model.count - 1)
             const lastTemp = numberFromText(lastItem.temp)
             const lastSpeed = numberFromText(lastItem.speed)
+            if (lastTemp === 110) {
+                // Append cannot create an ascending point above the limit.
+                // Insert into an existing gap without changing its old target.
+                for (let index = model.count - 1; index >= 0; index -= 1) {
+                    const lower = index > 0 ? currentTable[index - 1][0] : 0
+                    const upper = currentTable[index][0]
+                    const middle = lower + (upper - lower) / 2
+                    if (middle > lower && middle < upper) {
+                        model.insert(index, {
+                            temp: String(middle),
+                            speed: String(index > 0 ? currentTable[index - 1][1] : lastSpeed)
+                        })
+                        markDirty()
+                        return
+                    }
+                }
+                setStatus(i18n("There is no room for another temperature threshold."), "error")
+                return
+            }
             newTemp = Number.isFinite(lastTemp) ? Math.min(110, lastTemp + 5) : 40
             newSpeed = Number.isFinite(lastSpeed) ? Math.min(100, lastSpeed + 10) : 30
         }
@@ -354,7 +379,7 @@ ColumnLayout {
 
         readonly property real liveTemp: root.backend != null && root.backend.hasFreshActivity && root.backend.latestActivity != null
             && root.backend.latestActivity.sensorFailure !== true
-            ? Math.round(root.currentTab === 0 ? root.backend.latestActivity.avgCPUTemp : root.backend.latestActivity.avgGPUTemp)
+            ? (root.currentTab === 0 ? root.backend.latestActivity.avgCPUTemp : root.backend.latestActivity.avgGPUTemp)
             : -1
 
         Canvas {
@@ -649,13 +674,17 @@ ColumnLayout {
         horizontalAlignment: Text.AlignHCenter
     }
 
-    RowLayout {
+    GridLayout {
+        id: commandGrid
+        objectName: "fanCurveCommands"
+        columns: root.width >= Kirigami.Units.gridUnit * 22 ? 3 : 2
         Layout.fillWidth: true
 
         PlasmaComponents.Button {
             text: i18n("Add Point")
             icon.name: "list-add"
             enabled: root.loaded
+            Layout.fillWidth: true
             Accessible.description: i18n("Add a new point to the active fan curve.")
             onClicked: root.addRow()
         }
@@ -664,18 +693,17 @@ ColumnLayout {
             text: i18n("Reload")
             icon.name: "view-refresh"
             enabled: root.backend != null && root.backend.hasState
+            Layout.fillWidth: true
             Accessible.description: i18n("Discard unsaved changes and reload the stored fan curves.")
             onClicked: root.syncFromBackend(true)
-        }
-
-        Item {
-            Layout.fillWidth: true
         }
 
         PlasmaComponents.Button {
             text: root.saving ? i18n("Saving…") : i18n("Apply Curves")
             icon.name: "dialog-ok"
             enabled: root.loaded && !root.saving
+            Layout.fillWidth: true
+            Layout.columnSpan: commandGrid.columns === 2 ? 2 : 1
             Accessible.description: i18n("Validate the CPU and GPU fan curves and save them.")
             onClicked: root.validateAndSave()
         }

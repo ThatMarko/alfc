@@ -8,6 +8,7 @@ namespace CPUOC
     public static class NativeExports
     {
         private static ITuningLibrary? tuning;
+        private static bool restartRequired;
         private const uint Pl1Id = 48;
         private const uint Pl2Id = 47;
 
@@ -19,15 +20,20 @@ namespace CPUOC
         {
             try
             {
+                if (restartRequired)
+                {
+                    lastError = "CPU tuning could not restore the previous limits. Restart ALFC before initializing again.";
+                    return -2;
+                }
                 tuning = null;
                 ITuningLibrary candidate = TuningLibrary.Instance;
                 if (!candidate.InitializeCheck())
                 {
                     throw new InvalidOperationException("Intel XTU initialization was rejected.");
                 }
-                if (!candidate.IsControlTunable(Pl1Id) || !candidate.IsControlTunable(Pl2Id))
+                if (!candidate.IsControlTunableRealTime(Pl1Id) || !candidate.IsControlTunableRealTime(Pl2Id))
                 {
-                    throw new NotSupportedException("Intel XTU does not support both package power limits.");
+                    throw new NotSupportedException("Intel XTU does not support changing both package power limits without rebooting.");
                 }
                 tuning = candidate;
                 lastError = null;
@@ -47,6 +53,11 @@ namespace CPUOC
         {
             try
             {
+                if (restartRequired)
+                {
+                    lastError = "CPU tuning could not restore the previous limits. Restart ALFC before issuing more commands.";
+                    return -2;
+                }
                 if (tuning == null)
                 {
                     lastError = "CPUOC not initialized. Call cpuoc_init() first.";
@@ -89,6 +100,9 @@ namespace CPUOC
                     if (restoreError != null)
                     {
                         lastError = new AggregateException("CPU tuning failed and previous limits could not be fully restored.", applyError, restoreError).ToString();
+                        restartRequired = true;
+                        tuning = null;
+                        return -2;
                     }
                     else
                     {

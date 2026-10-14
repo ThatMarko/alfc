@@ -1,9 +1,7 @@
 import styled from "@emotion/styled";
-import { faInfoCircle } from "@fortawesome/free-solid-svg-icons";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import React, { useRef } from "react";
+import React from "react";
 import { MessageToServerKind } from "../../../common/types";
-import { SimpleTooltip } from "../components/SimpleTooltip";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { StyledApplyButton } from "../components/StyledApplyButton";
 import { StyledArea } from "../components/StyledArea";
 import { parseIntegerInRange, validationToast } from "../utils/misc";
@@ -23,15 +21,11 @@ const StyledLabel = styled.label`
 `;
 
 export function CPUTuning() {
-  const tooltipRef = useRef<HTMLSpanElement>(null);
   const { isConnected, state } = useWebSocket();
   const isCpuTuningAvailable = state?.isCpuTuningAvailable === true;
   const { isPending: isApplying, runCommand } = useBackendCommand();
-  const [limits, setLimits] = useBackendDraft({
-    pl1: String(state?.pl1 ?? 0),
-    pl2: String(state?.pl2 ?? 0),
-  });
-  const { pl1, pl2 } = limits;
+  const [pl1, setPL1] = useBackendDraft(String(state?.pl1 ?? 0));
+  const [pl2, setPL2] = useBackendDraft(String(state?.pl2 ?? 0));
 
   if (!isConnected) {
     return null;
@@ -56,29 +50,23 @@ export function CPUTuning() {
     <>
       <h2>
         CPU Tuning is not available.{" "}
-        <span ref={tooltipRef} tabIndex={0} aria-label="About CPU tuning">
-          <FontAwesomeIcon icon={faInfoCircle} />
-        </span>
-        <SimpleTooltip target={tooltipRef}>
+        <InfoTooltip label="About CPU tuning">
           The backend did not detect a supported CPU tuning interface.
           Availability depends on your hardware, drivers, and operating system.
-        </SimpleTooltip>
+        </InfoTooltip>
       </h2>
     </>
   ) : (
     <>
       <h2 style={{ marginBottom: 16 }}>
         CPU power limits{" "}
-        <span ref={tooltipRef} tabIndex={0} aria-label="About CPU tuning">
-          <FontAwesomeIcon icon={faInfoCircle} />
-        </span>
-        <SimpleTooltip target={tooltipRef}>
+        <InfoTooltip label="About CPU tuning">
           The ECO profile for the i7-10875H in the Gigabyte Control Center is
           38/107, Boost is 62/107.
           <br />
           Limits are applied and confirmed by the backend. Supported values are
           0 to 200 watts.
-        </SimpleTooltip>
+        </InfoTooltip>
       </h2>
       <form onSubmit={onSubmit}>
         <fieldset
@@ -95,12 +83,7 @@ export function CPUTuning() {
               aria-label="PL1 power limit in watts"
               required
               step={1}
-              onChange={(event) =>
-                setLimits((current) => ({
-                  ...current,
-                  pl1: event.target.value,
-                }))
-              }
+              onChange={(event) => setPL1(event.target.value)}
               value={pl1}
             />
           </StyledLabel>
@@ -115,12 +98,7 @@ export function CPUTuning() {
               aria-label="PL2 power limit in watts"
               required
               step={1}
-              onChange={(event) =>
-                setLimits((current) => ({
-                  ...current,
-                  pl2: event.target.value,
-                }))
-              }
+              onChange={(event) => setPL2(event.target.value)}
               value={pl2}
             />
           </StyledLabel>

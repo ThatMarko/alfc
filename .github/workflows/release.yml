@@ -24,8 +24,20 @@ jobs:
         with:
           bun-version: "1.4.3"
 
+      - name: Setup Node for Vitest
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || exit 1
+          VERSION="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
+          [[ "$GITHUB_REF_NAME" == "v$VERSION" ]] || { echo "Release tag must match package.json version"; exit 1; }
 
       - name: Run checks
         run: bun run all-checks
@@ -35,9 +47,11 @@ jobs:
         run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
       - name: Assemble Linux release
+        env:
+          ALFC_RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="$ALFC_RELEASE_VERSION"
           RELEASE_DIR="alfc-${VERSION}-linux-x64"
           mkdir -p "${RELEASE_DIR}"
 
@@ -61,12 +75,15 @@ jobs:
           cp -r plasmoid/package "${RELEASE_DIR}/plasmoid/package"
           cp plasmoid/install.sh "${RELEASE_DIR}/plasmoid/"
           cp plasmoid/uninstall.sh "${RELEASE_DIR}/plasmoid/"
-          cp plasmoid/DEPENDENCIES.md "${RELEASE_DIR}/plasmoid/"
+          cp plasmoid/*.md "${RELEASE_DIR}/plasmoid/"
 
           # License and docs
           cp LICENSE "${RELEASE_DIR}/"
-          cp README.md "${RELEASE_DIR}/"
-          cp LINUX.md "${RELEASE_DIR}/"
+          cp ./*.md "${RELEASE_DIR}/"
+          mkdir -p "${RELEASE_DIR}/common" "${RELEASE_DIR}/aur" "${RELEASE_DIR}/assets"
+          cp common/*.md "${RELEASE_DIR}/common/"
+          cp aur/README.md "${RELEASE_DIR}/aur/"
+          cp assets/screenshot.png "${RELEASE_DIR}/assets/"
 
           # Create archive
           tar -czf "${RELEASE_DIR}.tar.gz" "${RELEASE_DIR}"
@@ -96,11 +113,23 @@ jobs:
         with:
           bun-version: "1.4.3"
 
+      - name: Setup Node for Vitest
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build frontend and server
-        run: bun run build
+      - name: Validate release tag
+        shell: bash
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || exit 1
+          VERSION="$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
+          [[ "$GITHUB_REF_NAME" == "v$VERSION" ]] || { echo "Release tag must match package.json version"; exit 1; }
+
+      - name: Lint, type-check, test, and build
+        run: bun run all-checks
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -109,6 +138,14 @@ jobs:
         run: build.bat
         shell: cmd
         working-directory: server/native/windows/wmidll
+
+      - name: Verify Windows COM completion and integer decoding
+        shell: cmd
+        working-directory: server/native/windows/wmidll
+        run: |
+          cl /nologo /EHsc WmiNative.test.cpp /Fe:"%RUNNER_TEMP%\alfc-wmi-native-test.exe" /link ole32.lib oleaut32.lib wbemuuid.lib
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\alfc-wmi-native-test.exe"
 
       - name: Download WinSW
         run: |
@@ -121,9 +158,11 @@ jobs:
 
       - name: Assemble Windows release
         shell: bash
+        env:
+          ALFC_RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="$ALFC_RELEASE_VERSION"
           RELEASE_DIR="alfc-${VERSION}-windows-x64"
           mkdir -p "${RELEASE_DIR}"
 
@@ -134,8 +173,8 @@ jobs:
           cp server/native/windows/wmidll/WmiDll.dll "${RELEASE_DIR}/"
 
           # NOTE: CPUOC.dll and IntelOverclockingSDK.dll are NOT included.
-          # CPU tuning requires users to build CPUOC.dll themselves.
-          # See docs for details.
+          # CPU tuning is an unsupported prototype; a separately validated
+          # adapter/SDK integration is required. See RELEASING.md.
 
           # Frontend
           cp -r frontend/build "${RELEASE_DIR}/frontend"
@@ -154,13 +193,20 @@ jobs:
 
           # License and docs
           cp LICENSE "${RELEASE_DIR}/"
-          cp README.md "${RELEASE_DIR}/"
+          cp ./*.md "${RELEASE_DIR}/"
+          mkdir -p "${RELEASE_DIR}/common" "${RELEASE_DIR}/plasmoid" "${RELEASE_DIR}/aur" "${RELEASE_DIR}/assets"
+          cp common/*.md "${RELEASE_DIR}/common/"
+          cp plasmoid/*.md "${RELEASE_DIR}/plasmoid/"
+          cp aur/README.md "${RELEASE_DIR}/aur/"
+          cp assets/screenshot.png "${RELEASE_DIR}/assets/"
 
       - name: Create zip
         shell: bash
+        env:
+          ALFC_RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="$ALFC_RELEASE_VERSION"
           7z a "alfc-${VERSION}-windows-x64.zip" "alfc-${VERSION}-windows-x64"
 
       - name: Upload Windows artifacts
@@ -188,6 +234,11 @@ jobs:
         id: meta
         run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
+      - name: Generate artifact checksums
+        run: |
+          (cd artifacts/linux-release && sha256sum alfc-*-linux-x64.tar.gz org.kde.alfc.plasmoid) > artifacts/SHA256SUMS
+          (cd artifacts/windows-release && sha256sum alfc-*-windows-x64.zip) >> artifacts/SHA256SUMS
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -198,3 +249,4 @@ jobs:
             artifacts/linux-release/alfc-*-linux-x64.tar.gz
             artifacts/linux-release/org.kde.alfc.plasmoid
             artifacts/windows-release/alfc-*-windows-x64.zip
+            artifacts/SHA256SUMS

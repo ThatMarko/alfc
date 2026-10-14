@@ -1,4 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
+#if !defined(_M_X64) && !defined(__x86_64__)
+#error WmiDll requires an x64 Windows compiler environment, matching Bun and ALFC.
+#endif
 #include <windows.h>
 #include <wbemidl.h>
 #include <oleauto.h>
@@ -19,8 +22,8 @@
 #define BSTR_CACHE_INITIAL_CAPACITY 64
 
 // Threading contract: this DLL is not thread-safe. Every export must be
-// called from a single thread: Bun invokes them synchronously on its
-// JavaScript thread through bun:ffi. COINIT_MULTITHREADED in wmi_init()
+// called from the same dedicated Bun hardware worker through bun:ffi.
+// COINIT_MULTITHREADED in wmi_init()
 // selects the COM apartment model, not concurrency for these globals.
 
 static wchar_t *Utf8ToWide(const char *str);
@@ -118,10 +121,10 @@ static void SetLastErr(const char *fmt, ...) {
 }
 
 static wchar_t *Utf8ToWide(const char *str) {
-    int len = MultiByteToWideChar(CP_UTF8, 0, str, -1, nullptr, 0);
+    int len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str, -1, nullptr, 0);
     if (len <= 0) return nullptr;
     wchar_t *wstr = static_cast<wchar_t *>(malloc(len * sizeof(wchar_t)));
-    if (wstr) MultiByteToWideChar(CP_UTF8, 0, str, -1, wstr, len);
+    if (wstr) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str, -1, wstr, len);
     return wstr;
 }
 
@@ -160,6 +163,7 @@ static HRESULT GetClassDefAndInstancePath(
     pEnum->Release();
 
     if (hr == WBEM_S_TIMEDOUT) {
+        if (pInstance) pInstance->Release();
         (*ppClassDef)->Release();
         *ppClassDef = nullptr;
         SetLastErr("Timed out enumerating instances for %ls", className);
@@ -167,6 +171,7 @@ static HRESULT GetClassDefAndInstancePath(
     }
 
     if (FAILED(hr) || returned == 0) {
+        if (pInstance) pInstance->Release();
         (*ppClassDef)->Release();
         *ppClassDef = nullptr;
         SetLastErr("No instances found for %ls", className);
@@ -216,7 +221,8 @@ static int BuildNamedInParams(
         return -1;
     }
 
-    if (!arg_names || !arg_values || arg_names_len < 1) {
+    if (!arg_names || !arg_values || arg_names_len < arg_count * 2 ||
+        arg_names_len > arg_count * (MAX_ARG_NAME_BYTES + 1)) {
         SetLastErr("Missing argument list for %s", method_name);
         return -1;
     }
@@ -256,7 +262,7 @@ static int BuildNamedInParams(
         cursor++; // skip the NUL terminator
 
         wchar_t wideName[MAX_ARG_NAME_BYTES + 1];
-        int written = MultiByteToWideChar(CP_UTF8, 0, segment, (int)length,
+        int written = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, segment, (int)length,
                                           wideName, MAX_ARG_NAME_BYTES);
         if (written <= 0) {
             (*ppInParams)->Release();
@@ -290,6 +296,39 @@ static int BuildNamedInParams(
     return 0;
 }
 
+// Consume the semisynchronous call reference on every path. A failure to learn
+// its completion status is different from a completed operation's failure:
+// the former leaves hardware effects unknown and must disable the channel.
+static HRESULT CompleteMethodCall(
+    IWbemCallResult *call, const char *method_name,
+    IWbemClassObject **outParams
+) {
+    LONG status = E_FAIL;
+    HRESULT hr = call->GetCallStatus(WMI_METHOD_TIMEOUT_MS, &status);
+    if (hr != WBEM_S_NO_ERROR) {
+        g_callTimedOut = true;
+        call->Release();
+        SetLastErr("ExecMethod(%s) completion is unknown (GetCallStatus 0x%08lX); restart ALFC before issuing more commands", method_name, hr);
+        return WBEM_E_TIMED_OUT;
+    }
+    if (static_cast<HRESULT>(status) == static_cast<HRESULT>(WBEM_E_TIMED_OUT)) {
+        g_callTimedOut = true;
+    }
+    if (FAILED(status)) hr = status;
+    if (hr != WBEM_S_NO_ERROR) {
+        call->Release();
+        SetLastErr("ExecMethod(%s) failed: 0x%08lX", method_name, hr);
+        return FAILED(hr) ? hr : E_FAIL;
+    }
+    if (outParams) hr = call->GetResultObject(0, outParams);
+    call->Release();
+    if (hr != WBEM_S_NO_ERROR) {
+        SetLastErr("Reading output from %s failed: 0x%08lX", method_name, hr);
+        return FAILED(hr) ? hr : E_FAIL;
+    }
+    return S_OK;
+}
+
 // Semisynchronous execution bounds the wait without running provider work on
 // another application thread. After a timeout, only process restart is safe.
 static HRESULT ExecuteMethod(
@@ -308,27 +347,31 @@ static HRESULT ExecuteMethod(
         SetLastErr("ExecMethod(%s) failed: 0x%08lX", method_name, hr);
         return FAILED(hr) ? hr : E_FAIL;
     }
-    LONG status = E_FAIL;
-    hr = call->GetCallStatus(WMI_METHOD_TIMEOUT_MS, &status);
-    if (hr == WBEM_S_TIMEDOUT) {
-        g_callTimedOut = true;
-        call->Release();
-        SetLastErr("ExecMethod(%s) timed out; restart ALFC before issuing more commands", method_name);
-        return WBEM_E_TIMED_OUT;
+    return CompleteMethodCall(call, method_name, outParams);
+}
+
+static bool ReadUnsignedWmiValue(
+    VARIANT &input, CIMTYPE type, unsigned int *value, int *width
+) {
+    *width = type == CIM_UINT8 ? 1 : type == CIM_UINT16 ? 2 : 0;
+    if (*width == 0) return false;
+    // CIM unsigned integers commonly use VT_UI1 or VT_I4. Permit integer
+    // containers only; VariantChangeType must not round floats or parse text
+    // into apparently valid hardware bytes.
+    switch (input.vt) {
+        case VT_I1: case VT_UI1: case VT_I2: case VT_UI2:
+        case VT_I4: case VT_UI4: case VT_INT: case VT_UINT:
+            break;
+        default:
+            return false;
     }
-    if (SUCCEEDED(hr) && FAILED(status)) hr = status;
-    if (hr != WBEM_S_NO_ERROR) {
-        call->Release();
-        SetLastErr("ExecMethod(%s) failed: 0x%08lX", method_name, hr);
-        return FAILED(hr) ? hr : E_FAIL;
-    }
-    if (outParams) hr = call->GetResultObject(0, outParams);
-    call->Release();
-    if (hr != WBEM_S_NO_ERROR) {
-        SetLastErr("Reading output from %s failed: 0x%08lX", method_name, hr);
-        return FAILED(hr) ? hr : E_FAIL;
-    }
-    return S_OK;
+    VARIANT numeric;
+    VariantInit(&numeric);
+    HRESULT hr = VariantChangeType(&numeric, &input, 0, VT_UI4);
+    bool valid = SUCCEEDED(hr) && numeric.ulVal <= (*width == 1 ? 0xffu : 0xffffu);
+    if (valid) *value = numeric.ulVal;
+    VariantClear(&numeric);
+    return valid;
 }
 
 // IWbemClassObject::Next has no defined property order. The method definition's
@@ -387,13 +430,9 @@ static int ExecuteGetAndEnumerate(
             break;
         }
         if (_wcsicmp(propName, L"ReturnValue") != 0) {
-            const int width = type == CIM_UINT8 ? 1 : type == CIM_UINT16 ? 2 : 0;
-            VARIANT numeric;
-            VariantInit(&numeric);
-            HRESULT converted = (varVal.vt == VT_NULL || varVal.vt == VT_EMPTY)
-                ? E_INVALIDARG : VariantChangeType(&numeric, &varVal, 0, VT_UI4);
-            if (width == 0 || FAILED(converted) ||
-                numeric.ulVal > (width == 1 ? 0xffu : 0xffffu) ||
+            int width = 0;
+            unsigned int value = 0;
+            if (!ReadUnsignedWmiValue(varVal, type, &value, &width) ||
                 byteCount + width > MAX_RESULTS) {
                 SetLastErr("Invalid or oversized output '%ls' from %s", propName, method_name);
                 valid = false;
@@ -402,20 +441,15 @@ static int ExecuteGetAndEnumerate(
                 IWbemQualifierSet *qualifiers = nullptr;
                 if (SUCCEEDED(outDefinition->GetPropertyQualifierSet(propName, &qualifiers))) {
                     VARIANT id;
-                    VARIANT numericId;
                     VariantInit(&id);
-                    VariantInit(&numericId);
                     if (SUCCEEDED(qualifiers->Get(L"ID", 0, &id, nullptr)) &&
-                        SUCCEEDED(VariantChangeType(&numericId, &id, 0, VT_I4)) &&
-                        numericId.lVal >= 0) order = numericId.lVal;
-                    VariantClear(&numericId);
+                        id.vt == VT_I4 && id.lVal >= 0) order = id.lVal;
                     VariantClear(&id);
                     qualifiers->Release();
                 }
-                fields[fieldCount++] = {order, numeric.ulVal, width};
+                fields[fieldCount++] = {order, value, width};
                 byteCount += width;
             }
-            VariantClear(&numeric);
         }
         SysFreeString(propName);
         VariantClear(&varVal);

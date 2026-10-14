@@ -15,7 +15,7 @@ function hasSupportedWebSocketPath(parsed) {
     return parsed !== null
         && parsed.href.indexOf("?") === -1
         && parsed.href.indexOf("#") === -1
-        && /(^|\/)ws\/?$/.test(parsed.pathname)
+        && (parsed.href.endsWith("/ws") || parsed.href.endsWith("/ws/"))
 }
 
 function isValidWebSocketUrl(value) {

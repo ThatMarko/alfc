@@ -5,6 +5,7 @@ class FakeWorker {
   onmessage?: (event: MessageEvent<HardwareResponse>) => void;
   onerror?: (event: ErrorEvent) => void;
   requests: HardwareRequest[] = [];
+  closeListeners: Array<() => void> = [];
   terminate = vi.fn();
   unref = vi.fn();
 
@@ -14,6 +15,14 @@ class FakeWorker {
 
   postMessage(request: HardwareRequest) {
     this.requests.push(request);
+  }
+
+  addEventListener(kind: string, listener: () => void) {
+    if (kind === "close") this.closeListeners.push(listener);
+  }
+
+  close() {
+    for (const listener of this.closeListeners) listener();
   }
 
   respond(response: HardwareResponse) {
@@ -32,6 +41,17 @@ describe("Windows hardware worker bridge", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps the TypeScript worker path when running production mode from source", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const hardware = await import("./hardware");
+    const init = hardware.wmiInit();
+    const worker = FakeWorker.instances[0]!;
+    expect(worker.url).toContain("/windows/hardware.worker.ts");
+    worker.respond({ id: 1, ok: true });
+    await init;
   });
 
   it("lazily owns one worker and correlates numeric and exact large results", async () => {
@@ -141,5 +161,24 @@ describe("Windows hardware worker bridge", () => {
     });
     expect(failed.mock.calls[0]?.[0]).toBe("wmi");
     expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+
+  it("reports an unexpectedly closed idle worker immediately", async () => {
+    const hardware = await import("./hardware");
+    const failed = vi.fn();
+    hardware.onHardwareFailure(failed);
+    const init = hardware.wmiInit();
+    const worker = FakeWorker.instances[0]!;
+    worker.respond({ id: 1, ok: true });
+    await init;
+    worker.close();
+    expect(failed).toHaveBeenCalledWith(
+      "wmi",
+      expect.objectContaining({ restartRequired: true }),
+    );
+    await expect(hardware.getCall("225", "getCpuTemp")).rejects.toThrow(
+      "exited unexpectedly",
+    );
+    expect(FakeWorker.instances).toHaveLength(1);
   });
 });

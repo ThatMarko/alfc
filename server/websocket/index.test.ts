@@ -81,9 +81,7 @@ type MockSocket = {
   subscribe: ReturnType<typeof vi.fn>;
 };
 
-type MockServer = {
-  publish: ReturnType<typeof vi.fn>;
-};
+type MockServer = ReturnType<typeof createServer>;
 
 function cloneFanTable(table: FanTable): FanTable {
   return table.map(
@@ -113,9 +111,11 @@ function createSocket(): MockSocket {
   };
 }
 
-function createServer(): MockServer {
+function createServer() {
   return {
-    publish: vi.fn(),
+    publish: vi
+      .fn<import("bun").Server<unknown>["publish"]>()
+      .mockReturnValue(0),
   };
 }
 
@@ -280,6 +280,26 @@ describe("websocket contract", () => {
     });
     expect(state.doFixedSpeed).toBe(false);
     expect(mockedPersistState).not.toHaveBeenCalled();
+  });
+
+  it("emits one restart-required code when a native adapter already prefixes it", async () => {
+    const ws = createSocket();
+    mockedTune.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          "RESTART_REQUIRED: RESTART_REQUIRED: Windows cpuoc hardware failed",
+        ),
+        { restartRequired: true },
+      ),
+    );
+    await dispatchMessage(ws, {
+      kind: MessageToServerKind.Tune,
+      requestId: "cpu-fatal",
+      data: { pl1: 40, pl2: 90 },
+    });
+    expect(getLastSentJson(ws).data).toBe(
+      "RESTART_REQUIRED: Windows cpuoc hardware failed",
+    );
   });
 
   it("subscribes to activity channel for registeractivitysocket", async () => {
@@ -645,6 +665,7 @@ describe("websocket contract", () => {
   it.each([
     { methodId: "129", methodName: "SetBrightness", data: { Data: 1 } },
     { methodId: "129 0 0", methodName: "SetAIBoostStatus", data: { Data: 1 } },
+    { methodId: "129\n", methodName: "SetAIBoostStatus", data: { Data: 1 } },
     { methodId: "129", methodName: "__proto__", data: {} },
     { methodId: "129", methodName: "SetAIBoostStatus", data: { Data: 1.5 } },
     { methodId: "129", methodName: "SetAIBoostStatus", data: { Data: -1 } },
@@ -999,6 +1020,24 @@ describe("websocket contract", () => {
     });
   });
 
+  it("returns a structured rejection for an object kind that cannot be coerced to a string", async () => {
+    const ws = createSocket();
+    await expect(
+      dispatchMessage(
+        ws,
+        JSON.stringify({
+          kind: { toString: null, valueOf: null },
+          requestId: "invalid-kind-object",
+        }),
+      ),
+    ).resolves.toBeUndefined();
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      requestId: "invalid-kind-object",
+      data: "UNKNOWN_KIND: object",
+    });
+  });
+
   it.each([
     MessageToServerKind.FixedPercentage,
     MessageToServerKind.DoFixedSpeed,
@@ -1050,6 +1089,19 @@ describe("websocket contract", () => {
       data: 80,
     });
     const drained = startWebSocketShutdown();
+    const rejected = createSocket();
+    await dispatchMessage(rejected, {
+      kind: MessageToServerKind.FixedPercentage,
+      methodId: "fixed",
+      requestId: "after-shutdown",
+      data: 90,
+    });
+    expect(getLastSentJson(rejected)).toEqual({
+      kind: MessageToClientKind.Error,
+      methodId: "fixed",
+      requestId: "after-shutdown",
+      data: "SHUTTING_DOWN: The server is shutting down",
+    });
     release?.();
     await Promise.all([first, second, drained]);
     expect(state.pl1).toBe(45);

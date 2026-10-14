@@ -7,6 +7,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { FanTableItems } from "./FanTable";
+import { fanTableInsertionTemperature } from "../utils/fanTable";
 
 type Props = {
   label: string;
@@ -32,6 +33,7 @@ export function FanTableEditor({
   value,
 }: Props) {
   const inputs = value.map((tableItem, idx) => {
+    const insertionTemperature = fanTableInsertionTemperature(value, idx);
     return (
       <tr key={idx}>
         <td>
@@ -46,7 +48,7 @@ export function FanTableEditor({
             required
             size={4}
             onChange={(event) => {
-              const nextValue = structuredClone(value);
+              const nextValue = value.slice();
               nextValue[idx] = [event.target.value, tableItem[1]];
               onChange(nextValue);
             }}
@@ -65,7 +67,7 @@ export function FanTableEditor({
             required
             size={4}
             onChange={(event) => {
-              const nextValue = structuredClone(value);
+              const nextValue = value.slice();
               nextValue[idx] = [tableItem[0], event.target.value];
               onChange(nextValue);
             }}
@@ -76,23 +78,16 @@ export function FanTableEditor({
           <StyledButton
             type="button"
             aria-label={`Add ${label} row before row ${idx + 1}`}
-            disabled={disabled || Number(tableItem[0]) <= 0}
+            disabled={disabled || insertionTemperature === null}
             onClick={() => {
-              const nextValue = structuredClone(value);
-              const currentTemperature = Number(tableItem[0]);
-              const previousTemperature =
-                idx > 0 ? Number(value[idx - 1]?.[0]) : 0;
-              const temperature =
-                Number.isFinite(currentTemperature) &&
-                Number.isFinite(previousTemperature)
-                  ? Math.max(0, (currentTemperature + previousTemperature) / 2)
-                  : 0;
+              const nextValue = value.slice();
+              if (insertionTemperature === null) return;
               const currentSpeed = Number(tableItem[1]);
               const percentage = Number.isFinite(currentSpeed)
                 ? Math.max(0, Math.min(100, currentSpeed))
                 : 0;
               nextValue.splice(idx, 0, [
-                String(temperature),
+                String(insertionTemperature),
                 String(percentage),
               ]);
               onChange(nextValue);
@@ -115,7 +110,7 @@ export function FanTableEditor({
                 : {}
             }
             onClick={() => {
-              const nextValue = structuredClone(value);
+              const nextValue = value.slice();
               nextValue.splice(idx, 1);
               onChange(nextValue);
             }}

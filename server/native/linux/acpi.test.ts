@@ -86,6 +86,22 @@ describe("linux ACPI adapter", () => {
     expect(writtenCommands[0]).toBe("\\_SB.PCI0.AMW0.WMBC 0 70 0");
   });
 
+  it.each([
+    ["225", "getCpuTemp", "{0x2a}"],
+    ["225", "getCpuTemp", "0x10000"],
+    ["70", "GetCPUFanDuty", "0x100"],
+    ["86", "GetThermalData", "{0x01, 0x02}"],
+  ])(
+    "rejects output that does not fit the declared %s/%s signature",
+    async (methodId, methodName, response) => {
+      const acpi = await import("./acpi");
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      acpiReadText = response;
+      await expect(acpi.getCall(methodId, methodName)).resolves.toBeNaN();
+      log.mockRestore();
+    },
+  );
+
   it("rejects out-of-range argument values and malformed methodId strings", async () => {
     const acpi = await import("./acpi");
 

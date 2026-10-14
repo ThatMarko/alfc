@@ -1,11 +1,10 @@
-import path from "node:path";
 import {
   cleanupNativeServices,
   drainNativeCalls,
   initNativeServices,
 } from "./native/index";
 import { state } from "./state/index";
-import { isDev } from "./utils/consts";
+import { frontendDir, isDev } from "./utils/consts";
 import {
   websocketHandlers,
   setServers,
@@ -194,12 +193,6 @@ async function runServer() {
   nativeInitialization = initNativeServices(() => isShuttingDown);
   await nativeInitialization;
   if (isShuttingDown) return;
-
-  const runtimeRoot = isDev
-    ? import.meta.dirname
-    : path.dirname(process.execPath);
-
-  const frontendDir = path.resolve(runtimeRoot, "frontend");
 
   console.log("[Server] Starting server...");
 

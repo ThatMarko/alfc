@@ -1,3 +1,7 @@
+import { execFile } from "node:child_process";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { isElevated } from "./permissions";
 
 const mocks = vi.hoisted(() => ({
@@ -16,6 +20,28 @@ vi.mock("bun:ffi", () => ({
   ptr: (buffer: ArrayBufferView) => buffer,
   dlopen: mocks.dlopen,
 }));
+
+it.runIf(process.platform === "win32")(
+  "matches the real Windows effective token without querying network services",
+  async () => {
+    const execute = promisify(execFile);
+    const { stdout: expected } = await execute("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()); Write-Output $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
+    ]);
+    const moduleUrl = pathToFileURL(
+      path.join(import.meta.dirname, "permissions.ts"),
+    ).href;
+    const { stdout: actual } = await execute("bun", [
+      "-e",
+      `const { isElevated } = await import(${JSON.stringify(moduleUrl)}); console.log(await isElevated());`,
+    ]);
+    expect(actual.trim().toLowerCase()).toBe(expected.trim().toLowerCase());
+  },
+  15_000,
+);
 
 describe("effective process privileges", () => {
   const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");

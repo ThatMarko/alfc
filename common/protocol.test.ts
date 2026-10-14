@@ -20,7 +20,7 @@ describe("protocol boundary decoding", () => {
   it("accepts current and compatible additive snapshots", () => {
     expect(isState(snapshot())).toBe(true);
     expect(isState({ ...snapshot(), restartRequired: true })).toBe(true);
-    expect(isState({ ...snapshot(), protocolVersion: "1.0" })).toBe(true);
+    expect(isState({ ...snapshot(), protocolVersion: "1.0" })).toBe(false);
     expect(
       isState({ ...snapshot(), protocolVersion: "1.20", futureFeature: true }),
     ).toBe(true);
@@ -39,7 +39,12 @@ describe("protocol boundary decoding", () => {
     [],
     {},
     { ...snapshot(), protocolVersion: "2.0" },
+    { ...snapshot(), protocolVersion: "1.0" },
+    { ...snapshot(), protocolVersion: "1.00" },
     { ...snapshot(), protocolVersion: "1.1junk" },
+    { ...snapshot(), protocolVersion: "1.1\n" },
+    { ...snapshot(), protocolVersion: "1.1\r\n" },
+    { ...snapshot(), protocolVersion: " 1.1" },
     { ...snapshot(), doFixedSpeed: "false" },
     { ...snapshot(), isFanControlAvailable: null },
     { ...snapshot(), restartRequired: "true" },

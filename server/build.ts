@@ -1,31 +1,45 @@
 import { rm } from "node:fs/promises";
+import path from "node:path";
 
 const isWindows = process.platform === "win32";
 const arch = process.arch;
+if (process.platform !== "linux" && !isWindows) {
+  throw new Error(`Unsupported server platform: ${process.platform}`);
+}
+if (arch !== "x64" && arch !== "arm64") {
+  throw new Error(`Unsupported server architecture: ${arch}`);
+}
+if (isWindows && arch !== "x64") {
+  throw new Error("Windows native libraries currently require an x64 build.");
+}
+const serverDir = import.meta.dirname;
+const distDir = path.join(serverDir, "dist");
 
-let target:
-  "bun-windows-arm64" | "bun-windows-x64" | "bun-linux-arm64" | "bun-linux-x64";
+let target: "bun-windows-x64" | "bun-linux-arm64" | "bun-linux-x64";
 let outfile: string;
 
 if (isWindows) {
-  target = arch === "arm64" ? "bun-windows-arm64" : "bun-windows-x64";
+  target = "bun-windows-x64";
   outfile = "dist/alfc.exe";
 } else {
   target = arch === "arm64" ? "bun-linux-arm64" : "bun-linux-x64";
   outfile = "dist/alfc";
 }
 
-await rm("dist", { recursive: true, force: true });
+await rm(distDir, { recursive: true, force: true });
 
 const result = await Bun.build({
   // Bundled workers must be explicit entrypoints so compiled executables can
   // resolve their source URL in Bun's virtual filesystem.
   entrypoints: isWindows
-    ? ["index.ts", "native/windows/hardware.worker.ts"]
-    : ["index.ts"],
+    ? [
+        path.join(serverDir, "index.ts"),
+        path.join(serverDir, "native/windows/hardware.worker.ts"),
+      ]
+    : [path.join(serverDir, "index.ts")],
   compile: {
     target,
-    outfile,
+    outfile: path.join(serverDir, outfile),
   },
   format: "esm",
   minify: true,

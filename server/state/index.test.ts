@@ -1,9 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import path from "node:path";
 
 const { readConfigMock, renameMock, stateRuntime } = vi.hoisted(() => ({
   readConfigMock: vi.fn(),
   renameMock: vi.fn().mockResolvedValue(undefined),
-  stateRuntime: { isDev: true },
+  stateRuntime: { isDev: true, isCompiledBinary: false },
 }));
 
 vi.mock("node:fs", () => ({
@@ -55,6 +56,7 @@ describe("state config loading", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stateRuntime.isDev = true;
+    stateRuntime.isCompiledBinary = false;
     renameMock.mockResolvedValue(undefined);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
@@ -116,6 +118,29 @@ describe("state config loading", () => {
     expect(firstSaved).not.toHaveProperty("protocolVersion");
     expect(renameMock).toHaveBeenCalledTimes(2);
   });
+
+  it.each([false, true])(
+    "loads and saves production config at the expected path (compiled=%s)",
+    async (compiled) => {
+      stateRuntime.isDev = false;
+      stateRuntime.isCompiledBinary = compiled;
+      mockConfigFile(JSON.stringify(VALID_CONFIG));
+      const write = vi.spyOn(Bun, "write").mockResolvedValue(1);
+      const configPath = compiled
+        ? path.join(path.dirname(process.execPath), "alfc.config.json")
+        : path.resolve(import.meta.dirname, "../../alfc.config.json");
+      const { persistState } = await importState();
+      expect(readConfigMock).toHaveBeenCalledWith(configPath, {
+        encoding: "utf8",
+      });
+      await persistState();
+      expect(write).toHaveBeenCalledWith(
+        configPath + ".tmp",
+        expect.any(String),
+      );
+      expect(renameMock).toHaveBeenCalledWith(configPath + ".tmp", configPath);
+    },
+  );
 
   it("reports save failures and allows the next queued save to recover", async () => {
     stateRuntime.isDev = false;

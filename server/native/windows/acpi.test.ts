@@ -1,4 +1,5 @@
 import type { Pointer } from "bun:ffi";
+import path from "node:path";
 
 const pointerMemory = new Map<number, Uint8Array>();
 let nextPointerAddress = 0x1000;
@@ -41,7 +42,7 @@ const mockSymbols = {
 };
 
 const mockClose = vi.fn<() => void>();
-const mockDlopen = vi.fn(() => ({
+const mockDlopen = vi.fn((_path: string, _definition: unknown) => ({
   symbols: mockSymbols,
   close: mockClose,
 }));
@@ -173,6 +174,29 @@ describe("windows WMI FFI adapter", () => {
         exists: () => Promise.resolve(dllExists),
       })),
     } as unknown as typeof Bun;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("uses the source DLL location when NODE_ENV is production without compilation", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const acpi = await import("./acpi");
+    await acpi.wmiInit();
+    expect(mockDlopen.mock.calls[0]?.[0]).toBe(
+      path.join(import.meta.dirname, "wmidll", "WmiDll.dll"),
+    );
+  });
+
+  it("uses the executable directory for a compiled binary", async () => {
+    vi.stubGlobal("Bun", { ...Bun, isStandaloneExecutable: true });
+    const acpi = await import("./acpi");
+    await acpi.wmiInit();
+    expect(mockDlopen.mock.calls[0]?.[0]).toBe(
+      path.join(path.dirname(process.execPath), "WmiDll.dll"),
+    );
   });
 
   it("defers dlopen until wmiInit is called", async () => {
@@ -437,6 +461,22 @@ describe("windows WMI FFI adapter", () => {
     await Promise.all([acpi.wmiInit(), acpi.wmiInit(), acpi.wmiInit()]);
     expect(mockDlopen).toHaveBeenCalledTimes(1);
     expect(mockSymbols.wmi_init).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects mismatched method IDs before entering native code", async () => {
+    const acpi = await import("./acpi");
+    await acpi.wmiInit();
+    await expect(acpi.getCall("226", "getCpuTemp")).rejects.toThrow(
+      /mismatched WMI method/,
+    );
+    await expect(acpi.getCall("225;reboot", "getCpuTemp")).rejects.toThrow(
+      RangeError,
+    );
+    await expect(
+      acpi.setCall("108", "SetFixedFanSpeed", { Data: 100 }),
+    ).rejects.toThrow(RangeError);
+    expect(mockSymbols.wmi_get).not.toHaveBeenCalled();
+    expect(mockSymbols.wmi_set).not.toHaveBeenCalled();
   });
 
   it("permanently rejects commands and reinitialization after a native timeout", async () => {

@@ -15,12 +15,14 @@ TestCase {
 
     function test_version_data() {
         return [
-            { tag: "legacy", version: "1.0", accepted: true },
+            { tag: "legacy", version: "1.0", accepted: false },
+            { tag: "legacy-zeroes", version: "1.00", accepted: false },
             { tag: "current", version: "1.1", accepted: true },
             { tag: "future-minor", version: "1.99", accepted: true },
             { tag: "major", version: "2.0", accepted: false },
             { tag: "parseInt-prefix", version: "1garbage", accepted: false },
-            { tag: "patch", version: "1.1.0", accepted: false }
+            { tag: "patch", version: "1.1.0", accepted: false },
+            { tag: "newline", version: "1.1\n", accepted: false }
         ]
     }
 

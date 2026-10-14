@@ -239,7 +239,38 @@ test("mobile UI and expanded raw controls fit the viewport", async ({
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(320);
+  await expect
+    .poll(() =>
+      page
+        .locator("#root > div")
+        .evaluate((element) => element.scrollWidth - element.clientWidth),
+    )
+    .toBeLessThanOrEqual(0);
+  await page.getByRole("radio", { name: "Set", exact: true }).check();
+  await page.getByLabel("WMI method name").selectOption("SetLightBar");
+  await expect
+    .poll(() =>
+      page
+        .locator("#root > div")
+        .evaluate((element) => element.scrollWidth - element.clientWidth),
+    )
+    .toBeLessThanOrEqual(0);
+  await page.addStyleTag({
+    content: "#root > div::-webkit-scrollbar { width: 16px; height: 16px; }",
+  });
+  await expect
+    .poll(() =>
+      page
+        .locator("#root > div")
+        .evaluate((element) => element.scrollWidth - element.clientWidth),
+    )
+    .toBeLessThanOrEqual(0);
+  await page.locator("#root > div").evaluate((element) => {
+    element.scrollTop = 0;
+  });
   await page.screenshot({ path: testInfo.outputPath("mobile-ui.png") });
+  await page.getByLabel("WMI method name").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("mobile-raw-ui.png") });
   expect(server.errors).toEqual([]);
 });
 
@@ -314,5 +345,116 @@ test("stale telemetry is marked until fresh data arrives and restart guidance pe
   await expect(
     page.getByRole("button", { name: "Switch to fixed mode" }),
   ).toBeEnabled();
+  expect(server.errors).toEqual([]);
+});
+
+test("updates to another field in a form preserve independent drafts", async ({
+  page,
+}) => {
+  const server = await backend(page);
+  const pl1 = page.getByLabel("PL1 power limit in watts");
+  const cpuTemperature = page.getByLabel("CPU temperature for row 1");
+  await pl1.fill("62");
+  await cpuTemperature.fill("41.5");
+  server.push({
+    pl2: 120,
+    gpuFanTable: [
+      [45, 20],
+      [80, 100],
+    ],
+  });
+  await expect(pl1).toHaveValue("62");
+  await expect(page.getByLabel("PL2 power limit in watts")).toHaveValue("120");
+  await expect(cpuTemperature).toHaveValue("41.5");
+  await expect(page.getByLabel("GPU temperature for row 1")).toHaveValue("45");
+  expect(server.requests).toEqual([]);
+  expect(server.errors).toEqual([]);
+});
+
+test("fan row controls cannot insert duplicate floating-point temperatures", async ({
+  page,
+}) => {
+  const server = await backend(page, {
+    cpuFanTable: [
+      [0, 15],
+      [Number.MIN_VALUE, 50],
+    ],
+  });
+  await expect(
+    page.getByRole("button", { name: "Add CPU row before row 2", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Append CPU fan curve row", exact: true })
+    .click();
+  await expect(page.getByLabel("CPU temperature for row 3")).toHaveValue("1");
+  expect(server.requests).toEqual([]);
+  expect(server.errors).toEqual([]);
+});
+
+test("a server without request correlation is rejected before writes are enabled", async ({
+  page,
+}) => {
+  const server = await backend(page);
+  server.push({ protocolVersion: "1.0" });
+  await expect(page.getByRole("alert")).toContainText(
+    "incompatible or invalid state",
+  );
+  await expect(page.getByLabel("Fixed fan speed percentage")).toHaveCount(0);
+  server.push({ protocolVersion: "1.1" });
+  await expect(
+    page.getByRole("button", { name: "Switch to fixed mode", exact: true }),
+  ).toBeEnabled();
+  expect(server.requests).toEqual([]);
+  expect(server.errors).toEqual([]);
+});
+
+test("information tooltips are keyboard accessible, associated and dismissible", async ({
+  page,
+}) => {
+  const server = await backend(page);
+  const trigger = page.getByRole("button", {
+    name: "About fan control status",
+    exact: true,
+  });
+  await trigger.focus();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toContainText("Both fans use the same target speed");
+  await expect(trigger).toHaveAttribute(
+    "aria-describedby",
+    (await tooltip.getAttribute("id")) ?? "",
+  );
+  await page.keyboard.press("Escape");
+  await expect(tooltip).toHaveCount(0);
+  expect(server.errors).toEqual([]);
+});
+
+test("unknown GPU capability cannot advertise or enable GPU boost writes", async ({
+  page,
+}) => {
+  const server = await backend(page, { isGpuBoostAvailable: undefined });
+  await expect(page.getByRole("checkbox", { name: "GPU Boost" })).toHaveCount(
+    0,
+  );
+  await page
+    .getByRole("button", { name: "Toggle Raw UI", exact: true })
+    .click();
+  await page.getByRole("radio", { name: "Set", exact: true }).check();
+  await page.getByLabel("WMI method name").selectOption("SetAIBoostStatus");
+  await page.getByLabel("Argument Data", { exact: true }).fill("1");
+  await expect(
+    page.getByRole("button", { name: "Run", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByText("GPU boost is not available on this system.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  server.push({ isGpuBoostAvailable: true });
+  await expect(page.getByRole("checkbox", { name: "GPU Boost" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Run", exact: true }),
+  ).toBeEnabled();
+  expect(server.requests).toEqual([]);
   expect(server.errors).toEqual([]);
 });

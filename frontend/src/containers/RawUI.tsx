@@ -91,7 +91,7 @@ export function RawUI() {
   const isUnavailableBoost =
     kind === Kind.Set &&
     methodName === "SetAIBoostStatus" &&
-    state?.isGpuBoostAvailable === false;
+    state?.isGpuBoostAvailable !== true;
 
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();

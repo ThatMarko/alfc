@@ -203,7 +203,8 @@ PlasmoidItem {
                     Layout.preferredWidth: Kirigami.Units.smallSpacing * 1.5
                     Layout.preferredHeight: Layout.preferredWidth
                     radius: Layout.preferredWidth / 2
-                    color: (root.isOverheating || root.sensorFailure)
+                    color: (root.isOverheating || root.sensorFailure || root.restartRequired
+                            || !root.protocolCompatible)
                         ? Kirigami.Theme.negativeTextColor
                         : (root.isWarm
                             ? Kirigami.Theme.neutralTextColor
@@ -214,7 +215,7 @@ PlasmoidItem {
             }
 
             RowLayout {
-                visible: root.hasActivity
+                visible: root.hasActivity && !root.sensorFailure
                 Layout.fillWidth: true
                 spacing: Kirigami.Units.mediumSpacing
 
@@ -249,9 +250,10 @@ PlasmoidItem {
             }
 
             PlasmaComponents.Label {
-                visible: !root.hasActivity || root.sensorFailure
+                visible: !root.hasActivity || root.sensorFailure || root.restartRequired
+                    || backendConnection.lastRequestError.length > 0
                 text: root.toolTipSubText
-                color: root.sensorFailure
+                color: root.sensorFailure || root.restartRequired
                     ? Kirigami.Theme.negativeTextColor
                     : Kirigami.Theme.disabledTextColor
                 font: Kirigami.Theme.smallFont
@@ -260,10 +262,14 @@ PlasmoidItem {
             }
 
             PlasmaComponents.Label {
-                text: root.isFixedMode
-                    ? i18n("Fixed Mode (%1%) \u2022 Middle-click to switch to Auto",
-                        root.backendState ? root.backendState.fixedPercentage : 50)
-                    : i18n("Auto Mode (Curves) \u2022 Middle-click to switch to Fixed")
+                text: !root.hasState || !root.protocolCompatible
+                    ? i18n("Fan controls are waiting for a compatible backend.")
+                    : !root.fanControlAvailable
+                        ? i18n("Fan control is unavailable on this system.")
+                        : root.isFixedMode
+                            ? i18n("Fixed Mode (%1%) \u2022 Middle-click to switch to Auto",
+                                root.backendState.fixedPercentage)
+                            : i18n("Auto Mode (Curves) \u2022 Middle-click to switch to Fixed")
                 color: Kirigami.Theme.disabledTextColor
                 font: Kirigami.Theme.smallFont
                 wrapMode: Text.WordWrap

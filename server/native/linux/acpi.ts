@@ -22,7 +22,7 @@ export function isAvailable() {
   return isAcpiAvailable();
 }
 
-const ACPI_METHOD_ID_PATTERN = /^(?:0x[0-9a-fA-F]+|\d+)$/;
+const ACPI_METHOD_ID_PATTERN = /^(?:0x[\da-f]+|\d+)$/i;
 
 function validateMethodId(methodId: string): string {
   if (!ACPI_METHOD_ID_PATTERN.test(methodId)) {
@@ -82,7 +82,7 @@ function readResponse(text: string) {
   return response;
 }
 
-function parseResult(response: string): NativeResult {
+function parseResult(response: string, outputBytes: number): NativeResult {
   let result: bigint;
   if (/^0x[\da-f]+$/i.test(response)) {
     result = BigInt(response);
@@ -93,9 +93,19 @@ function parseResult(response: string): NativeResult {
       .slice(1, -1)
       .split(",")
       .map((byte) => BigInt(byte.trim()));
+    if (bytes.length !== outputBytes) {
+      throw new Error(
+        `Invalid ACPI byte count: ${bytes.length}; expected ${outputBytes}`,
+      );
+    }
     result = bytes.reduceRight((value, byte) => (value << 8n) | byte, 0n);
   } else {
     throw new Error(`Invalid ACPI result: ${response}`);
+  }
+  if (outputBytes < 1 || result >= 1n << BigInt(outputBytes * 8)) {
+    throw new Error(
+      `ACPI result exceeds its declared ${outputBytes}-byte output`,
+    );
   }
   return result <= BigInt(Number.MAX_SAFE_INTEGER)
     ? Number(result)
@@ -119,7 +129,13 @@ export async function getCall(
     const command = `\\_SB.PCI0.AMW0.WMBC 0 ${methodId} ${argsToHexString(getMethods, methodId, methodName, args)}`;
     await Bun.write(ACPI_CALL_PATH, command);
     const result = await Bun.file(ACPI_CALL_PATH).text();
-    return parseResult(readResponse(result));
+    const outputBytes =
+      getMethods[methodName]?.outArgs.reduce((count, argument) => {
+        if (argument.type === "uint8") return count + 1;
+        if (argument.type === "uint16") return count + 2;
+        throw new TypeError(`Unsupported ACPI output type '${argument.type}'`);
+      }, 0) ?? 0;
+    return parseResult(readResponse(result), outputBytes);
   } catch (error) {
     console.error(`[ACPI] getCall failed for ${methodId}:`, error);
     return NaN;

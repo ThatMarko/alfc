@@ -7,8 +7,7 @@ import { useBackendCommand, useWebSocket } from "../utils/useWebSocket";
 export function Toggles() {
   const { isConnected, state } = useWebSocket();
   const { isPending, runCommand } = useBackendCommand();
-  if (!isConnected || !state || state.isGpuBoostAvailable === false)
-    return null;
+  if (!isConnected || !state || state.isGpuBoostAvailable !== true) return null;
 
   return (
     <div

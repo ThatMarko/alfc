@@ -36,17 +36,18 @@ export function FanTable({
   const submitRef = useRef<HTMLButtonElement>(null);
   const { isConnected, state } = useWebSocket();
   const { isPending: isApplying, runCommand } = useBackendCommand();
-  const [tables, setTables] = useBackendDraft({
-    cpu: (state?.cpuFanTable ?? []).map(
+  const [cpuTable, setCPUTable] = useBackendDraft(
+    (state?.cpuFanTable ?? []).map(
       ([temperature, speed]) =>
         [String(temperature), String(speed)] as [string, string],
     ),
-    gpu: (state?.gpuFanTable ?? []).map(
+  );
+  const [gpuTable, setGPUTable] = useBackendDraft(
+    (state?.gpuFanTable ?? []).map(
       ([temperature, speed]) =>
         [String(temperature), String(speed)] as [string, string],
     ),
-  });
-  const { cpu: cpuTable, gpu: gpuTable } = tables;
+  );
 
   if (!isConnected) {
     return null;
@@ -101,7 +102,7 @@ export function FanTable({
             <FanTableEditor
               disabled={disabled || isApplying}
               label="CPU"
-              onChange={(cpu) => setTables((current) => ({ ...current, cpu }))}
+              onChange={setCPUTable}
               value={cpuTable}
             />
           </StyledArea>
@@ -110,7 +111,7 @@ export function FanTable({
             <FanTableEditor
               disabled={disabled || isApplying}
               label="GPU"
-              onChange={(gpu) => setTables((current) => ({ ...current, gpu }))}
+              onChange={setGPUTable}
               value={gpuTable}
             />
           </StyledArea>

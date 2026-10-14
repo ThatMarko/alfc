@@ -292,10 +292,12 @@ async function handleMessage(
     typeof payloadKind !== "string" ||
     !validMessageToServerKinds.has(payloadKind)
   ) {
-    console.warn(
-      `[WebSocket] Invalid message: unknown kind "${String(payloadKind)}"`,
-    );
-    sendError(ws, parsedPayload, `UNKNOWN_KIND: ${String(payloadKind)}`);
+    // A JSON object can shadow toString/valueOf, so coercing an arbitrary
+    // kind before validation can itself throw and bypass a structured reply.
+    const description =
+      typeof payloadKind === "string" ? payloadKind : typeof payloadKind;
+    console.warn(`[WebSocket] Invalid message: unknown kind "${description}"`);
+    sendError(ws, parsedPayload, `UNKNOWN_KIND: ${description}`);
     return;
   }
 
@@ -483,7 +485,13 @@ async function handleMessage(
   } catch (error) {
     const restartError = restartRequiredCause(error);
     if (restartError) {
-      sendError(ws, payload, `RESTART_REQUIRED: ${restartError.message}`);
+      // Native adapters may already include the wire code in their message.
+      // Expose one code even when multiple failure wrappers preserved it.
+      const detail = restartError.message.replace(
+        /^(?:RESTART_REQUIRED:\s*)+/,
+        "",
+      );
+      sendError(ws, payload, `RESTART_REQUIRED: ${detail}`);
       return;
     }
     sendError(ws, payload, "INTERNAL_ERROR: An unexpected error occurred");
@@ -504,15 +512,15 @@ export const websocketHandlers = {
       ws.send("pong");
       return Promise.resolve();
     }
-    if (isShuttingDown) {
-      sendError(ws, null, "SHUTTING_DOWN: The server is shutting down");
-      return Promise.resolve();
-    }
     let payload: unknown;
     try {
       payload = JSON.parse(messageString);
     } catch (_) {
       sendError(ws, null, "INVALID_JSON: Failed to parse message");
+      return Promise.resolve();
+    }
+    if (isShuttingDown) {
+      sendError(ws, payload, "SHUTTING_DOWN: The server is shutting down");
       return Promise.resolve();
     }
     // Activity subscription is connection setup, independent of hardware

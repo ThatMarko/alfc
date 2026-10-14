@@ -1,12 +1,8 @@
-import { faInfoCircle } from "@fortawesome/free-solid-svg-icons";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { useRef } from "react";
-import { SimpleTooltip } from "../components/SimpleTooltip";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { StyledArea } from "../components/StyledArea";
 import { useWebSocket } from "../utils/useWebSocket";
 
 export function Status({ disabled }: { disabled: boolean }) {
-  const tooltipRef = useRef<HTMLSpanElement>(null);
   const { isConnected, activity, isActivityStale } = useWebSocket();
   if (!isConnected) return null;
   const readings = disabled ? null : activity;
@@ -21,18 +17,11 @@ Last applied: ${readings?.appliedSpeed ?? "-"}%`;
     <StyledArea>
       <h2>
         Status{" "}
-        <span
-          ref={tooltipRef}
-          tabIndex={0}
-          aria-label="About fan control status"
-        >
-          <FontAwesomeIcon icon={faInfoCircle} />
-        </span>
-        <SimpleTooltip target={tooltipRef}>
+        <InfoTooltip label="About fan control status">
           Both fans use the same target speed. The higher of the CPU and GPU
           fan-curve targets wins. Fixed mode continues to report temperature and
           applied speed.
-        </SimpleTooltip>
+        </InfoTooltip>
       </h2>
       {telemetryStale && (
         <p role="alert">

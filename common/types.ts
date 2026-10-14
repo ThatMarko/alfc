@@ -50,8 +50,9 @@ export type FanControlActivity = {
   avgGPUTemp: number;
   target: number;
   // True when the last collection failed: the temperatures are the last
-  // successfully collected averages and fans were commanded to the highest
-  // configured speed. Absent from 1.0 servers — treat undefined as false.
+  // successfully collected averages. Automatic mode commands the highest
+  // configured speed; fixed mode retains its requested speed. A null
+  // appliedSpeed means the writes are unconfirmed. Legacy servers may omit it.
   sensorFailure?: boolean;
 };
 

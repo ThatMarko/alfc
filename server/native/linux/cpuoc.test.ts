@@ -3,6 +3,7 @@ describe("linux RAPL CPUOC adapter", () => {
   let values: Map<string, string>;
   let failSecondWrite = false;
   let kernelClamps = false;
+  let rollbackClamps = false;
   const root = "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0";
 
   beforeEach(() => {
@@ -11,6 +12,7 @@ describe("linux RAPL CPUOC adapter", () => {
     writes = [];
     failSecondWrite = false;
     kernelClamps = false;
+    rollbackClamps = false;
     values = new Map([
       [`${root}/constraint_0_power_limit_uw`, "45000000"],
       [`${root}/constraint_1_power_limit_uw`, "95000000"],
@@ -31,7 +33,10 @@ describe("linux RAPL CPUOC adapter", () => {
           return Promise.reject(new Error("Permission denied"));
         values.set(
           path,
-          kernelClamps && writes.length <= 2 ? "30000000" : data,
+          (kernelClamps && writes.length <= 2) ||
+            (rollbackClamps && writes.length >= 3)
+            ? "30000000"
+            : data,
         );
         return Promise.resolve(data.length);
       }),
@@ -55,6 +60,23 @@ describe("linux RAPL CPUOC adapter", () => {
       "previous power limits restored",
     );
     expect(values.get(`${root}/constraint_0_power_limit_uw`)).toBe("45000000");
+  });
+
+  it("requires restart and prevents further writes after an unverifiable rollback", async () => {
+    const cpuoc = await import("./cpuoc");
+    failSecondWrite = true;
+    rollbackClamps = true;
+    await expect(cpuoc.tune(37, 106)).rejects.toMatchObject({
+      restartRequired: true,
+    });
+    const writeCount = writes.length;
+    await expect(cpuoc.tune(45, 95)).rejects.toMatchObject({
+      restartRequired: true,
+    });
+    await expect(cpuoc.tuneInit()).rejects.toMatchObject({
+      restartRequired: true,
+    });
+    expect(writes).toHaveLength(writeCount);
   });
 
   it("resolves PL1 and PL2 by constraint name when driver indices are reversed", async () => {

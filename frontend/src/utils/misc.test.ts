@@ -36,6 +36,7 @@ describe("toast utility wrappers", () => {
       position: "bottom-right",
       style: {
         background: theme.primary,
+        color: "#202027",
       },
     });
   });

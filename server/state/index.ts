@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { rename } from "node:fs/promises";
 import stringifyCompact from "json-stringify-pretty-compact";
 import path from "node:path";
-import { isDev } from "../utils/consts";
+import { isCompiledBinary, isDev } from "../utils/consts";
 import type { State } from "../../common/types";
 import {
   validateFanTable,
@@ -19,9 +19,9 @@ type PersistedState = Omit<
   | "restartRequired"
 >;
 
-const CONFIG_FILE = isDev
-  ? path.join(import.meta.dirname, "../../alfc.config.json")
-  : path.join(path.dirname(process.execPath), "alfc.config.json");
+const CONFIG_FILE = isCompiledBinary
+  ? path.join(path.dirname(process.execPath), "alfc.config.json")
+  : path.join(import.meta.dirname, "../../alfc.config.json");
 
 const TMP_CONFIG_FILE = `${CONFIG_FILE}.tmp`;
 

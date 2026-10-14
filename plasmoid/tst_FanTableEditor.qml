@@ -15,6 +15,7 @@ Item {
         property bool hasState: true
         property bool isConnected: true
         property bool hasFreshActivity: false
+        property string url: "ws://first.example/ws"
         property var latestActivity: null
         property var latestState: ({ cpuFanTable: [[40, 30], [90, 100]], gpuFanTable: [[40, 30], [90, 100]] })
         property var saved: null
@@ -35,8 +36,14 @@ Item {
                     "import QtQml\nimport org.kde.plasma.components\nQtObject {}", fixture)
                 probe.destroy()
                 fixture.plasmaAvailable = true
-            } catch (_error) {
+            } catch (error) {
                 fixture.plasmaAvailable = false
+                // Absence is expected in the Qt-only CI image. A present but
+                // broken/incompatible plugin must fail, rather than hide lost
+                // editor coverage behind the same optional-runtime skip.
+                if (String(error).indexOf('module "org.kde.plasma.components" is not installed') === -1) {
+                    fail("Unable to load Plasma components: " + error)
+                }
             }
             if (fixture.plasmaAvailable) {
                 fixture.editorComponent = Qt.createComponent("./package/contents/ui/FanTableEditor.qml")
@@ -51,6 +58,9 @@ Item {
             }
             backend.saved = null
             backend.ready = true
+            backend.url = "ws://first.example/ws"
+            backend.hasFreshActivity = false
+            backend.latestActivity = null
             backend.latestState = { cpuFanTable: [[40, 30], [90, 100]], gpuFanTable: [[40, 30], [90, 100]] }
             fixture.editor = createTemporaryObject(fixture.editorComponent, fixture,
                 { backend: backend, width: 600, height: 700 })
@@ -97,6 +107,49 @@ Item {
             fixture.editor.syncFromBackend(true)
             compare(fixture.editor.modelToArray(model)[0][1], 60)
             verify(!fixture.editor.dirty)
+            compare(fixture.editor.statusMessage, "")
+        }
+
+        function test_changingBackendDiscardsPreviousServersDraft() {
+            const model = fixture.editor.activeModel()
+            fixture.editor.updateValue(model, 0, "speed", "45.5")
+            backend.url = "ws://second.example/ws"
+            backend.latestState = { cpuFanTable: [[50, 60], [100, 100]], gpuFanTable: [[50, 60], [100, 100]] }
+            compare(fixture.editor.modelToArray(model)[0][1], 60)
+            verify(!fixture.editor.dirty)
+        }
+
+        function test_graphUsesExactFreshTemperature() {
+            const canvas = findChild(fixture.editor, "fanCurveCanvas")
+            backend.latestActivity = { avgCPUTemp: 65.25, avgGPUTemp: 70.75, appliedSpeed: 30, target: 30 }
+            backend.hasFreshActivity = true
+            compare(canvas.liveTemperature, 65.25)
+            backend.latestActivity = { avgCPUTemp: 65.25, avgGPUTemp: 70.75, appliedSpeed: 30, target: 100, sensorFailure: true }
+            compare(canvas.liveTemperature, -1)
+            backend.hasFreshActivity = false
+            compare(canvas.liveTemperature, -1)
+        }
+
+        function test_addPointAtMaximumTemperatureKeepsCurveValid() {
+            backend.latestState = { cpuFanTable: [[40, 30], [110, 100]], gpuFanTable: [[40, 30], [110, 100]] }
+            fixture.editor.addRow()
+            const table = fixture.editor.modelToArray(fixture.editor.activeModel())
+            compare(table.length, 3)
+            compare(table[1][0], 75)
+            compare(table[1][1], 30)
+            compare(fixture.editor.validateTable(table, "CPU"), "")
+        }
+
+        function test_editorCommandsFitNarrowCard() {
+            fixture.editor.width = 300
+            const commands = findChild(fixture.editor, "fanCurveCommands")
+            waitForRendering(commands)
+            compare(commands.columns, 2)
+            for (let index = 0; index < commands.children.length; index += 1) {
+                const button = commands.children[index]
+                verify(button.x >= 0)
+                verify(button.x + button.width <= commands.width + 1)
+            }
         }
 
         function test_graphRepaintsWhileAlreadyDirty() {

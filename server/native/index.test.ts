@@ -210,6 +210,28 @@ describe.each(platforms)("native services on %s", (platform) => {
     ]);
   });
 
+  it("publishes unavailable CPU tuning after an unverifiable native rollback", async () => {
+    const native = await import("./index");
+    const cpuoc = await getCpuAdapter();
+    const { state } = await import("../state/index");
+    const { publishState } = await import("../websocket/index");
+    state.isCpuTuningAvailable = true;
+    state.isFanControlAvailable = true;
+    state.isGpuBoostAvailable = true;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = Object.assign(
+      new Error("Previous CPU limits could not be restored"),
+      { restartRequired: true },
+    );
+    vi.mocked(cpuoc.tune).mockRejectedValueOnce(failure);
+    await expect(native.tune(37, 106)).rejects.toBe(failure);
+    expect(state.isCpuTuningAvailable).toBe(false);
+    expect(state.restartRequired).toBe(true);
+    expect(state.isFanControlAvailable).toBe(true);
+    expect(state.isGpuBoostAvailable).toBe(true);
+    expect(publishState).toHaveBeenCalledOnce();
+  });
+
   it("initializes the selected platform backend before enabling hardware capabilities", async () => {
     const native = await import("./index");
     const acpi = await getAcpiAdapter();
@@ -282,6 +304,29 @@ describe.each(platforms)("native services on %s", (platform) => {
       "start:getCpuTemp",
       "end:getCpuTemp",
     ]);
+  });
+
+  it("cancels queued CPU writes when cleanup begins before they start", async () => {
+    const native = await import("./index");
+    const cpuoc = await getCpuAdapter();
+    let release: () => void = () => {};
+    vi.mocked(cpuoc.tune).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const active = native.tune(37, 106);
+    const queued = native.tune(45, 95);
+    const rejected = expect(queued).rejects.toThrow(
+      "Native services are closed",
+    );
+    await Promise.resolve();
+    await native.cleanupNativeServices();
+    release();
+    await active;
+    await rejected;
+    expect(cpuoc.tune).toHaveBeenCalledOnce();
   });
 
   it("serializes ACPI get/set calls on the shared transport", async () => {

@@ -16,7 +16,11 @@ function isIntegerInRange(value, minimum, maximum) {
 }
 
 function supportsProtocolVersion(version) {
-    return typeof version === "string" && /^1\.\d+$/.test(version)
+    if (typeof version !== "string") {
+        return false
+    }
+    const match = /^1\.(\d+)$/.exec(version)
+    return match !== null && match[0] === version && Number(match[1]) >= 1
 }
 
 function isFanTable(table) {

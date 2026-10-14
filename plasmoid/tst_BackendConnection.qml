@@ -115,6 +115,7 @@ Item {
             compare(fixture.requests[0].methodId, "129")
             compare(fixture.requests[0].requestId, first)
             fixture.peer.sendTextMessage(JSON.stringify({ kind: "success", requestId: "another-client", methodId: "129" }))
+            fixture.peer.sendTextMessage(JSON.stringify({ kind: "success", methodId: "129" }))
             wait(20)
             compare(finished.count, 0)
             fixture.peer.sendTextMessage(JSON.stringify({ kind: "error", requestId: second, methodId: "129", data: "TEST_ERROR" }))
@@ -124,6 +125,18 @@ Item {
             compare(finished.signalArguments[0][1], false)
             compare(finished.signalArguments[1][0], first)
             compare(finished.signalArguments[1][1], true)
+        }
+
+        function test_opcodeOnlyReplyCannotCompleteEvenASingleRequest() {
+            const requestId = backend.setFixedPercentage(60)
+            tryVerify(function () { return fixture.requests.length === 1 })
+            fixture.peer.sendTextMessage(JSON.stringify({ kind: "success", methodId: requestId }))
+            wait(20)
+            compare(finished.count, 0)
+            verify(Object.prototype.hasOwnProperty.call(backend.pendingRequests, requestId))
+            fixture.peer.sendTextMessage(JSON.stringify({ kind: "success", requestId: requestId }))
+            tryCompare(finished, "count", 1)
+            compare(finished.signalArguments[0][1], true)
         }
 
         function test_timeout() {
@@ -175,6 +188,11 @@ Item {
             tryCompare(backend, "protocolCompatible", false)
             verify(!backend.ready)
             compare(backend.protocolVersion, "2.0")
+            incompatible.protocolVersion = "1.0"
+            fixture.push("state", incompatible)
+            tryCompare(backend, "protocolVersion", "1.0")
+            verify(!backend.protocolCompatible)
+            verify(!backend.ready)
         }
 
         function test_activityAndCapabilities() {
