@@ -7,6 +7,58 @@ import { promisify } from "node:util";
 const execute = promisify(execFile);
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 
+// Use a separate Node TCP reader so the test does not depend on the WebSocket
+// client's buffering implementation. net.Socket.pause() pauses incoming reads:
+// https://nodejs.org/docs/latest-v24.x/api/net.html#socketpause
+const pausedTcpClient = String.raw`
+import assert from 'node:assert/strict';
+import { connect } from 'node:net';
+
+const port = Number(process.argv[1]);
+const socket = connect({ host: '127.0.0.1', port });
+const deadline = setTimeout(() => {
+  console.error('Paused TCP client exceeded its lifetime');
+  process.exitCode = 1;
+  finish();
+}, 10000);
+function finish() {
+  clearTimeout(deadline);
+  socket.destroy();
+  process.stdin.destroy();
+}
+socket.on('error', error => {
+  console.error(error);
+  process.exitCode = 1;
+  finish();
+});
+socket.on('connect', () => {
+  socket.write([
+    'GET /ws HTTP/1.1',
+    'Host: 127.0.0.1:' + port,
+    'Connection: Upgrade',
+    'Upgrade: websocket',
+    'Sec-WebSocket-Version: 13',
+    'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+    '', '',
+  ].join('\r\n'));
+});
+let received = Buffer.alloc(0);
+function readUpgrade(chunk) {
+  received = Buffer.concat([received, chunk]);
+  const headerEnd = received.indexOf('\r\n\r\n');
+  if (headerEnd === -1) return;
+  assert.match(received.subarray(0, headerEnd).toString(), /^HTTP\/1\.1 101 /);
+  socket.pause();
+  socket.removeListener('data', readUpgrade);
+  assert(socket.isPaused());
+  process.stdout.write('READY\n');
+}
+socket.on('data', readUpgrade);
+// The Bun parent closes this pipe only after checking native backpressure.
+process.stdin.resume();
+process.stdin.on('end', finish);
+`;
+
 // Vitest uses Node and replaces global.Bun in test-setup.ts. Run the production
 // listener and WebSocket code in a real Bun process; only hardware is replaced.
 const networkFixture = `
@@ -133,8 +185,9 @@ if (occupied) {
   } finally { await occupied.stop(true); }
 }
 
-// Pause the actual client socket so a native pub/sub broadcast eventually fills
-// the kernel buffers and exercises Bun's production backpressure configuration.
+// A separate Node TCP client completes the upgrade and stops reading before
+// publishing starts. Only the receiver changes; Bun's native pub/sub and the
+// production backpressure configuration remain under test on every platform.
 let pressureSocket;
 let pressureClosed = false;
 const pressureServer = Bun.serve({
@@ -145,24 +198,42 @@ const pressureServer = Bun.serve({
     close(ws, code, reason) { pressureClosed = true; websocketHandlers.close(ws, code, reason); },
   },
 });
-const slowClient = new WebSocket('ws://127.0.0.1:' + pressureServer.port + '/ws');
 try {
-  await new Promise((resolve, reject) => { slowClient.onopen = resolve; slowClient.onerror = reject; });
-  assert.equal(slowClient.pause(), true);
-  await until(() => pressureSocket !== undefined);
-  const message = 'x'.repeat(64 * 1024);
-  let peakBufferedBytes = 0;
-  for (let index = 0; index < 512 && !pressureClosed; index++) {
-    pressureServer.publish('state', message);
-    await Bun.sleep(1);
-    peakBufferedBytes = Math.max(peakBufferedBytes, pressureSocket.getBufferedAmount());
+  const slowClient = Bun.spawn([
+    ${JSON.stringify(process.execPath)}, '--input-type=module', '-e',
+    ${JSON.stringify(pausedTcpClient)}, String(pressureServer.port),
+  ], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', windowsHide: true });
+  const clientErrors = new Response(slowClient.stderr).text();
+  try {
+    const reader = slowClient.stdout.getReader();
+    let readiness = '';
+    try {
+      while (!readiness.includes('\\n')) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error('Paused TCP client did not become ready: ' + await clientErrors);
+        readiness += new TextDecoder().decode(value);
+      }
+    } finally { reader.releaseLock(); }
+    assert.equal(readiness.trim(), 'READY');
+    await until(() => pressureSocket !== undefined);
+    const message = 'x'.repeat(64 * 1024);
+    let peakBufferedBytes = 0;
+    let publishedFrames = 0;
+    for (; publishedFrames < 512 && !pressureClosed; publishedFrames++) {
+      pressureServer.publish('state', message);
+      await Bun.sleep(1);
+      peakBufferedBytes = Math.max(peakBufferedBytes, pressureSocket.getBufferedAmount());
+    }
+    const pressureDetails = ' (peakBufferedBytes=' + peakBufferedBytes + ', readyState=' + pressureSocket.readyState + ', publishedFrames=' + publishedFrames + ')';
+    assert(pressureClosed, 'A slow subscriber must close when outbound buffering exceeds 1 MiB' + pressureDetails);
+    assert(peakBufferedBytes <= 1024 * 1024 + message.length, 'Native buffering must remain within the 1 MiB budget plus one frame' + pressureDetails);
+    console.log('PASS native pub/sub closes a paused TCP subscriber at the backpressure limit' + pressureDetails);
+  } finally {
+    slowClient.stdin.end();
+    const exitCode = await slowClient.exited;
+    assert.equal(exitCode, 0, await clientErrors);
   }
-  assert(pressureClosed, 'A slow subscriber must close when outbound buffering exceeds 1 MiB');
-  assert(peakBufferedBytes <= 1024 * 1024 + message.length, 'Native buffering must remain within the 1 MiB budget plus one frame');
-  console.log('PASS native pub/sub closes a paused subscriber at the backpressure limit');
 } finally {
-  slowClient.resume();
-  slowClient.close();
   await pressureServer.stop(true);
 }
 `;
@@ -235,7 +306,7 @@ describe("real Bun loopback networking", () => {
         "PASS UTF-8 binary validation and exact 64 KiB text/binary payload limit",
       );
       expect(stdout).toContain(
-        "PASS native pub/sub closes a paused subscriber at the backpressure limit",
+        "PASS native pub/sub closes a paused TCP subscriber at the backpressure limit",
       );
       expect(stdout).toMatch(
         /PASS IPv6 conflict|IPv6 unavailable: conflict check/,
