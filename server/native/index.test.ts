@@ -6,6 +6,8 @@ const transportState = {
   failureListener: null as
     null | ((channel: "wmi" | "cpuoc", error: Error) => void),
 };
+const realProcess = process;
+const platforms = ["linux", "win32"] as const;
 
 async function runTransportCall<T>(methodName: string, result: T) {
   transportState.activeCalls += 1;
@@ -62,13 +64,13 @@ function cpuOcModuleFactory() {
 }
 
 vi.mock("./linux/acpi", acpiModuleFactory);
-vi.mock("./windows/acpi", acpiModuleFactory);
 vi.mock("./linux/cpuoc", cpuOcModuleFactory);
-vi.mock("./windows/cpuoc", cpuOcModuleFactory);
-vi.mock("./windows/hardware", () => ({
-  ...acpiModuleFactory(),
-  ...cpuOcModuleFactory(),
-}));
+vi.mock("./windows/hardware", () => {
+  // Windows initializes COM through wmiInit, rather than the Linux-only
+  // availability probe. Keep this shape faithful to the real worker adapter.
+  const { isAvailable: _isAvailable, ...acpi } = acpiModuleFactory();
+  return { ...acpi, ...cpuOcModuleFactory(), isAvailable: undefined };
+});
 vi.mock("../fan-control/index", () => ({
   fanControl: vi.fn(() => Promise.resolve()),
   restoreAutoFanControl: vi.fn(() => Promise.resolve()),
@@ -83,20 +85,57 @@ vi.mock("../state/index", () => ({
   },
 }));
 
-describe("native call queue", () => {
-  beforeEach(() => {
+describe.each(platforms)("native services on %s", (platform) => {
+  beforeEach(async () => {
     transportState.activeCalls = 0;
     transportState.maxActiveCalls = 0;
     transportState.operations = [];
     transportState.failMethod = "";
     transportState.failureListener = null;
     vi.resetModules();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    vi.stubGlobal(
+      "process",
+      new Proxy(realProcess, {
+        get(target, property, receiver) {
+          return property === "platform"
+            ? platform
+            : Reflect.get(target, property, receiver);
+        },
+      }),
+    );
+    const { state } = await import("../state/index");
+    Object.assign(state, {
+      pl1: 37,
+      pl2: 106,
+      gpuBoost: true,
+      isFanControlAvailable: undefined,
+      isCpuTuningAvailable: undefined,
+      isGpuBoostAvailable: undefined,
+      restartRequired: undefined,
+    });
   });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function getAcpiAdapter() {
+    return platform === "linux"
+      ? import("./linux/acpi")
+      : import("./windows/hardware");
+  }
+
+  function getCpuAdapter() {
+    return platform === "linux"
+      ? import("./linux/cpuoc")
+      : import("./windows/hardware");
+  }
 
   it("keeps ACPI polling and the BIOS shutdown drain responsive during CPU tuning", async () => {
     const native = await import("./index");
-    const cpuoc = await import("./linux/cpuoc");
+    const cpuoc = await getCpuAdapter();
     let release: () => void = () => {};
     vi.mocked(cpuoc.tune).mockImplementationOnce(
       () =>
@@ -171,17 +210,58 @@ describe("native call queue", () => {
     ]);
   });
 
-  it("stops startup after a pending availability probe when shutdown begins", async () => {
+  it("initializes the selected platform backend before enabling hardware capabilities", async () => {
     const native = await import("./index");
-    const acpi = await import("./linux/acpi");
-    const cpuoc = await import("./linux/cpuoc");
+    const acpi = await getAcpiAdapter();
+    const cpuoc = await getCpuAdapter();
+    const { state } = await import("../state/index");
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await native.initNativeServices();
+
+    expect(acpi.wmiInit).toHaveBeenCalledTimes(platform === "win32" ? 1 : 0);
+    if (platform === "linux") {
+      const linux = await import("./linux/acpi");
+      expect(linux.isAvailable).toHaveBeenCalledOnce();
+    }
+    expect(cpuoc.tuneInit).toHaveBeenCalledOnce();
+    expect(state.isFanControlAvailable).toBe(true);
+    expect(state.isCpuTuningAvailable).toBe(true);
+    expect(state.isGpuBoostAvailable).toBe(true);
+  });
+
+  it("stops startup when shutdown begins during the platform backend probe", async () => {
+    const native = await import("./index");
+    const cpuoc = await getCpuAdapter();
     const fan = await import("../fan-control/index");
-    let stopped = false;
-    vi.mocked(acpi.isAvailable).mockImplementationOnce(() => {
-      stopped = true;
-      return Promise.resolve(true);
+    let started: () => void = () => {};
+    let release: () => void = () => {};
+    const probeStarted = new Promise<void>((resolve) => {
+      started = resolve;
     });
-    await native.initNativeServices(() => stopped);
+    const probeResult = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const probe = () => {
+      started();
+      return probeResult;
+    };
+    if (platform === "linux") {
+      const acpi = await import("./linux/acpi");
+      vi.mocked(acpi.isAvailable).mockImplementationOnce(() =>
+        probe().then(() => true),
+      );
+    } else {
+      const hardware = await import("./windows/hardware");
+      vi.mocked(hardware.wmiInit).mockImplementationOnce(probe);
+    }
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    let stopped = false;
+    const startup = native.initNativeServices(() => stopped);
+    await probeStarted;
+    stopped = true;
+    release();
+    await startup;
     expect(fan.fanControl).not.toHaveBeenCalled();
     expect(cpuoc.tuneInit).not.toHaveBeenCalled();
     expect(transportState.operations).toEqual([]);
@@ -189,7 +269,7 @@ describe("native call queue", () => {
 
   it("drains pending calls before cleanup and rejects new calls afterwards", async () => {
     const native = await import("./index");
-    const acpi = await import("./linux/acpi");
+    const acpi = await getAcpiAdapter();
     const first = native.getCall("225", "getCpuTemp");
     const cleanup = native.cleanupNativeServices();
     await expect(

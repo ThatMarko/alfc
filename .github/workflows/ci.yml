@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -40,17 +40,39 @@ jobs:
         run: bun run test:web
 
       - name: Setup Python for Qt client runtime checks
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install Qt test runtime
-        run: python -m pip install PySide6==6.8.2.1
+        run: |
+          # The Qt GUI wheel links these even when Quick uses software rendering.
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libegl1 libgl1
+          python -m pip install PySide6==6.8.2.1
 
       - name: Verify widget connection and protocol with Qt
-        run: python plasmoid/run_qml_tests.py
+        run: |
+          qt_log="$RUNNER_TEMP/alfc-qt.log"
+          if python plasmoid/run_qml_tests.py >"$qt_log" 2>&1; then
+            cat "$qt_log"
+          else
+            qt_status=$?
+            cat "$qt_log"
+            python - "$qt_log" "$qt_status" <<'PY'
+          from pathlib import Path
+          import sys
+
+          output = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          excerpt = "\n".join(output.splitlines()[-80:])[-12000:]
+          escaped = excerpt.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error title=Qt widget runtime checks (exit {sys.argv[2]})::{escaped}")
+          PY
+            exit "$qt_status"
+          fi
         env:
           QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
 
       - name: Verify native WMI output packing
         run: |
@@ -70,7 +92,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

@@ -110,7 +110,7 @@ From the repository root, with the development-only `PySide6` Python package ins
 python3 plasmoid/run_qml_tests.py
 ```
 
-The runner uses the offscreen Qt platform by default. It tests a real local Qt WebSocket server, reconnects, request correlation, timeouts, malformed messages, legacy protocol fields, and Qt URL parsing. With the Plasma 6 QML components installed, it also renders the fan editor and compares canvas images after successive edits. Those editor cases report skipped when Plasma components are unavailable.
+The runner uses the offscreen Qt platform and the Qt Quick software renderer by default, so it does not need GPU acceleration. Linux still needs the Qt wheel's shared-library prerequisites (`libegl1` and `libgl1` on Debian/Ubuntu). It tests a real local Qt WebSocket server, reconnects, request correlation, timeouts, malformed messages, legacy protocol fields, and Qt URL parsing. With the Plasma 6 QML components installed, it also renders the fan editor and compares canvas images after successive edits. Those editor cases report skipped when Plasma components are unavailable.
 
 When using pip's bundled Qt, set `QML_IMPORT_PATH` to your distribution's matching Qt 6 module directory to include KDE modules (for example, `/usr/lib/x86_64-linux-gnu/qt6/qml` on Debian). The Linux CI job runs the connection, protocol, and URL tests with PySide6; it skips the four editor cases because its Ubuntu image does not provide Plasma 6.
 

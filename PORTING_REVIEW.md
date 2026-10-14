@@ -67,7 +67,9 @@ dotnet run --project server/native/windows/cpuoc-dotnet/CPUOC.Tests.csproj
 For browser tests, install Chromium with `bunx playwright install chromium`.
 An existing local `/usr/bin/chromium` is used automatically outside CI;
 `ALFC_CHROMIUM_EXECUTABLE` can select another installed binary. CI installs
-Chromium and runs browser/native packing checks on Linux. Windows CI runs the
+Chromium and runs browser/native packing checks on Linux. The Qt CI step
+installs its linked EGL/GL prerequisites and uses Qt Quick software rendering.
+Checkout and Python setup actions use their Node 24 versions. Windows CI runs the
 shared checks and builds the WMI DLL with MSVC.
 
 The Qt tests use development-only PySide6, with no extra installed widget
@@ -116,7 +118,7 @@ inspected directly; this does not establish driver compatibility.
 ## Verified in the cloud checkout
 
 - Frozen installation and `bun run all-checks`: zero lint errors/warnings,
-  strict type checks, 229 passing Vitest tests, UI build, and Linux executable.
+  strict type checks, 239 passing Vitest tests, UI build, and Linux executable.
 - Eight Chromium scenarios passed, including concurrent replies, failed mode
   changes, drafts, capability changes, disconnect/reconnect, invalid snapshots,
   exact large raw values, ten-second telemetry expiry, and a 320px layout.

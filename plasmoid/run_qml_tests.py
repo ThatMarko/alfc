@@ -27,6 +27,9 @@ class Setup(QObject):
 
 if __name__ == "__main__":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    # Offscreen selects the window system; software also avoids depending on
+    # an OpenGL-capable scene graph on headless CI hosts.
+    os.environ.setdefault("QT_QUICK_BACKEND", "software")
     cache = tempfile.TemporaryDirectory(prefix="alfc-widget-tests-")
     os.environ.setdefault("XDG_CACHE_HOME", cache.name)
     sys.exit(
