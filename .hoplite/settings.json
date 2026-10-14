@@ -4,7 +4,7 @@
   "scripts": {
     "setup": {
       "enabled": true,
-      "command": "bun install --frozen-lockfile"
+      "command": "apt-get update -qq && apt-get install --no-install-recommends -y -qq git-lfs && bun install --frozen-lockfile"
     },
     "run": { "enabled": true, "command": "bun run start" },
     "archive": { "enabled": true, "command": null },

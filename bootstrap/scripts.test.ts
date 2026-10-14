@@ -22,7 +22,7 @@ describe("Windows service wrapper configuration", () => {
       path.join(import.meta.dirname, "scripts/alfc-service.xml"),
       "utf8",
     );
-    // WinSW XML element names are case-sensitive; camelCase names are ignored.
+    // WinSW XML names are case-sensitive; use each v2.12 spelling exactly.
     expect(config).toMatch(
       /<stopparentprocessfirst>\s*true\s*<\/stopparentprocessfirst>/,
     );
@@ -32,22 +32,45 @@ describe("Windows service wrapper configuration", () => {
     expect(Number(timeout?.[1])).toBeGreaterThanOrEqual(15);
     expect(config).not.toMatch(/<stopParentFirst>|<stopTimeout>/);
     expect(config).toMatch(/<workingdirectory>%BASE%<\/workingdirectory>/);
-    const supported = new Set([
-      "id",
-      "name",
-      "description",
-      "executable",
-      "workingdirectory",
-      "delayedAutoStart",
-      "stopparentprocessfirst",
-      "stoptimeout",
-      "log",
-      "onfailure",
-      "resetfailure",
-      "env",
-    ]);
-    for (const match of config.matchAll(/^ {2}<([A-Za-z][\w-]*)\b/gm)) {
-      expect(supported.has(match[1] ?? "")).toBe(true);
+    const supported: Record<string, readonly string[]> = {
+      service: [],
+      id: [],
+      name: [],
+      description: [],
+      executable: [],
+      workingdirectory: [],
+      delayedAutoStart: [],
+      stopparentprocessfirst: [],
+      stoptimeout: [],
+      log: ["mode"],
+      sizeThreshold: [],
+      keepFiles: [],
+      onfailure: ["action", "delay"],
+      resetfailure: [],
+      env: ["name", "value"],
+    };
+    const uncommented = config.replace(/<!--[\s\S]*?-->/g, "");
+    for (const match of uncommented.matchAll(
+      /<\/?([A-Za-z][\w-]*)\b([^<>]*)>/g,
+    )) {
+      const elementName = match[1] ?? "";
+      expect(
+        Object.hasOwn(supported, elementName),
+        `Unsupported WinSW element: ${elementName}`,
+      ).toBe(true);
+      const attributes = supported[elementName];
+      expect(
+        attributes,
+        `Unsupported WinSW element: ${elementName}`,
+      ).toBeDefined();
+      for (const attribute of (match[2] ?? "").matchAll(
+        /([A-Za-z][\w-]*)\s*=\s*(?:"[^"]*"|'[^']*')/g,
+      )) {
+        expect(
+          attributes,
+          `Unsupported attribute on <${elementName}>`,
+        ).toContain(attribute[1]);
+      }
     }
   });
 });

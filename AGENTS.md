@@ -24,8 +24,11 @@ branch and preserve unrelated user work.
 ## Toolchain and commands
 
 Use Bun 1.4.3 (the package-manager and workflow pin) and Node.js 24 for the
-checked development tools. Compiled production runs on Bun's embedded runtime;
-Node is needed for development tools such as Vitest and lint-staged.
+checked development tools. Node 24 is the one supported development major, matching
+CI. `bun run`/`bunx` preserve Node shebangs for CLIs such as Vite, Vitest, ESLint,
+TypeScript, Playwright, Husky, and lint-staged. Packaged production embeds Bun and
+requires neither a separate Node nor Bun installation. A Bun-only test migration
+must first replace whole-global `Bun` mocks; forcing the current suite fails setup.
 
 ```bash
 bun install --frozen-lockfile

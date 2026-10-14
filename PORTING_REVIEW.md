@@ -72,7 +72,13 @@ intact, with project/reporting links clarified.
 
 Bun 1.4.3 was confirmed as the latest stable npm release during this audit and
 is pinned by the package manager and workflows. Node.js 24 runs development
-tooling; production executables embed Bun. Vitest 5.0.4 and lint-staged 17.6.0
+tooling; production executables embed Bun. The root Node engine matches the
+major 24 used by CI. Node-shebang CLIs retain Node execution under `bun run`/`bunx`.
+A forced-Bun test probe fails at the current whole-global fixture replacement;
+selected tests without that setup do run. See [CONTRIBUTING.md](CONTRIBUTING.md#toolchain-and-development).
+The Hoplite setup retains the requested APT/Git LFS provisioning before frozen
+installation; this is a cloud development step, not a production dependency.
+Vitest 5.0.4 and lint-staged 17.6.0
 replace the vulnerable older toolchain. The unused deletion dependency was
 replaced with exact workspace cache deletion, and source-map-js was patched.
 No advisory was suppressed.

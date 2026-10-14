@@ -9,9 +9,32 @@ and follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Toolchain and development
 
-The checked toolchain is Bun 1.4.3 and Node.js 24. Bun owns workspaces, package
-installation, scripts, native FFI, and production compilation. Node runs Vitest
-and lint-staged; installing Bun alone does not satisfy those development tools.
+The checked toolchain is Bun 1.4.3 and one Node.js 24 installation:
+
+| Runtime    | Current uses                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------- |
+| Bun 1.4.3  | Dependency installation, workspace scripts, backend, native FFI/workers, server compilation |
+| Node.js 24 | Vite, Vitest, ESLint, TypeScript, Playwright, Husky, and lint-staged CLIs                   |
+
+`bun run` and `bunx` honor a CLI's `#!/usr/bin/env node` shebang unless explicitly
+forced to use Bun with `--bun`; invoking them through Bun does not switch every
+tool's JavaScript runtime. See the [versioned Bun documentation](https://github.com/oven-sh/bun/blob/bun-v1.4.3/docs/runtime/index.mdx#L134-L147).
+Node 26 was an alternative allowed by dependency engine ranges, not an additional
+requirement. ALFC declares Node 24 to match its Linux/Windows CI and release jobs.
+
+This is a development/build requirement. Packaged executables embed Bun and need
+neither a separate Node installation nor a separate Bun installation.
+
+Forcing the current test suite onto Bun fails because its fixture setup replaces
+the global `Bun` object, which is read-only in the actual Bun runtime. Some Vitest
+tests can run under Bun; removing Node requires a deliberate mock-boundary and
+tool-launch migration with the same Windows/Linux coverage, not just `--bun`.
+
+The Debian/Ubuntu Hoplite setup retains `apt-get update` and installation of
+Git LFS before the frozen dependency install. That provisioning step needs
+privileged APT access and an image with the Bun/Node versions above. Git LFS is
+a development utility; current tracked binaries are ordinary Git objects.
+Browser, Qt, and native compiler test prerequisites remain documented separately.
 
 ```bash
 bun install --frozen-lockfile

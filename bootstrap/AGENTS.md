@@ -21,11 +21,15 @@ PowerShell quoted literal breaks directories containing apostrophes. Wait for th
 elevated process and return its exit status. Do not use `net session`, which also
 depends on an unrelated Windows service.
 
-WinSW XML names are case-sensitive. The pinned v2.12 configuration uses
-`workingdirectory`, `stopparentprocessfirst`, and `stoptimeout`; the latter is 15 seconds so the backend's
-12-second bounded BIOS handoff can finish. WinSW first sends Ctrl+C, then forcibly
-terminates processes that do not stop. Never describe this as a guarantee that
-unresponsive firmware restored successfully. Windows logs roll beside the wrapper.
+WinSW XML names are case-sensitive. The pinned
+[v2.12.0 parser](https://github.com/winsw/winsw/blob/v2.12.0/src/WinSW.Core/Configuration/XmlServiceConfig.cs)
+uses lowercase `workingdirectory`, `stopparentprocessfirst`, and `stoptimeout`,
+but mixed-case `delayedAutoStart`, `sizeThreshold`, and `keepFiles`. Preserve each
+name's exact spelling, including attribute names. The stop timeout is 15 seconds
+so the backend's 12-second bounded BIOS handoff can finish. WinSW first sends
+Ctrl+C, then forcibly terminates processes that do not stop. Never describe this
+as a guarantee that unresponsive firmware restored successfully. Windows logs
+roll beside the wrapper.
 
 The manual Linux installation directory is `/opt/alfc`; the command symlink is
 `/usr/bin/alfc`. Preflight required release files and init support before changing
