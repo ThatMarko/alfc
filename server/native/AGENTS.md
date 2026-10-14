@@ -13,11 +13,13 @@ native/
 ├── linux/         # acpi_call kernel module interface
 │   ├── acpi.ts    # Reads/writes via /proc/acpi/call
 │   ├── acpi.test.ts # Linux ACPI unit tests
-│   └── cpuoc.ts   # CPU power limits via sysfs (intel-rapl)
+│   ├── cpuoc.ts   # CPU power limits via sysfs (intel-rapl)
+│   └── cpuoc.test.ts # Linux RAPL unit tests
 └── windows/
     ├── acpi.ts    # WMI via bun:ffi (loads WmiDll.dll)
     ├── acpi.test.ts # Windows WMI FFI unit tests
     ├── cpuoc.ts   # Intel XTU integration via bun:ffi + NativeAOT
+    ├── cpuoc.test.ts # Windows CPUOC FFI unit tests
     ├── wmidll/    # C++ WMI COM wrapper (WmiDll.dll)
     └── cpuoc-dotnet/ # NativeAOT CPU OC project
 ```

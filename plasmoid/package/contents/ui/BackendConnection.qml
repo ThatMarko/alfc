@@ -24,8 +24,8 @@ Item {
     readonly property int activityAgeMs: {
         root.freshnessTick
         return root.lastActivityAt > 0
-            ? Math.max(0, Date.now() - root.lastActivityAt)
-            : Number.MAX_SAFE_INTEGER
+            ? Math.min(2147483647, Math.max(0, Date.now() - root.lastActivityAt))
+            : 2147483647
     }
     readonly property bool hasFreshActivity: hasActivity
         && activityAgeMs < activityStaleTimeout

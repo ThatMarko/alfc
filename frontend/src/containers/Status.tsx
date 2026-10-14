@@ -86,7 +86,7 @@ Last applied: ${appliedSpeed}%`;
         aria-label="Fan control status"
         value={status}
         rows={sensorFailure ? 5 : 4}
-        cols={25}
+        cols={sensorFailure ? 44 : 25}
         style={{ fontSize: 14, cursor: "default" }}
       />
     </StyledArea>

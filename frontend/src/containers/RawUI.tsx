@@ -16,7 +16,7 @@ enum Kind {
 
 const StyledHeader = styled.button`
   width: 100%;
-  margin-top: 32px;
+  margin: 32px 0 0 0;
   padding: 8px;
 
   background-color: ${theme.secondary};
@@ -200,6 +200,7 @@ export function RawUI() {
             name="methodName"
             aria-label="WMI method name"
             size={10}
+            value={methodName}
             onChange={(event) => {
               setArgs({});
               setMethodName(event.target.value);
