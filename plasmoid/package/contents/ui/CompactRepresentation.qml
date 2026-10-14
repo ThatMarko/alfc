@@ -68,6 +68,7 @@ Item {
     // sensorFailure is absent on protocol 1.0 servers — treated as false
     readonly property bool sensorFailure: hasTelemetrySnapshot
         && safeActivity.sensorFailure === true
+    readonly property bool restartRequired: hasState && safeState.restartRequired === true
     readonly property bool showHorizontalPanelDetails: !iconOnly
         && !verticalPanel
         && width >= horizontalPanelDetailsWidth
@@ -79,8 +80,12 @@ Item {
             return i18n("ALFC")
         }
 
-        if (hasState && !protocolCompatible) {
+        if (!protocolCompatible) {
             return i18n("Unsupported")
+        }
+
+        if (restartRequired) {
+            return i18n("Restart ALFC")
         }
 
         if (!hasTelemetrySnapshot) {
@@ -249,8 +254,8 @@ Item {
             width: Kirigami.Units.smallSpacing * 2
             height: width
             radius: width / 2
-            color: compactRoot.isCritical
-                || (compactRoot.hasState && !compactRoot.protocolCompatible)
+            color: compactRoot.isCritical || compactRoot.restartRequired
+                || !compactRoot.protocolCompatible
                 ? Kirigami.Theme.negativeTextColor
                 : (compactRoot.isWarm
                     ? Kirigami.Theme.neutralTextColor

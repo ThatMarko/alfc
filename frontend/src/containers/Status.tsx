@@ -1,93 +1,57 @@
 import { faInfoCircle } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { useEffect, useRef, useState } from "react";
-import { MessageToClientKind } from "../../../common/types";
+import { useRef } from "react";
 import { SimpleTooltip } from "../components/SimpleTooltip";
 import { StyledArea } from "../components/StyledArea";
 import { useWebSocket } from "../utils/useWebSocket";
 
 export function Status({ disabled }: { disabled: boolean }) {
   const tooltipRef = useRef<HTMLSpanElement>(null);
+  const { isConnected, activity, isActivityStale } = useWebSocket();
+  if (!isConnected) return null;
+  const readings = disabled ? null : activity;
+  const sensorFailure = readings?.sensorFailure === true;
+  const telemetryStale = readings !== null && isActivityStale;
+  const status = `${telemetryStale ? "Telemetry is stale — showing last received readings\n" : ""}${sensorFailure ? "Sensor error — showing last known readings\n" : ""}CPU: ${readings ? Math.round(readings.avgCPUTemp) : "-"}°C
+GPU: ${readings ? Math.round(readings.avgGPUTemp) : "-"}°C
+Current target: ${readings?.target ?? "-"}%
+Last applied: ${readings?.appliedSpeed ?? "-"}%`;
 
-  const [appliedSpeed, setAppliedSpeed] = useState<string>("-");
-  const [avgCPUTemp, setAvgCPUTemp] = useState<string>("-");
-  const [avgGPUTemp, setAvgGPUTemp] = useState<string>("-");
-  const [target, setTarget] = useState<string>("-");
-  const [sensorFailure, setSensorFailure] = useState(false);
-
-  const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
-
-  useEffect(() => {
-    if (disabled) {
-      return;
-    }
-    const { kind, data } = lastJsonMessage;
-    if (kind === MessageToClientKind.FanControlActivity) {
-      setSensorFailure(data.sensorFailure === true);
-      setAppliedSpeed(
-        data.appliedSpeed !== null ? data.appliedSpeed.toString() : "-",
-      );
-      setAvgCPUTemp(Math.round(data.avgCPUTemp).toString());
-      setAvgGPUTemp(Math.round(data.avgGPUTemp).toString());
-      setTarget(data.target.toString());
-    } else if (kind === "error") {
-      console.error(data);
-    }
-  }, [disabled, lastJsonMessage]);
-
-  useEffect(() => {
-    if (disabled) {
-      // Blanking out values must be delayed since we'll
-      // still receive fancontrolactivity for a bit, until
-      // server has actually stopped the auto fan control.
-      const timer = setTimeout(() => {
-        setAppliedSpeed("-");
-        setAvgCPUTemp("-");
-        setAvgGPUTemp("-");
-        setTarget("-");
-        setSensorFailure(false);
-      }, 500);
-      return () => clearTimeout(timer);
-    } else {
-      sendJsonMessage({ kind: "registeractivitysocket" });
-      return undefined;
-    }
-  }, [disabled, sendJsonMessage]);
-
-  if (!isConnected) {
-    return null;
-  }
-
-  const status = sensorFailure
-    ? `Sensor error — showing last known readings
-CPU: ${avgCPUTemp}°C
-GPU: ${avgGPUTemp}°C
-Current target: ${target}%
-Last applied: ${appliedSpeed}%`
-    : `CPU: ${avgCPUTemp}°C
-GPU: ${avgGPUTemp}°C
-Current target: ${target}%
-Last applied: ${appliedSpeed}%`;
   return (
     <StyledArea>
       <h2>
         Status{" "}
-        <span ref={tooltipRef}>
+        <span
+          ref={tooltipRef}
+          tabIndex={0}
+          aria-label="About fan control status"
+        >
           <FontAwesomeIcon icon={faInfoCircle} />
         </span>
         <SimpleTooltip target={tooltipRef}>
-          There&apos;s only one target speed because both fans always operate at
-          the same speed. Whichever target speed for either CPU or GPU would be
-          higher &quot;wins&quot;.
+          Both fans use the same target speed. The higher of the CPU and GPU
+          fan-curve targets wins. Fixed mode continues to report temperature and
+          applied speed.
         </SimpleTooltip>
       </h2>
+      {telemetryStale && (
+        <p role="alert">
+          Telemetry is stale. The backend has not sent readings for 10 seconds.
+        </p>
+      )}
+      {sensorFailure && (
+        <p role="alert">
+          Temperature readings are stale. The backend is applying its sensor
+          failure fan policy.
+        </p>
+      )}
       <textarea
         readOnly
         aria-label="Fan control status"
         value={status}
-        rows={sensorFailure ? 5 : 4}
+        rows={4 + Number(sensorFailure) + Number(telemetryStale)}
         cols={sensorFailure ? 44 : 25}
-        style={{ fontSize: 14, cursor: "default" }}
+        style={{ fontSize: 14, cursor: "default", maxWidth: "100%" }}
       />
     </StyledArea>
   );

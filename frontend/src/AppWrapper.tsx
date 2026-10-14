@@ -27,7 +27,7 @@ const StyledCenteredMessage = styled.h3`
 `;
 
 export function AppWrapper() {
-  const { isConnected } = useWebSocket();
+  const { isConnected, connectionError } = useWebSocket();
 
   return (
     <StyledAppWrapper>
@@ -35,7 +35,7 @@ export function AppWrapper() {
         fallbackRender={({ error }) => {
           console.error(error);
           return (
-            <StyledCenteredMessage>
+            <StyledCenteredMessage role="alert">
               Unknown, catastrophic app failure. Please report this if a restart
               doesn&apos;t solve it.
             </StyledCenteredMessage>
@@ -46,8 +46,8 @@ export function AppWrapper() {
           <App />
         ) : (
           <>
-            <StyledCenteredMessage>
-              Waiting for server connection...
+            <StyledCenteredMessage role={connectionError ? "alert" : "status"}>
+              {connectionError ?? "Waiting for server connection..."}
             </StyledCenteredMessage>
           </>
         )}

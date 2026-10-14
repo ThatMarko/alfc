@@ -18,29 +18,35 @@ type CpuocLibrary = ReturnType<typeof openCpuocLibrary>;
 
 let lib: CpuocLibrary | null = null;
 let isClosed = false;
+let initialized = false;
 
 function getLastError(): string {
   if (!lib) return "CPUOC not available";
   const errorPtr = lib.symbols.cpuoc_get_last_error();
   if (!errorPtr) return "Unknown error";
-  const error = new CString(errorPtr);
-  lib.symbols.cpuoc_free_string(errorPtr);
-  return error.toString();
+  try {
+    return new CString(errorPtr).toString();
+  } finally {
+    lib.symbols.cpuoc_free_string(errorPtr);
+  }
 }
 
 export async function tuneInit() {
   if (isClosed) {
     throw new Error("CPUOC library is already closed");
   }
+  if (initialized) return;
   if (!(await Bun.file(dllPath).exists())) {
-    console.warn("[CPUOC] CPUOC.dll not found. CPU tuning will be disabled.");
-    return;
+    throw new Error(
+      `CPUOC.dll not found at ${dllPath}. CPU tuning is unavailable.`,
+    );
   }
   const current = (lib ??= openCpuocLibrary());
   const result = current.symbols.cpuoc_init();
   if (result !== 0) {
     throw new Error(`CPUOC init failed: ${getLastError()}`);
   }
+  initialized = true;
 }
 
 export function tune(pl1: number, pl2: number) {
@@ -48,8 +54,15 @@ export function tune(pl1: number, pl2: number) {
     if (isClosed) {
       throw new Error("CPUOC library is already closed");
     }
-    if (!lib) {
+    if (!lib || !initialized) {
       throw new Error("CPUOC is not available");
+    }
+    for (const value of [pl1, pl2]) {
+      if (!Number.isInteger(value) || value < 0 || value > 200) {
+        throw new RangeError(
+          "CPU power limits must be integers between 0 and 200 watts",
+        );
+      }
     }
     const result = lib.symbols.cpuoc_tune(pl1, pl2);
     if (result !== 0) {
@@ -60,11 +73,10 @@ export function tune(pl1: number, pl2: number) {
 
 export function cpuocCleanup() {
   if (isClosed) return;
-  if (lib) {
-    lib.close();
-    lib = null;
-  }
+  // Native AOT explicitly does not support FreeLibrary/dlclose. Retain the
+  // library for process lifetime; its owning worker also remains rooted.
   isClosed = true;
+  initialized = false;
 }
 
 if (import.meta.main) {

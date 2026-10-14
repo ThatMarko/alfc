@@ -20,7 +20,7 @@ button {
   letter-spacing: 1px;
 
   background-color: #acd132;
-  color: white;
+  color: #202027;
   border-style: none;
   border-radius: 4px;
 
@@ -28,6 +28,14 @@ button {
   padding: 4px 8px;
 
   cursor: pointer;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #acd132;
+  outline-offset: 3px;
 }
 
 button:disabled {

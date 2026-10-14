@@ -25,6 +25,8 @@ export default tseslint.config(
   includeIgnoreFile(gitignorePath),
   includeIgnoreFile(gitignorePathFrontend),
   includeIgnoreFile(gitignorePathServer),
+  // QML JavaScript includes .pragma library and is checked by Qt, not ESLint.
+  { ignores: ["plasmoid/package/contents/ui/*.js"] },
 
   // Base config for all files
   {

@@ -7,6 +7,9 @@ build
 dist
 *.log
 **/*.js
+!/plasmoid/package/contents/ui/*.js
 **/*.tsbuildinfo
 .context/
 .hoplite/archive/
+/playwright-report/
+/test-results/

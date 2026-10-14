@@ -6,9 +6,12 @@ const StyledContent = styled.div<{
   unlimitedWidth?: boolean;
 }>`
   background-color: white;
+  color: #202027;
+  box-shadow: 0 4px 16px #0006;
+  max-width: calc(100vw - 32px);
   border-radius: 4px;
   padding: 16px;
-  margin: 16px;
+  margin: 0;
   ${({ unlimitedWidth }) => (unlimitedWidth ? "" : "width: 400px;")}
 `;
 
@@ -27,6 +30,7 @@ export const SimpleTooltip = ({
     // https://github.com/reactstrap/reactstrap/issues/2819
     <Tooltip
       isOpen={isOpen}
+      style={{ zIndex: 1080 }}
       toggle={() => setIsOpen((prevIsOpen) => !prevIsOpen)}
       {...props}
     >

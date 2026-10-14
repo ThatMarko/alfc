@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "WmiOutput.h"
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")
@@ -12,6 +13,7 @@
 
 #define MAX_RESULTS 16
 #define WMI_ENUM_TIMEOUT_MS 5000
+#define WMI_METHOD_TIMEOUT_MS 3000
 #define MAX_WMI_ARGS 16
 #define MAX_ARG_NAME_BYTES 63
 #define BSTR_CACHE_INITIAL_CAPACITY 64
@@ -104,6 +106,9 @@ static BSTR g_setObjectPath = nullptr;
 
 static char g_lastError[1024] = {0};
 static bool g_comInitialized = false;
+// A timed-out provider call may still be executing. Never issue another
+// hardware operation in this process after its completion becomes unknown.
+static bool g_callTimedOut = false;
 
 static void SetLastErr(const char *fmt, ...) {
     va_list args;
@@ -139,7 +144,8 @@ static HRESULT GetClassDefAndInstancePath(
     }
 
     IEnumWbemClassObject *pEnum = nullptr;
-    hr = g_pSvc->CreateInstanceEnum(bstrClass, WBEM_FLAG_FORWARD_ONLY, nullptr, &pEnum);
+    hr = g_pSvc->CreateInstanceEnum(bstrClass,
+        WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, nullptr, &pEnum);
     SysFreeString(bstrClass);
     if (FAILED(hr)) {
         (*ppClassDef)->Release();
@@ -164,7 +170,7 @@ static HRESULT GetClassDefAndInstancePath(
         (*ppClassDef)->Release();
         *ppClassDef = nullptr;
         SetLastErr("No instances found for %ls", className);
-        return FAILED(hr) ? hr : WBEM_E_NOT_FOUND;
+        return FAILED(hr) ? hr : static_cast<HRESULT>(WBEM_E_NOT_FOUND);
     }
 
     VARIANT varPath;
@@ -274,11 +280,60 @@ static int BuildNamedInParams(
         }
     }
 
+    if (cursor != end) {
+        (*ppInParams)->Release();
+        *ppInParams = nullptr;
+        SetLastErr("Trailing argument name data for %s", method_name);
+        return -1;
+    }
+
     return 0;
 }
 
-// Executes a get method and packs its out-parameters into out_results,
-// preserving the previous WmiAPI.exe composition order.
+// Semisynchronous execution bounds the wait without running provider work on
+// another application thread. After a timeout, only process restart is safe.
+static HRESULT ExecuteMethod(
+    BSTR objectPath, BSTR method, const char *method_name,
+    IWbemClassObject *inParams, IWbemClassObject **outParams
+) {
+    if (g_callTimedOut) {
+        SetLastErr("WMI call previously timed out; restart ALFC before issuing more commands");
+        return WBEM_E_TIMED_OUT;
+    }
+    IWbemCallResult *call = nullptr;
+    HRESULT hr = g_pSvc->ExecMethod(objectPath, method,
+        WBEM_FLAG_RETURN_IMMEDIATELY, nullptr, inParams, nullptr, &call);
+    if (FAILED(hr) || !call) {
+        if (call) call->Release();
+        SetLastErr("ExecMethod(%s) failed: 0x%08lX", method_name, hr);
+        return FAILED(hr) ? hr : E_FAIL;
+    }
+    LONG status = E_FAIL;
+    hr = call->GetCallStatus(WMI_METHOD_TIMEOUT_MS, &status);
+    if (hr == WBEM_S_TIMEDOUT) {
+        g_callTimedOut = true;
+        call->Release();
+        SetLastErr("ExecMethod(%s) timed out; restart ALFC before issuing more commands", method_name);
+        return WBEM_E_TIMED_OUT;
+    }
+    if (SUCCEEDED(hr) && FAILED(status)) hr = status;
+    if (hr != WBEM_S_NO_ERROR) {
+        call->Release();
+        SetLastErr("ExecMethod(%s) failed: 0x%08lX", method_name, hr);
+        return FAILED(hr) ? hr : E_FAIL;
+    }
+    if (outParams) hr = call->GetResultObject(0, outParams);
+    call->Release();
+    if (hr != WBEM_S_NO_ERROR) {
+        SetLastErr("Reading output from %s failed: 0x%08lX", method_name, hr);
+        return FAILED(hr) ? hr : E_FAIL;
+    }
+    return S_OK;
+}
+
+// IWbemClassObject::Next has no defined property order. The method definition's
+// ID qualifier specifies parameter order. Emit each uint16 at its full width
+// as little-endian bytes, even when its numeric value fits in a single byte.
 static int ExecuteGetAndEnumerate(
     BSTR bstrMethod,
     const char *method_name,
@@ -287,13 +342,12 @@ static int ExecuteGetAndEnumerate(
     int *out_count
 ) {
     IWbemClassObject *pOutParams = nullptr;
-    HRESULT hr = g_pSvc->ExecMethod(g_getObjectPath, bstrMethod, 0, nullptr, pInParams, &pOutParams, nullptr);
+    HRESULT hr = ExecuteMethod(g_getObjectPath, bstrMethod, method_name, pInParams, &pOutParams);
 
     if (pInParams) pInParams->Release();
 
     if (FAILED(hr)) {
-        SetLastErr("ExecMethod(%s) failed: 0x%08lX", method_name, hr);
-        return -1;
+        return hr == static_cast<HRESULT>(WBEM_E_TIMED_OUT) ? -2 : -1;
     }
 
     if (!pOutParams) {
@@ -301,51 +355,100 @@ static int ExecuteGetAndEnumerate(
         return -1;
     }
 
+    IWbemClassObject *outDefinition = nullptr;
+    hr = g_pGetClassDef->GetMethod(bstrMethod, 0, nullptr, &outDefinition);
+    if (FAILED(hr) || !outDefinition) {
+        pOutParams->Release();
+        SetLastErr("Cannot read output definition for %s: 0x%08lX", method_name, hr);
+        return -1;
+    }
     hr = pOutParams->BeginEnumeration(WBEM_FLAG_NONSYSTEM_ONLY);
     if (FAILED(hr)) {
         pOutParams->Release();
+        outDefinition->Release();
         SetLastErr("BeginEnumeration failed: 0x%08lX", hr);
         return -1;
     }
 
-    BSTR propName = nullptr;
-    VARIANT varVal;
-    VariantInit(&varVal);
-    int count = 0;
-
-    HRESULT nextHr;
-    while ((nextHr = pOutParams->Next(0, &propName, &varVal, nullptr, nullptr)) == WBEM_S_NO_ERROR) {
-        if (count < MAX_RESULTS) {
-            VARIANT varDouble;
-            VariantInit(&varDouble);
-            if (SUCCEEDED(VariantChangeType(&varDouble, &varVal, 0, VT_R8))) {
-                out_results[count] = varDouble.dblVal;
+    WmiOutputField fields[MAX_RESULTS];
+    int fieldCount = 0;
+    int byteCount = 0;
+    bool valid = true;
+    HRESULT nextHr = WBEM_S_NO_ERROR;
+    while (valid) {
+        BSTR propName = nullptr;
+        VARIANT varVal;
+        VariantInit(&varVal);
+        CIMTYPE type = 0;
+        nextHr = pOutParams->Next(0, &propName, &varVal, &type, nullptr);
+        if (nextHr != WBEM_S_NO_ERROR) {
+            SysFreeString(propName);
+            VariantClear(&varVal);
+            break;
+        }
+        if (_wcsicmp(propName, L"ReturnValue") != 0) {
+            const int width = type == CIM_UINT8 ? 1 : type == CIM_UINT16 ? 2 : 0;
+            VARIANT numeric;
+            VariantInit(&numeric);
+            HRESULT converted = (varVal.vt == VT_NULL || varVal.vt == VT_EMPTY)
+                ? E_INVALIDARG : VariantChangeType(&numeric, &varVal, 0, VT_UI4);
+            if (width == 0 || FAILED(converted) ||
+                numeric.ulVal > (width == 1 ? 0xffu : 0xffffu) ||
+                byteCount + width > MAX_RESULTS) {
+                SetLastErr("Invalid or oversized output '%ls' from %s", propName, method_name);
+                valid = false;
             } else {
-                out_results[count] = 0.0;
+                int order = -1;
+                IWbemQualifierSet *qualifiers = nullptr;
+                if (SUCCEEDED(outDefinition->GetPropertyQualifierSet(propName, &qualifiers))) {
+                    VARIANT id;
+                    VARIANT numericId;
+                    VariantInit(&id);
+                    VariantInit(&numericId);
+                    if (SUCCEEDED(qualifiers->Get(L"ID", 0, &id, nullptr)) &&
+                        SUCCEEDED(VariantChangeType(&numericId, &id, 0, VT_I4)) &&
+                        numericId.lVal >= 0) order = numericId.lVal;
+                    VariantClear(&numericId);
+                    VariantClear(&id);
+                    qualifiers->Release();
+                }
+                fields[fieldCount++] = {order, numeric.ulVal, width};
+                byteCount += width;
             }
-            VariantClear(&varDouble);
-            count++;
+            VariantClear(&numeric);
         }
         SysFreeString(propName);
-        propName = nullptr;
         VariantClear(&varVal);
     }
-
     pOutParams->EndEnumeration();
     pOutParams->Release();
+    outDefinition->Release();
 
-    if (nextHr != WBEM_S_FALSE) {
+    if (!valid) return -1;
+    if (nextHr != WBEM_S_NO_MORE_DATA) {
         SetLastErr("Enumerating output from %s failed: 0x%08lX", method_name, nextHr);
         return -1;
     }
 
-    *out_count = count;
+    const char *packingError = PackWmiOutputFields(fields, fieldCount, out_results, MAX_RESULTS, out_count);
+    if (packingError) {
+        SetLastErr("Invalid output from %s: %s", method_name, packingError);
+        return -1;
+    }
     return 0;
 }
 
 extern "C" {
 
+// Version 2 returns canonical little-endian output bytes, rather than
+// unspecified-order numeric property values. Reject stale DLLs in the caller.
+__declspec(dllexport) int wmi_abi_version(void) { return 2; }
+
 __declspec(dllexport) int wmi_init(void) {
+    if (g_callTimedOut) {
+        SetLastErr("WMI call previously timed out; restart ALFC before initializing again");
+        return -2;
+    }
     wmi_cleanup();
 
     HRESULT hr;
@@ -521,13 +624,12 @@ __declspec(dllexport) int wmi_set(const char *method_name, int arg_value) {
         return -1;
     }
 
-    HRESULT hr = g_pSvc->ExecMethod(g_setObjectPath, bstrMethod, 0, nullptr, pInParams, nullptr, nullptr);
+    HRESULT hr = ExecuteMethod(g_setObjectPath, bstrMethod, method_name, pInParams, nullptr);
 
     pInParams->Release();
 
     if (FAILED(hr)) {
-        SetLastErr("ExecMethod(%s) failed: 0x%08lX", method_name, hr);
-        return -1;
+        return hr == static_cast<HRESULT>(WBEM_E_TIMED_OUT) ? -2 : -1;
     }
 
     return 0;
@@ -560,13 +662,12 @@ __declspec(dllexport) int wmi_set_named(
         return -1;
     }
 
-    HRESULT hr = g_pSvc->ExecMethod(g_setObjectPath, bstrMethod, 0, nullptr, pInParams, nullptr, nullptr);
+    HRESULT hr = ExecuteMethod(g_setObjectPath, bstrMethod, method_name, pInParams, nullptr);
 
     pInParams->Release();
 
     if (FAILED(hr)) {
-        SetLastErr("ExecMethod(%s) failed: 0x%08lX", method_name, hr);
-        return -1;
+        return hr == static_cast<HRESULT>(WBEM_E_TIMED_OUT) ? -2 : -1;
     }
 
     return 0;

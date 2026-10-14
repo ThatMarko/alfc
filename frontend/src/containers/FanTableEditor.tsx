@@ -9,13 +9,14 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { FanTableItems } from "./FanTable";
 
 type Props = {
+  label: string;
   disabled?: boolean;
   onChange: (nextCurvePoints: FanTableItems) => void;
   value: FanTableItems;
 };
 
 const StyledInput = styled.input`
-  width: 3rem;
+  width: 4.25rem;
 `;
 
 const StyledButton = styled.button`
@@ -24,7 +25,12 @@ const StyledButton = styled.button`
   padding: 0;
 `;
 
-export function FanTableEditor({ disabled = false, onChange, value }: Props) {
+export function FanTableEditor({
+  label,
+  disabled = false,
+  onChange,
+  value,
+}: Props) {
   const inputs = value.map((tableItem, idx) => {
     return (
       <tr key={idx}>
@@ -32,11 +38,12 @@ export function FanTableEditor({ disabled = false, onChange, value }: Props) {
           <StyledInput
             type="number"
             name="temperature"
-            aria-label={`Temperature for row ${idx + 1}`}
+            aria-label={`${label} temperature for row ${idx + 1}`}
             disabled={disabled}
             min={0}
             max={110}
-            maxLength={3}
+            step="any"
+            required
             size={4}
             onChange={(event) => {
               const nextValue = structuredClone(value);
@@ -50,11 +57,12 @@ export function FanTableEditor({ disabled = false, onChange, value }: Props) {
           <StyledInput
             type="number"
             name="percentage"
-            aria-label={`Fan speed for row ${idx + 1}`}
+            aria-label={`${label} fan speed for row ${idx + 1}`}
             disabled={disabled}
             min={0}
             max={100}
-            maxLength={3}
+            step="any"
+            required
             size={4}
             onChange={(event) => {
               const nextValue = structuredClone(value);
@@ -67,18 +75,22 @@ export function FanTableEditor({ disabled = false, onChange, value }: Props) {
         <td>
           <StyledButton
             type="button"
-            aria-label={`Add row before row ${idx + 1}`}
-            disabled={disabled}
+            aria-label={`Add ${label} row before row ${idx + 1}`}
+            disabled={disabled || Number(tableItem[0]) <= 0}
             onClick={() => {
               const nextValue = structuredClone(value);
-              let temperature = parseInt(tableItem[0], 10) - 1;
-              let percentage = parseInt(tableItem[1], 10) - 1;
-              if (temperature < 0) {
-                temperature = 0;
-              }
-              if (percentage < 0) {
-                percentage = 0;
-              }
+              const currentTemperature = Number(tableItem[0]);
+              const previousTemperature =
+                idx > 0 ? Number(value[idx - 1]?.[0]) : 0;
+              const temperature =
+                Number.isFinite(currentTemperature) &&
+                Number.isFinite(previousTemperature)
+                  ? Math.max(0, (currentTemperature + previousTemperature) / 2)
+                  : 0;
+              const currentSpeed = Number(tableItem[1]);
+              const percentage = Number.isFinite(currentSpeed)
+                ? Math.max(0, Math.min(100, currentSpeed))
+                : 0;
               nextValue.splice(idx, 0, [
                 String(temperature),
                 String(percentage),
@@ -92,7 +104,7 @@ export function FanTableEditor({ disabled = false, onChange, value }: Props) {
         <td>
           <StyledButton
             type="button"
-            aria-label={`Remove row ${idx + 1}`}
+            aria-label={`Remove ${label} row ${idx + 1}`}
             disabled={disabled || value.length === 1}
             style={
               value.length === 1
@@ -117,7 +129,7 @@ export function FanTableEditor({ disabled = false, onChange, value }: Props) {
 
   return (
     <div>
-      <table>
+      <table aria-label={`${label} fan curve`}>
         <thead>
           <tr>
             <th aria-label="Temperature">
@@ -134,6 +146,21 @@ export function FanTableEditor({ disabled = false, onChange, value }: Props) {
         </thead>
         <tbody>{inputs}</tbody>
       </table>
+      <button
+        type="button"
+        aria-label={`Append ${label} fan curve row`}
+        disabled={disabled || Number(value.at(-1)?.[0] ?? 0) >= 110}
+        onClick={() => {
+          const last = value.at(-1);
+          const previousTemperature = Number(last?.[0] ?? 0);
+          const temperature = Number.isFinite(previousTemperature)
+            ? Math.min(110, previousTemperature + 1)
+            : 0;
+          onChange([...value, [String(temperature), last?.[1] ?? "0"]]);
+        }}
+      >
+        Add row
+      </button>
     </div>
   );
 }

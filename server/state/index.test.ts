@@ -1,12 +1,17 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-const { readConfigMock } = vi.hoisted(() => ({
+const { readConfigMock, renameMock, stateRuntime } = vi.hoisted(() => ({
   readConfigMock: vi.fn(),
+  renameMock: vi.fn().mockResolvedValue(undefined),
+  stateRuntime: { isDev: true },
 }));
 
 vi.mock("node:fs", () => ({
   readFileSync: readConfigMock,
 }));
+
+vi.mock("node:fs/promises", () => ({ rename: renameMock }));
+vi.mock("../utils/consts", () => stateRuntime);
 
 const VALID_CONFIG = {
   cpuFanTable: [
@@ -49,6 +54,8 @@ function mockConfigFile(content: string) {
 describe("state config loading", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    stateRuntime.isDev = true;
+    renameMock.mockResolvedValue(undefined);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
 
@@ -68,6 +75,61 @@ describe("state config loading", () => {
     expect(state.gpuBoost).toBe(false);
     expect(state.protocolVersion).toBe("1.1");
     expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it("ignores persisted capability flags and unrelated properties", async () => {
+    mockConfigFile(
+      JSON.stringify({
+        ...VALID_CONFIG,
+        isFanControlAvailable: true,
+        isCpuTuningAvailable: false,
+        restartRequired: true,
+        unrelated: 123,
+      }),
+    );
+    const { state } = await importState();
+    expect(state.isFanControlAvailable).toBeUndefined();
+    expect(state.isCpuTuningAvailable).toBeUndefined();
+    expect(state.restartRequired).toBeUndefined();
+    expect(state).not.toHaveProperty("unrelated");
+  });
+
+  it("serializes distinct save snapshots and strips runtime capabilities", async () => {
+    stateRuntime.isDev = false;
+    mockConfigFile(JSON.stringify(VALID_CONFIG));
+    const write = vi.spyOn(Bun, "write").mockResolvedValue(1);
+    const { state, persistState } = await importState();
+    state.isFanControlAvailable = true;
+    state.restartRequired = true;
+    state.fixedPercentage = 60;
+    const first = persistState();
+    state.fixedPercentage = 80;
+    const second = persistState();
+    await Promise.all([first, second]);
+    expect(write).toHaveBeenCalledTimes(2);
+    const firstSaved = JSON.parse(String(write.mock.calls[0]?.[1]));
+    const secondSaved = JSON.parse(String(write.mock.calls[1]?.[1]));
+    expect(firstSaved.fixedPercentage).toBe(60);
+    expect(secondSaved.fixedPercentage).toBe(80);
+    expect(firstSaved).not.toHaveProperty("isFanControlAvailable");
+    expect(firstSaved).not.toHaveProperty("restartRequired");
+    expect(firstSaved).not.toHaveProperty("protocolVersion");
+    expect(renameMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports save failures and allows the next queued save to recover", async () => {
+    stateRuntime.isDev = false;
+    mockConfigFile(JSON.stringify(VALID_CONFIG));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const write = vi
+      .spyOn(Bun, "write")
+      .mockRejectedValueOnce(new Error("disk full"))
+      .mockResolvedValue(1);
+    const { persistState } = await importState();
+    await expect(persistState()).rejects.toThrow("disk full");
+    await expect(persistState()).resolves.toBeUndefined();
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(renameMock).toHaveBeenCalledTimes(1);
   });
 
   it.each([

@@ -13,6 +13,15 @@ const StyledToggleContainer = styled.label`
   display: inline-block;
   width: ${CONTAINER_WIDTH}px;
   height: ${CONTAINER_HEIGHT}px;
+
+  input:focus-visible + span {
+    outline: 2px solid white;
+    outline-offset: 3px;
+  }
+  input:disabled + span {
+    opacity: 0.5;
+    cursor: default;
+  }
 `;
 
 const StyledToggle = styled.span<{
@@ -51,18 +60,26 @@ const StyledLabel = styled.label`
 `;
 
 type Props = {
+  disabled?: boolean;
   label: string;
   name: string;
   onChange: React.ChangeEventHandler<HTMLInputElement>;
   value: ToggleState;
 };
 
-export function Toggle({ label, name, onChange, value }: Props) {
+export function Toggle({
+  disabled = false,
+  label,
+  name,
+  onChange,
+  value,
+}: Props) {
   return (
     <>
       <StyledToggleContainer>
         <input
-          disabled={value === ToggleState.Unknown}
+          disabled={disabled || value === ToggleState.Unknown}
+          aria-label={label}
           type="checkbox"
           id={name}
           name={name}

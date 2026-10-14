@@ -1,7 +1,12 @@
 import { CString, dlopen, FFIType, ptr } from "bun:ffi";
 import type { Pointer } from "bun:ffi";
 import path from "node:path";
-import type { Args } from "../../../common/types";
+import {
+  getMethods,
+  setMethods,
+  type WmiMethods,
+} from "../../../common/methods";
+import type { Args, NativeResult } from "../../../common/types";
 import { isDev } from "../../utils/consts";
 
 const baseDir = isDev ? import.meta.dirname : path.dirname(process.execPath);
@@ -13,6 +18,7 @@ const dllPath = isDev
 // initialization failure (matching cpuoc.ts) instead of a module-evaluation crash.
 function openWmiLibrary() {
   return dlopen(dllPath, {
+    wmi_abi_version: { args: [], returns: FFIType.i32 },
     wmi_init: { args: [], returns: FFIType.i32 },
     wmi_get: {
       args: [FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.ptr],
@@ -44,6 +50,9 @@ type WmiLibrary = ReturnType<typeof openWmiLibrary>;
 
 let lib: WmiLibrary | null = null;
 let isClosed = false;
+let isInitialized = false;
+let isPoisoned = false;
+let initialization: Promise<void> | null = null;
 
 const resultsBuffer = new Float64Array(16);
 const countBuffer = new Int32Array(1);
@@ -88,10 +97,46 @@ function requireLib(): WmiLibrary["symbols"] {
   if (isClosed) {
     throw new Error("WMI library is already closed");
   }
-  if (!lib) {
+  if (!lib || !isInitialized) {
     throw new Error("WMI not initialized");
   }
+  if (isPoisoned)
+    throw new Error(
+      "WMI call timed out; restart ALFC before issuing more commands",
+    );
   return lib.symbols;
+}
+
+function nativeFailure(operation: string, result: number): never {
+  if (result === -2) isPoisoned = true;
+  throw Object.assign(new Error(`WMI ${operation} failed: ${getLastError()}`), {
+    restartRequired: result === -2,
+  });
+}
+
+function validateCall(methods: WmiMethods, methodName: string, args?: Args) {
+  const method = Object.hasOwn(methods, methodName)
+    ? methods[methodName]
+    : undefined;
+  if (!method) throw new TypeError(`Unknown WMI method '${methodName}'`);
+
+  const entries = Object.entries(args ?? {});
+  for (const [name, value] of entries) {
+    if (!method.inArgs.some((argument) => argument.name === name)) {
+      throw new TypeError(
+        `WMI '${methodName}' has no input argument '${name}'`,
+      );
+    }
+    getUint8Argument(methodName, name, value);
+  }
+  for (const argument of method.inArgs) {
+    if (!args || !Object.hasOwn(args, argument.name)) {
+      throw new TypeError(
+        `WMI '${methodName}' requires a ${argument.name} argument`,
+      );
+    }
+  }
+  return method;
 }
 
 function getLastError(): string {
@@ -149,10 +194,14 @@ function usesNamedPath(args: Args | undefined): boolean {
   return keys.length > 0 && !(keys.length === 1 && keys[0] === "Data");
 }
 
-export async function wmiInit() {
+async function initialize() {
   if (isClosed) {
     throw new Error("WMI library is already closed");
   }
+  if (isPoisoned)
+    throw new Error(
+      "WMI call timed out; restart ALFC before initializing again",
+    );
 
   if (!(await Bun.file(dllPath).exists())) {
     throw new Error(
@@ -162,19 +211,34 @@ export async function wmiInit() {
 
   let attempt = 0;
   while (attempt < 3) {
+    if (isClosed) throw new Error("WMI library is already closed");
     try {
       // dlopen stays in the retry loop so a transiently locked DLL
       // (e.g. antivirus scan) can recover on the next attempt.
       const current = (lib ??= openWmiLibrary());
+      if (current.symbols.wmi_abi_version() !== 2) {
+        throw new Error(
+          "WmiDll.dll has an incompatible ABI; rebuild or reinstall ALFC",
+        );
+      }
       const result = current.symbols.wmi_init();
       if (result !== 0) {
-        throw new Error(`WMI init failed: ${getLastError()}`);
+        nativeFailure("init", result);
       }
+      isInitialized = true;
       return;
     } catch (e) {
+      isInitialized = false;
       attempt++;
-      if (attempt >= 3) {
+      if (attempt >= 3 || isPoisoned) {
         console.error(`WMI init attempt ${attempt} failed. No more retries.`);
+        // A later explicit initialization can retry, but a failed attempt must
+        // never leave an apparently usable library or retain native resources.
+        try {
+          releaseLibrary();
+        } catch {
+          /* Preserve the initialization failure. */
+        }
         throw e;
       }
       console.log(`WMI init attempt ${attempt} failed. Retrying in 2s...`);
@@ -183,9 +247,18 @@ export async function wmiInit() {
   }
 }
 
+export function wmiInit() {
+  if (isClosed)
+    return Promise.reject(new Error("WMI library is already closed"));
+  return (initialization ??= initialize().finally(() => {
+    initialization = null;
+  }));
+}
+
 export function setCall(_: string, methodName: string, args: Args) {
   return Promise.resolve().then(() => {
     const symbols = requireLib();
+    validateCall(setMethods, methodName, args);
 
     if (usesNamedPath(args)) {
       const { namesPtr, namesByteLength, valuesPtr, count } =
@@ -198,7 +271,7 @@ export function setCall(_: string, methodName: string, args: Args) {
         count,
       );
       if (result !== 0) {
-        throw new Error(`WMI set '${methodName}' failed: ${getLastError()}`);
+        nativeFailure(`set '${methodName}'`, result);
       }
       return;
     }
@@ -209,14 +282,21 @@ export function setCall(_: string, methodName: string, args: Args) {
     const argValue = getUint8Argument(methodName, "Data", args.Data);
     const result = symbols.wmi_set(getMethodPtr(methodName), argValue);
     if (result !== 0) {
-      throw new Error(`WMI set '${methodName}' failed: ${getLastError()}`);
+      nativeFailure(`set '${methodName}'`, result);
     }
   });
 }
 
-export function getCall(_: string, methodName: string, args?: Args) {
+export function getCall(
+  _: string,
+  methodName: string,
+  args?: Args,
+): Promise<NativeResult> {
   return Promise.resolve().then(() => {
     const symbols = requireLib();
+    const method = validateCall(getMethods, methodName, args);
+    countBuffer[0] = 0;
+    resultsBuffer.fill(Number.NaN);
 
     if (args && usesNamedPath(args)) {
       const { namesPtr, namesByteLength, valuesPtr, count } =
@@ -231,13 +311,13 @@ export function getCall(_: string, methodName: string, args?: Args) {
         countPtr,
       );
       if (result !== 0) {
-        throw new Error(`WMI get '${methodName}' failed: ${getLastError()}`);
+        nativeFailure(`get '${methodName}'`, result);
       }
     } else {
       const argValue =
         args?.Data === undefined
           ? -1
-          : getUint8Argument(methodName, "Data", Number(args.Data));
+          : getUint8Argument(methodName, "Data", args.Data);
 
       const result = symbols.wmi_get(
         getMethodPtr(methodName),
@@ -246,36 +326,57 @@ export function getCall(_: string, methodName: string, args?: Args) {
         countPtr,
       );
       if (result !== 0) {
-        throw new Error(`WMI get '${methodName}' failed: ${getLastError()}`);
+        nativeFailure(`get '${methodName}'`, result);
       }
     }
 
     const resultCount = countBuffer[0] ?? 0;
-    let value = 0;
+    const expectedBytes = method.outArgs.reduce((count, argument) => {
+      if (argument.type === "uint8") return count + 1;
+      if (argument.type === "uint16") return count + 2;
+      throw new TypeError(`Unsupported WMI output type '${argument.type}'`);
+    }, 0);
+    if (
+      !Number.isInteger(resultCount) ||
+      resultCount < 1 ||
+      resultCount > resultsBuffer.length ||
+      resultCount !== expectedBytes
+    ) {
+      throw new Error(
+        `WMI '${methodName}' returned an invalid byte count: ${resultCount}; expected ${expectedBytes}`,
+      );
+    }
+    let value = 0n;
     for (let i = resultCount - 1; i >= 0; i--) {
-      const raw = resultsBuffer[i] ?? 0;
-      if (raw > 255) {
-        value = value * 256 + (raw >> 8);
-        value = value * 256 + (raw & 0xff);
-      } else {
-        value = value * 256 + raw;
+      const raw = resultsBuffer[i];
+      if (raw === undefined || !Number.isInteger(raw) || raw < 0 || raw > 255) {
+        throw new Error(`WMI '${methodName}' returned an invalid byte at ${i}`);
       }
+      value = value * 256n + BigInt(raw);
     }
 
-    return value;
+    return value <= BigInt(Number.MAX_SAFE_INTEGER)
+      ? Number(value)
+      : value.toString();
   });
+}
+
+function releaseLibrary() {
+  const current = lib;
+  lib = null;
+  isInitialized = false;
+  try {
+    current?.symbols.wmi_cleanup();
+  } finally {
+    methodPtrCache.clear();
+    current?.close();
+  }
 }
 
 export function wmiCleanup() {
   if (isClosed) return;
-
-  if (lib) {
-    lib.symbols.wmi_cleanup();
-    methodPtrCache.clear();
-    lib.close();
-    lib = null;
-  }
   isClosed = true;
+  releaseLibrary();
 }
 
 if (import.meta.main) {

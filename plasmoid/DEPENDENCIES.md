@@ -6,19 +6,25 @@ The plasmoid requires KDE Plasma 6 and the QtWebSockets QML module.
 
 ### Package Names by Distribution
 
-| Dependency         | Arch              | Fedora              | Ubuntu/Debian (24.04+)         | openSUSE                  |
-| ------------------ | ----------------- | ------------------- | ------------------------------ | ------------------------- |
-| KDE Plasma 6       | `plasma-desktop`  | `plasma-desktop`    | `kde-plasma-desktop`           | `plasma6-desktop`         |
-| Qt6 WebSockets QML | `qt6-websockets`  | `qt6-qtwebsockets`  | `qml6-module-qtwebsockets`     | `qt6-websockets-imports`  |
-| Qt6 QML Base       | `qt6-declarative` | `qt6-qtdeclarative` | `qml6-module-qtquick`          | `qt6-declarative-imports` |
-| Kirigami           | `kirigami`        | `kf6-kirigami`      | `qml6-module-org-kde-kirigami` | `kf6-kirigami-imports`    |
+| Dependency         | Arch              | Fedora              | Debian 13+ / Ubuntu with Plasma 6 | openSUSE                  |
+| ------------------ | ----------------- | ------------------- | --------------------------------- | ------------------------- |
+| KDE Plasma 6       | `plasma-desktop`  | `plasma-desktop`    | `kde-plasma-desktop`              | `plasma6-desktop`         |
+| Qt6 WebSockets QML | `qt6-websockets`  | `qt6-qtwebsockets`  | `qml6-module-qtwebsockets`        | `qt6-websockets-imports`  |
+| Qt6 QML Base       | `qt6-declarative` | `qt6-qtdeclarative` | `qml6-module-qtquick`             | `qt6-declarative-imports` |
+| Kirigami           | `kirigami`        | `kf6-kirigami`      | `qml6-module-org-kde-kirigami`    | `kf6-kirigami-imports`    |
 
 ### Checking Dependencies
 
 ```bash
-# Validate QML syntax and imports (or preview with plasmoidviewer -a plasmoid/package)
-qmllint plasmoid/package/contents/ui/*.qml
+# Use the Qt 6 linter (its path/name varies by distribution)
+/usr/lib/qt6/bin/qmllint plasmoid/package/contents/ui/*.qml
+# Validate shell-registered types and preview the complete applet
+plasmoidviewer -a plasmoid/package
 ```
+
+`PlasmoidItem` and `PlasmaCore.Action` are registered by Plasma at runtime. A standalone linter may report them as unresolved even when the shell can load them. Use a real Plasma session for complete applet validation. Ubuntu 24.04's default Plasma 5 desktop does not meet the widget's Plasma 6 requirement.
+
+The optional Qt runtime test runner is documented in [README.md](README.md#runtime-tests). Its Python/PySide6 dependency is needed only for development.
 
 ### Missing Dependency Behavior
 

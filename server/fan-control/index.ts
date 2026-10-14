@@ -18,6 +18,30 @@ let isFanControlShuttingDown = false;
 // shared across ALL runs so restarts can never overlap collections; a
 // wedged native read cannot hold it forever because every read times out.
 let isCycleInFlight = false;
+let fanWriteQueue: Promise<void> = Promise.resolve();
+let appliedFanPercentage: number | null = null;
+let manualWriteVersion = 0;
+let pendingManualWrites = 0;
+let requiresBiosRestore = false;
+
+export function isFanControlRestoreRequired(): boolean {
+  return requiresBiosRestore;
+}
+
+export function awaitFanControlIdle(): Promise<void> {
+  return fanWriteQueue;
+}
+
+function enqueueFanWrite(operation: () => Promise<void>): Promise<void> {
+  const result = fanWriteQueue.then(async () => {
+    if (isFanControlShuttingDown) {
+      throw new Error("Fan control is shutting down");
+    }
+    await operation();
+  });
+  fanWriteQueue = result.catch(() => undefined);
+  return result;
+}
 
 export function cleanupFanControlIntervals() {
   if (autoFanInterval) {
@@ -46,25 +70,57 @@ export function fanPercentToSpeed(percent: number) {
 }
 
 async function applyFixedFanSpeed(speed: number) {
+  if (isFanControlShuttingDown) {
+    throw new Error("Fan control is shutting down");
+  }
   try {
     await setCall("0x6b", "SetFixedFanSpeed", { Data: speed });
   } catch (error) {
-    throw new Error(`SetFixedFanSpeed failed: ${String(error)}`);
+    throw new Error(`SetFixedFanSpeed failed: ${String(error)}`, {
+      cause: error,
+    });
   }
 
+  if (isFanControlShuttingDown) {
+    throw new Error("Fan control is shutting down");
+  }
   try {
     await setCall("0x47", "SetGPUFanDuty", { Data: speed });
   } catch (error) {
-    throw new Error(`SetGPUFanDuty failed: ${String(error)}`);
+    throw new Error(`SetGPUFanDuty failed: ${String(error)}`, { cause: error });
   }
 }
 
 export async function applyFixedFan(percent: number) {
-  if (isFanControlShuttingDown) {
-    return;
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    throw new Error("Fan percentage must be from 0 to 100");
   }
+  manualWriteVersion++;
+  pendingManualWrites++;
+  try {
+    await writeFanPercentage(percent);
+  } finally {
+    pendingManualWrites--;
+  }
+}
 
-  await applyFixedFanSpeed(fanPercentToSpeed(percent));
+function writeFanPercentage(percent: number, expectedVersion?: number) {
+  return enqueueFanWrite(async () => {
+    if (
+      expectedVersion !== undefined &&
+      (expectedVersion !== manualWriteVersion || pendingManualWrites > 0)
+    )
+      return;
+    try {
+      await applyFixedFanSpeed(fanPercentToSpeed(percent));
+      appliedFanPercentage = percent;
+    } catch (error) {
+      // One of the two fan writes may have succeeded. Never label the old
+      // or requested percentage as confirmed while their state is unknown.
+      appliedFanPercentage = null;
+      throw error;
+    }
+  });
 }
 
 // Both CPU and GPU fan are set to the same speed
@@ -77,8 +133,19 @@ export function setFixedFan(percent: number) {
 
 // Inverse of initFanControl() — must be updated if initFanControl changes.
 export async function restoreAutoFanControl() {
-  await setCall("0x6a", "SetFixedFanStatus", { Data: 0 });
-  await setCall("0x71", "SetAutoFanStatus", { Data: 1 });
+  await fanWriteQueue;
+  const results = await Promise.allSettled([
+    setCall("0x6a", "SetFixedFanStatus", { Data: 0 }),
+    setCall("0x71", "SetAutoFanStatus", { Data: 1 }),
+  ]);
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures.map((result) => result.reason),
+      "Failed to restore BIOS fan control",
+    );
+  }
+  requiresBiosRestore = false;
 }
 
 type SensorRead = number | "stale" | "failed";
@@ -103,7 +170,8 @@ async function readSensor(
 
   try {
     const result = await withReadTimeout(getCall(methodId, methodName));
-    if (isNaN(result)) return "failed";
+    if (typeof result !== "number" || !Number.isFinite(result) || result < 0)
+      return "failed";
     return result;
   } catch (error) {
     console.warn(`[FanControl] ${methodName} failed:`, error);
@@ -111,8 +179,8 @@ async function readSensor(
   }
 }
 
-function withReadTimeout(promise: Promise<number>) {
-  return new Promise<number>((resolve, reject) => {
+function withReadTimeout(promise: ReturnType<typeof getCall>) {
+  return new Promise<Awaited<ReturnType<typeof getCall>>>((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(`Timed out after ${SENSOR_READ_TIMEOUT}ms`)),
       SENSOR_READ_TIMEOUT,
@@ -130,26 +198,26 @@ function withReadTimeout(promise: Promise<number>) {
   });
 }
 
-function initFanControl() {
-  setCall("0x58", "SetSuperQuiet", { Data: 0 }).catch((e) =>
-    console.warn("[FanControl] SetSuperQuiet failed:", e),
-  );
-  setCall("0x71", "SetAutoFanStatus", { Data: 0 }).catch((e) =>
-    console.warn("[FanControl] SetAutoFanStatus failed:", e),
-  );
-  setCall("0x67", "SetStepFanStatus", { Data: 0 }).catch((e) =>
-    console.warn("[FanControl] SetStepFanStatus failed:", e),
-  );
-  setCall("0x6a", "SetFixedFanStatus", { Data: 1 }).catch((e) =>
-    console.warn("[FanControl] SetFixedFanStatus failed:", e),
-  );
+function initFanControl(runId: number) {
+  return enqueueFanWrite(async () => {
+    requiresBiosRestore = true;
+    for (const [methodId, methodName, data] of [
+      ["0x58", "SetSuperQuiet", 0],
+      ["0x71", "SetAutoFanStatus", 0],
+      ["0x67", "SetStepFanStatus", 0],
+      ["0x6a", "SetFixedFanStatus", 1],
+    ] as const) {
+      if (isFanControlShuttingDown || runId !== fanControlRunId) return;
+      await setCall(methodId, methodName, { Data: data });
+    }
+  });
 }
 
-function resetFanSpeed() {
-  const firstEntry = state.cpuFanTable[0];
-  const speed = firstEntry ? firstEntry[1] : 0;
-  setFixedFan(speed);
-  return speed;
+function initialFanSpeed() {
+  return Math.max(
+    state.cpuFanTable[0]?.[1] ?? 0,
+    state.gpuFanTable[0]?.[1] ?? 0,
+  );
 }
 
 // Highest percentage anywhere in both tables — the fail-hot target when the
@@ -202,7 +270,7 @@ async function collectAverageTemps(runId: number): Promise<TempCollection> {
   };
 }
 
-export function fanControl() {
+export async function fanControl() {
   if (isFanControlShuttingDown) {
     return;
   }
@@ -210,14 +278,13 @@ export function fanControl() {
   cleanupFanControlIntervals();
   const runId = ++fanControlRunId;
 
-  initFanControl();
+  await initFanControl(runId);
+  if (isFanControlShuttingDown || runId !== fanControlRunId) return;
   let appliedPercentage = state.doFixedSpeed
     ? state.fixedPercentage
-    : resetFanSpeed();
-
-  if (state.doFixedSpeed) {
-    setFixedFan(state.fixedPercentage);
-  }
+    : initialFanSpeed();
+  await writeFanPercentage(appliedPercentage);
+  if (isFanControlShuttingDown || runId !== fanControlRunId) return;
 
   // On Linux, it happened once that restarting the fan control
   // was necessary. But it's so rare it can't be tested what
@@ -230,7 +297,9 @@ export function fanControl() {
         return;
       }
 
-      initFanControl();
+      void initFanControl(runId).catch((error: unknown) => {
+        console.warn("[FanControl] Failed to reinitialize fan control:", error);
+      });
     },
     1000 * 60 * 5,
   );
@@ -297,8 +366,14 @@ export function fanControl() {
     if (isCycleInFlight) {
       return;
     }
+    if (pendingManualWrites > 0) return;
+    const cycleWriteVersion = manualWriteVersion;
 
     isCycleInFlight = true;
+    let cycleSensorFailure = false;
+    let cycleTarget = state.doFixedSpeed
+      ? state.fixedPercentage
+      : highestFanTarget();
     try {
       // Collect average temperature throughout CYCLE_DURATION.
       // In fixed mode we intentionally use a single sample per cycle to keep
@@ -307,18 +382,21 @@ export function fanControl() {
       if (
         collection.status === "stale" ||
         isFanControlShuttingDown ||
-        runId !== fanControlRunId
+        runId !== fanControlRunId ||
+        pendingManualWrites > 0 ||
+        cycleWriteVersion !== manualWriteVersion
       ) {
         return;
       }
 
       if (collection.status === "failed") {
+        cycleSensorFailure = true;
         if (state.doFixedSpeed) {
           // The user-pinned speed stands; only the telemetry degrades to
           // the last known measurements.
           if (lastAverages) {
             publishActivity({
-              appliedSpeed: state.fixedPercentage,
+              appliedSpeed: appliedFanPercentage,
               avgCPUTemp: lastAverages.avgCPUTemp,
               avgGPUTemp: lastAverages.avgGPUTemp,
               target: state.fixedPercentage,
@@ -332,7 +410,7 @@ export function fanControl() {
         // the highest shared target instead of diluting the failure into
         // the cycle average.
         const target = highestFanTarget();
-        setFixedFan(target);
+        await writeFanPercentage(target, cycleWriteVersion);
         appliedPercentage = target;
         currRampDownCycle = 1;
         currRampUpCycle = 1;
@@ -343,7 +421,7 @@ export function fanControl() {
         // error state instead of trusting the last-known numbers.
         if (lastAverages) {
           publishActivity({
-            appliedSpeed: target,
+            appliedSpeed: appliedFanPercentage,
             avgCPUTemp: lastAverages.avgCPUTemp,
             avgGPUTemp: lastAverages.avgGPUTemp,
             target,
@@ -357,8 +435,8 @@ export function fanControl() {
       lastAverages = { avgCPUTemp, avgGPUTemp };
 
       if (state.doFixedSpeed) {
-        if (appliedPercentage !== state.fixedPercentage) {
-          setFixedFan(state.fixedPercentage);
+        if (appliedFanPercentage !== state.fixedPercentage) {
+          await writeFanPercentage(state.fixedPercentage, cycleWriteVersion);
           appliedPercentage = state.fixedPercentage;
         }
 
@@ -368,7 +446,7 @@ export function fanControl() {
         prevGPUFanTable = state.gpuFanTable;
 
         publishActivity({
-          appliedSpeed: appliedPercentage,
+          appliedSpeed: appliedFanPercentage,
           avgCPUTemp,
           avgGPUTemp,
           target: state.fixedPercentage,
@@ -383,23 +461,30 @@ export function fanControl() {
       // Target speed is whichever one of the two is higher because
       // of the mostly shared heat pipes.
       const target = Math.max(highestMatchCPU[1], highestMatchGPU[1]);
+      cycleTarget = target;
       let gradientTarget;
 
+      // A direct fixed-mode request may have changed the confirmed speed
+      // between cycles. Start curve ramping from that actual applied speed.
+      appliedPercentage = appliedFanPercentage ?? appliedPercentage;
       if (
         prevCPUFanTable !== state.cpuFanTable ||
-        prevGPUFanTable !== state.gpuFanTable
+        prevGPUFanTable !== state.gpuFanTable ||
+        appliedFanPercentage === null
       ) {
-        // When tables change, do nothing in this cycle but reset fans to the
-        // lowest percentage currently in state.
-        appliedPercentage = resetFanSpeed();
+        // Apply the new curve at the current temperature. Resetting to its
+        // first row can abruptly slow fans while the machine is hot.
+        await writeFanPercentage(target, cycleWriteVersion);
+        appliedPercentage = target;
         prevCPUFanTable = state.cpuFanTable;
         prevGPUFanTable = state.gpuFanTable;
         currRampDownCycle = 1;
         currRampUpCycle = 1;
       } else if (appliedPercentage < target) {
+        currRampDownCycle = 1;
         if (currRampUpCycle === WAIT_RAMP_UP_CYCLES) {
           gradientTarget = getGradientTarget(appliedPercentage, target);
-          setFixedFan(gradientTarget);
+          await writeFanPercentage(gradientTarget, cycleWriteVersion);
 
           currRampDownCycle = 1;
           currRampUpCycle = 1;
@@ -408,11 +493,12 @@ export function fanControl() {
           currRampUpCycle++;
         }
       } else if (target < appliedPercentage) {
+        currRampUpCycle = 1;
         // Make fan behavior less erratic by waiting a few cycles until we
         // ramp down.
         if (currRampDownCycle === WAIT_RAMP_DOWN_CYCLES) {
           gradientTarget = getGradientTarget(appliedPercentage, target);
-          setFixedFan(gradientTarget);
+          await writeFanPercentage(gradientTarget, cycleWriteVersion);
 
           currRampDownCycle = 1;
           currRampUpCycle = 1;
@@ -428,12 +514,22 @@ export function fanControl() {
       }
 
       publishActivity({
-        appliedSpeed: appliedPercentage,
+        appliedSpeed: appliedFanPercentage,
         avgCPUTemp,
         avgGPUTemp,
         target,
         sensorFailure: false,
       });
+    } catch (error) {
+      console.warn("[FanControl] Failed to apply fan target:", error);
+      if (lastAverages) {
+        publishActivity({
+          appliedSpeed: null,
+          ...lastAverages,
+          target: cycleTarget,
+          sensorFailure: cycleSensorFailure,
+        });
+      }
     } finally {
       isCycleInFlight = false;
     }

@@ -9,6 +9,8 @@ import {
   SENSOR_READ_TIMEOUT,
   WAIT_RAMP_UP_CYCLES,
   WAIT_RAMP_DOWN_CYCLES,
+  applyFixedFan,
+  restoreAutoFanControl,
 } from "./index";
 
 vi.mock("../native/index", () => ({
@@ -80,6 +82,7 @@ describe("fan-control", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    mockedSetCall.mockResolvedValue(undefined);
 
     state.cpuFanTable = [
       [40, 15],
@@ -359,6 +362,86 @@ describe("fan-control", () => {
 
     // Should reset to lowest speed in new table
     await waitUntilFanPercent(firstSpeed(state.cpuFanTable));
+  });
+
+  it("applies a changed curve at the current temperature without a minimum-speed dip", async () => {
+    mockTemperatures(90, 90);
+    await fanControl();
+    state.cpuFanTable = [
+      [40, 10],
+      [80, 90],
+    ];
+    state.gpuFanTable = [
+      [40, 10],
+      [80, 90],
+    ];
+    mockedSetCall.mockClear();
+    await vi.advanceTimersByTimeAsync(2 * CYCLE_DURATION);
+    const fanWrites = mockedSetCall.mock.calls.filter((call) =>
+      ["SetFixedFanSpeed", "SetGPUFanDuty"].includes(call[1]),
+    );
+    expect(fanWrites.length).toBeGreaterThan(0);
+    expect(
+      fanWrites.every((call) => call[2].Data === fanPercentToSpeed(90)),
+    ).toBe(true);
+  });
+
+  it("uses the higher CPU or GPU minimum at startup", async () => {
+    state.gpuFanTable = [
+      [40, 40],
+      [80, 100],
+    ];
+    await fanControl();
+    expect(mockedSetCall).toHaveBeenLastCalledWith("0x47", "SetGPUFanDuty", {
+      Data: fanPercentToSpeed(40),
+    });
+  });
+
+  it("reports unknown applied speed after a partial hardware write and retries", async () => {
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    mockTemperatures(90, 30);
+    await fanControl();
+    let failGpuWrite = true;
+    mockedSetCall.mockImplementation((_id, name) => {
+      if (name === "SetGPUFanDuty" && failGpuWrite) {
+        failGpuWrite = false;
+        return Promise.reject(new Error("GPU write failed"));
+      }
+      return Promise.resolve();
+    });
+    await vi.advanceTimersByTimeAsync(2 * CYCLE_DURATION);
+    expect(mockedPublishActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ appliedSpeed: null }),
+    );
+    await vi.advanceTimersByTimeAsync(2 * CYCLE_DURATION);
+    expect(mockedPublishActivity).toHaveBeenLastCalledWith(
+      expect.objectContaining({ appliedSpeed: 50, target: 50 }),
+    );
+    warning.mockRestore();
+  });
+
+  it("serializes each pair of direct fan writes", async () => {
+    const first = applyFixedFan(60);
+    const second = applyFixedFan(80);
+    await Promise.all([first, second]);
+    expect(mockedSetCall.mock.calls).toEqual([
+      ["0x6b", "SetFixedFanSpeed", { Data: fanPercentToSpeed(60) }],
+      ["0x47", "SetGPUFanDuty", { Data: fanPercentToSpeed(60) }],
+      ["0x6b", "SetFixedFanSpeed", { Data: fanPercentToSpeed(80) }],
+      ["0x47", "SetGPUFanDuty", { Data: fanPercentToSpeed(80) }],
+    ]);
+  });
+
+  it("attempts to restore BIOS auto mode even when disabling fixed mode fails", async () => {
+    mockedSetCall.mockRejectedValueOnce(new Error("fixed mode write failed"));
+    await expect(restoreAutoFanControl()).rejects.toThrow(
+      "Failed to restore BIOS fan control",
+    );
+    expect(mockedSetCall).toHaveBeenLastCalledWith("0x71", "SetAutoFanStatus", {
+      Data: 1,
+    });
   });
 
   it("should use highest fan speed when readings are invalid", async () => {

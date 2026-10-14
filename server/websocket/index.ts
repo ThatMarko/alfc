@@ -9,14 +9,25 @@ import {
   type State,
 } from "../../common/types";
 import { validateFanTable } from "../../common/validation";
+import {
+  getMethods,
+  managedFanMethods,
+  setMethods,
+} from "../../common/methods";
 import { getCall, setCall, tune } from "../native/index";
 import { persistState, state } from "../state/index";
-import {
-  applyFixedFan,
-  fanControl as autoFanControl,
-} from "../fan-control/index";
+import { applyFixedFan } from "../fan-control/index";
 
 let server: Server<unknown> | null = null;
+let messageQueue: Promise<void> = Promise.resolve();
+let queuedMessages = 0;
+let isShuttingDown = false;
+const MAX_QUEUED_MESSAGES = 64;
+
+export function startWebSocketShutdown(): Promise<void> {
+  isShuttingDown = true;
+  return messageQueue;
+}
 
 type MessageMetadata = Partial<
   Pick<MessageToServer, "methodId" | "methodName" | "requestId">
@@ -69,6 +80,51 @@ function isArgsRecord(value: unknown): value is Args {
   );
 }
 
+function validateNativeCall(
+  payload: MessageToServer,
+): { methodId: string; methodName: string; args: Args } | string {
+  if (
+    typeof payload.methodId !== "string" ||
+    !/^(?:0x[\da-f]+|\d+)$/i.test(payload.methodId) ||
+    typeof payload.methodName !== "string"
+  ) {
+    return "get/set require a numeric methodId and a known methodName";
+  }
+  const methods =
+    payload.kind === MessageToServerKind.Get ? getMethods : setMethods;
+  const method = Object.hasOwn(methods, payload.methodName)
+    ? methods[payload.methodName]
+    : undefined;
+  if (!method || Number(payload.methodId) !== Number(method.methodId)) {
+    return "methodId and methodName must identify the same documented method";
+  }
+  const args = payload.data === undefined ? {} : payload.data;
+  if (!isArgsRecord(args)) {
+    return "get/set data must be an argument map";
+  }
+  if (Object.keys(args).length !== method.inArgs.length) {
+    return "arguments must match the documented method signature";
+  }
+  const orderedArgs: Args = {};
+  for (const argument of method.inArgs) {
+    const maximum = argument.type === "uint16" ? 65535 : 255;
+    if (
+      !Object.hasOwn(args, argument.name) ||
+      !isIntegerInRange(args[argument.name], 0, maximum)
+    ) {
+      return `${argument.name} must be a ${argument.type} integer`;
+    }
+    // Linux transports arguments by position, Windows by name. Preserve the
+    // canonical signature order independently of JSON property order.
+    orderedArgs[argument.name] = args[argument.name] as number;
+  }
+  return {
+    methodId: method.methodId,
+    methodName: method.methodName,
+    args: orderedArgs,
+  };
+}
+
 export function setServer(s: Server<unknown>) {
   server = s;
 }
@@ -80,7 +136,7 @@ function buildStateSnapshot(): State {
   };
 }
 
-function publishState() {
+export function publishState() {
   if (!server) return;
 
   server.publish(
@@ -116,11 +172,32 @@ function sendSuccess(
 ) {
   ws.send(
     JSON.stringify({
-      ...payload,
+      ...getMessageMetadata(payload),
       kind: MessageToClientKind.Success,
-      ...(data !== undefined && { data }),
+      data: data !== undefined ? data : payload.data,
     }),
   );
+}
+
+async function persistAndPublishState(
+  ws: ServerWebSocket<unknown>,
+  payload: MessageToServer,
+): Promise<void> {
+  try {
+    await persistState();
+  } catch (_) {
+    // Hardware has already accepted this configuration. Publish the real
+    // active state even when its durable save failed, then tell the caller.
+    publishState();
+    sendError(
+      ws,
+      payload,
+      "PERSISTENCE_ERROR: Configuration is active but could not be saved",
+    );
+    return;
+  }
+  publishState();
+  sendSuccess(ws, payload);
 }
 
 function getMessageMetadata(payload: unknown): MessageMetadata {
@@ -184,28 +261,22 @@ function rejectInvalidRange(
   sendError(ws, payload, `INVALID_RANGE: ${message}`);
 }
 
+function restartRequiredCause(error: unknown): Error | undefined {
+  const seen = new Set<Error>();
+  let cause = error;
+  while (cause instanceof Error && !seen.has(cause)) {
+    if ("restartRequired" in cause && cause.restartRequired === true)
+      return cause;
+    seen.add(cause);
+    cause = cause.cause;
+  }
+  return undefined;
+}
+
 async function handleMessage(
   ws: ServerWebSocket<unknown>,
-  message: string | Buffer,
+  parsedPayload: unknown,
 ) {
-  const messageString =
-    typeof message === "string" ? message : message.toString();
-
-  if (messageString === "ping") {
-    ws.send("pong");
-    return;
-  }
-
-  let parsedPayload: unknown;
-
-  try {
-    parsedPayload = JSON.parse(messageString);
-  } catch (_error) {
-    console.warn("[WebSocket] Invalid message: malformed JSON");
-    sendError(ws, null, "INVALID_JSON: Failed to parse message");
-    return;
-  }
-
   const maybePayload =
     parsedPayload && typeof parsedPayload === "object"
       ? (parsedPayload as Partial<MessageToServer>)
@@ -258,19 +329,11 @@ async function handleMessage(
           );
         }
 
-        const previousFixedPercentage = state.fixedPercentage;
-        state.fixedPercentage = payload.data;
-        try {
-          if (state.doFixedSpeed) {
-            await applyFixedFan(state.fixedPercentage);
-          }
-        } catch (error) {
-          state.fixedPercentage = previousFixedPercentage;
-          throw error;
+        if (state.doFixedSpeed) {
+          await applyFixedFan(payload.data);
         }
-        persistState();
-        publishState();
-        return sendSuccess(ws, payload);
+        state.fixedPercentage = payload.data;
+        return persistAndPublishState(ws, payload);
       }
       case MessageToServerKind.DoFixedSpeed: {
         if (state.isFanControlAvailable === false) {
@@ -288,21 +351,13 @@ async function handleMessage(
           );
         }
 
-        const previousDoFixedSpeed = state.doFixedSpeed;
-        state.doFixedSpeed = payload.data;
-        try {
-          if (state.doFixedSpeed) {
-            await applyFixedFan(state.fixedPercentage);
-          } else {
-            autoFanControl();
-          }
-        } catch (error) {
-          state.doFixedSpeed = previousDoFixedSpeed;
-          throw error;
+        if (payload.data) {
+          await applyFixedFan(state.fixedPercentage);
         }
-        persistState();
-        publishState();
-        return sendSuccess(ws, payload);
+        state.doFixedSpeed = payload.data;
+        // Monitoring runs in both modes. Keep its current applied speed when
+        // returning to a curve instead of resetting hot fans to the minimum.
+        return persistAndPublishState(ws, payload);
       }
       case MessageToServerKind.FanTable: {
         if (state.isFanControlAvailable === false) {
@@ -330,9 +385,7 @@ async function handleMessage(
 
         state.cpuFanTable = fanTableData.cpu;
         state.gpuFanTable = fanTableData.gpu;
-        persistState();
-        publishState();
-        return sendSuccess(ws, payload);
+        return persistAndPublishState(ws, payload);
       }
       case MessageToServerKind.Tune: {
         if (state.isCpuTuningAvailable === false) {
@@ -358,42 +411,32 @@ async function handleMessage(
           );
         }
 
-        const previousPl1 = state.pl1;
-        const previousPl2 = state.pl2;
-
+        await tune(tuneData.pl1, tuneData.pl2);
         state.pl1 = tuneData.pl1;
         state.pl2 = tuneData.pl2;
-        try {
-          await tune();
-        } catch (error) {
-          state.pl1 = previousPl1;
-          state.pl2 = previousPl2;
-          throw error;
-        }
-
-        persistState();
-        publishState();
-        return sendSuccess(ws, payload);
+        return persistAndPublishState(ws, payload);
       }
       case MessageToServerKind.Get: {
-        if (payload.data !== undefined && !isArgsRecord(payload.data)) {
-          return rejectInvalidPayload(
-            ws,
-            payload,
-            "get data must be an argument map of finite numbers",
-          );
-        }
-        const result = await getCall(
-          payload.methodId,
-          payload.methodName,
-          payload.data,
-        );
-        if (Number.isNaN(result)) {
+        const call = validateNativeCall(payload);
+        if (typeof call === "string")
+          return rejectInvalidPayload(ws, payload, call);
+        const result = await getCall(call.methodId, call.methodName, call.args);
+        if (typeof result === "number" && !Number.isFinite(result)) {
           return sendError(ws, payload, "ACPI_ERROR: Get call failed");
         }
         return sendSuccess(ws, payload, result);
       }
       case MessageToServerKind.Set: {
+        const call = validateNativeCall(payload);
+        if (typeof call === "string")
+          return rejectInvalidPayload(ws, payload, call);
+        if (managedFanMethods.has(call.methodName)) {
+          return sendError(
+            ws,
+            payload,
+            "MANAGED_FAN_CONTROL: Use the fan mode, percentage, and curve commands",
+          );
+        }
         if (payload.methodName === "SetAIBoostStatus") {
           if (state.isGpuBoostAvailable === false) {
             return rejectUnsupportedFeature(
@@ -423,18 +466,22 @@ async function handleMessage(
           );
         }
 
-        await setCall(payload.methodId, payload.methodName, payload.data);
+        await setCall(call.methodId, call.methodName, call.args);
         if (payload.methodName === "SetAIBoostStatus") {
           state.gpuBoost = payload.data.Data === 1;
-          persistState();
-          publishState();
+          return persistAndPublishState(ws, payload);
         }
         return sendSuccess(ws, payload);
       }
     }
 
     sendError(ws, payload, `MISSING_DATA: ${payload.kind}`);
-  } catch (_error) {
+  } catch (error) {
+    const restartError = restartRequiredCause(error);
+    if (restartError) {
+      sendError(ws, payload, `RESTART_REQUIRED: ${restartError.message}`);
+      return;
+    }
     sendError(ws, payload, "INTERNAL_ERROR: An unexpected error occurred");
   }
 }
@@ -447,7 +494,56 @@ export const websocketHandlers = {
   },
 
   message(ws: ServerWebSocket<unknown>, message: string | Buffer) {
-    handleMessage(ws, message);
+    const messageString =
+      typeof message === "string" ? message : message.toString();
+    if (messageString === "ping") {
+      ws.send("pong");
+      return Promise.resolve();
+    }
+    if (isShuttingDown) {
+      sendError(ws, null, "SHUTTING_DOWN: The server is shutting down");
+      return Promise.resolve();
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(messageString);
+    } catch (_) {
+      sendError(ws, null, "INVALID_JSON: Failed to parse message");
+      return Promise.resolve();
+    }
+    // Activity subscription is connection setup, independent of hardware
+    // commands. A busy queue must not permanently silence a new client.
+    if (
+      payload !== null &&
+      typeof payload === "object" &&
+      "kind" in payload &&
+      payload.kind === MessageToServerKind.RegisterActivitySocket
+    ) {
+      ws.subscribe("activity");
+      return Promise.resolve();
+    }
+    if (queuedMessages >= MAX_QUEUED_MESSAGES) {
+      sendError(ws, payload, "BUSY: Too many pending requests");
+      return Promise.resolve();
+    }
+    queuedMessages++;
+    // One queue across all sockets: an older failed mutation must never
+    // roll back or publish over a newer successful mutation from another UI.
+    const result = messageQueue
+      .then(async () => {
+        if (isShuttingDown) {
+          sendError(ws, payload, "SHUTTING_DOWN: The server is shutting down");
+          return;
+        }
+        await handleMessage(ws, payload);
+      })
+      .finally(() => {
+        queuedMessages--;
+      });
+    messageQueue = result.catch((error: unknown) => {
+      console.warn("[WebSocket] Failed to handle message:", error);
+    });
+    return result;
   },
 
   close(_ws: ServerWebSocket<unknown>, code: number, reason: string) {

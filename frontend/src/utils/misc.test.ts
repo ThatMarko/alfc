@@ -112,13 +112,13 @@ describe("getFanTableRowError", () => {
     ).toEqual({ row: 1, reason: "temperature is missing" });
   });
 
-  it("flags a non-whole temperature", () => {
+  it("accepts fractional temperatures supported by the backend", () => {
     expect(
       getFanTableRowError([
         ["40", "15"],
         ["83.5", "50"],
       ]),
-    ).toEqual({ row: 1, reason: "temperature must be a whole number" });
+    ).toBeNull();
   });
 
   it("flags an out-of-range temperature", () => {
@@ -158,20 +158,24 @@ describe("getFanTableRowError", () => {
       ]),
     ).toEqual({
       row: 1,
-      reason: "fan speed must be a whole number from 0 to 100",
+      reason: "fan speed must be a finite number from 0 to 100",
     });
   });
 
-  it("flags a non-whole fan speed", () => {
+  it("accepts fractional speeds supported by the backend", () => {
     expect(
       getFanTableRowError([
         ["40", "15"],
         ["83", "50.5"],
       ]),
-    ).toEqual({
-      row: 1,
-      reason: "fan speed must be a whole number from 0 to 100",
-    });
+    ).toBeNull();
+  });
+
+  it("rejects empty tables and nonfinite values", () => {
+    expect(getFanTableRowError([])).not.toBeNull();
+    expect(getFanTableRowError([["Infinity", "50"]])).not.toBeNull();
+    expect(getFanTableRowError([["50", "NaN"]])).not.toBeNull();
+    expect(getFanTableRowError([["50", ""]])).not.toBeNull();
   });
 });
 

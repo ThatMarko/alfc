@@ -33,6 +33,10 @@ Run everything that CI runs before pushing:
 bun run all-checks   # lint + type-check + test + build
 ```
 
+Run `bun run test:web` for the Chromium UI protocol scenarios. See
+[PORTING_REVIEW.md](PORTING_REVIEW.md) for browser setup, native packing, and Qt
+runtime checks.
+
 Individual commands: `bun run lint`, `bun run type-check`, `bun run test`.
 Husky + lint-staged also runs ESLint, type-check, and Prettier on staged files
 at commit time.

@@ -5,6 +5,7 @@
     <NativeLib>Shared</NativeLib>
     <RootNamespace>CPUOC</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <!-- Trimming configuration -->

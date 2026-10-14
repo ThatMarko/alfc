@@ -73,3 +73,13 @@ Before ANY protocol-breaking change:
 3. Update this compatibility matrix
 4. Ensure old client version still works (deprecation period)
 5. Tag release with protocol version in notes
+
+### PR #1 client parity checks
+
+Both shipped clients now validate state and telemetry, correlate requests,
+cancel pending commands on disconnect, mark ten-second-old telemetry stale,
+and respect per-feature capabilities. `restartRequired` is an optional,
+runtime-only state marker for failed native channels; older clients may ignore
+it. Large raw firmware results use exact decimal strings when a JSON number
+would lose precision. These automated checks do not satisfy the manual desktop
+or hardware release gates above. See [PORTING_REVIEW.md](../PORTING_REVIEW.md).

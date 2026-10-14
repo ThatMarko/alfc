@@ -1,7 +1,7 @@
 import styled from "@emotion/styled";
 import { faExchangeAlt } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import React, { useEffect, useRef, useState } from "react";
+import { MessageToServerKind } from "../../common/types";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { Button } from "reactstrap";
@@ -10,12 +10,12 @@ import { FanTable } from "./containers/FanTable";
 import { FixedSpeed } from "./containers/FixedSpeed";
 import { RawUI } from "./containers/RawUI";
 import { Toggles } from "./containers/Toggles";
-import { useWebSocket } from "./utils/useWebSocket";
-import { errorToast, nextRequestId, successToast } from "./utils/misc";
+import { useBackendCommand, useWebSocket } from "./utils/useWebSocket";
 import { UpdateNotification } from "./components/UpdateNotification";
 const StyledTopRow = styled.div`
   display: flex;
   justify-content: center;
+  flex-wrap: wrap;
 `;
 
 const StyledChangeModeContainer = styled.div`
@@ -29,67 +29,31 @@ const StyledChangeModeContainer = styled.div`
 `;
 
 function App() {
-  const [doFixedSpeed, setDoFixedSpeed] = useState(false);
-  const [isFanControlAvailable, setIsFanControlAvailable] = useState(true);
-  const isModeChangePending = useRef(false);
-  const pendingModeRequestIdRef = useRef<string | null>(null);
+  const { isConnected, state } = useWebSocket();
+  const { isPending, runCommand } = useBackendCommand();
+  const doFixedSpeed = state?.doFixedSpeed ?? false;
+  const isFanControlAvailable = state?.isFanControlAvailable !== false;
 
-  const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
-
-  useEffect(() => {
-    const { kind, data, requestId } = lastJsonMessage;
-    if (kind === "state") {
-      setIsFanControlAvailable(data.isFanControlAvailable !== false);
-      // A state push is not proof that our own mode request settled: the
-      // server broadcasts provisional state while the hardware call is
-      // still in flight, so only sync from pushes when nothing is pending.
-      if (!isModeChangePending.current) {
-        setDoFixedSpeed(data.doFixedSpeed);
-      }
-      return;
-    }
-
-    if (
-      isModeChangePending.current &&
-      requestId === pendingModeRequestIdRef.current
-    ) {
-      // The mode request's own response settles the optimistic toggle.
-      isModeChangePending.current = false;
-      pendingModeRequestIdRef.current = null;
-      if (kind === "error") {
-        setDoFixedSpeed((current) => !current);
-      }
-    }
-
-    if (kind === "success") {
-      // Only toast for config changes (no methodName).
-      // WMI get/set responses have methodName and are handled by their own components.
-      if (!lastJsonMessage.methodName) {
-        successToast("Successfully applied.");
-      }
-    } else if (kind === "error") {
-      errorToast(
-        typeof data === "string" ? data : "An unexpected error occurred.",
-      );
-      console.error(data);
-    }
-  }, [lastJsonMessage]);
-
-  const onChangeMode: React.MouseEventHandler = () => {
-    if (!isFanControlAvailable) {
-      return;
-    }
-    const nextValue = !doFixedSpeed;
-    const requestId = nextRequestId("mode");
-    isModeChangePending.current = true;
-    pendingModeRequestIdRef.current = requestId;
-    setDoFixedSpeed(nextValue);
-    sendJsonMessage({ kind: "dofixedspeed", data: nextValue, requestId });
+  const onChangeMode = () => {
+    if (!isConnected || !isFanControlAvailable || isPending) return;
+    void runCommand({
+      kind: MessageToServerKind.DoFixedSpeed,
+      data: !doFixedSpeed,
+    });
   };
 
   return (
     <>
       <div style={{ flexGrow: 1 }}>
+        {state?.restartRequired === true && (
+          <div
+            role="alert"
+            style={{ textAlign: "center", margin: 16, color: "#ffdda0" }}
+          >
+            A native service stopped responding. Restart ALFC to restore
+            unavailable features.
+          </div>
+        )}
         {isConnected && !isFanControlAvailable && (
           <div
             role="alert"
@@ -100,17 +64,18 @@ function App() {
         )}
         <StyledTopRow>
           <FanTable
-            disabled={!isFanControlAvailable || doFixedSpeed}
+            disabled={!isFanControlAvailable || doFixedSpeed || isPending}
             statusDisabled={!isFanControlAvailable}
           />
           {isConnected && (
             <StyledChangeModeContainer>
               <Button
-                disabled={!isFanControlAvailable}
+                disabled={!isFanControlAvailable || isPending}
                 onClick={onChangeMode}
                 aria-label={
                   doFixedSpeed ? "Switch to auto mode" : "Switch to fixed mode"
                 }
+                aria-busy={isPending}
               >
                 Auto
                 <br />
@@ -120,10 +85,12 @@ function App() {
               </Button>
             </StyledChangeModeContainer>
           )}
-          <FixedSpeed disabled={!isFanControlAvailable || !doFixedSpeed} />
+          <FixedSpeed
+            disabled={!isFanControlAvailable || !doFixedSpeed || isPending}
+          />
         </StyledTopRow>
         <StyledTopRow>
-          <div style={{ maxWidth: 300, marginLeft: 32, marginTop: 24 }}>
+          <div style={{ maxWidth: "100%", margin: 24 }}>
             <Toggles />
             <CPUTuning />
           </div>

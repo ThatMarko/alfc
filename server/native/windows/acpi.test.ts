@@ -5,6 +5,7 @@ let nextPointerAddress = 0x1000;
 let lastErrorText = "Simulated WMI error";
 
 const mockSymbols = {
+  wmi_abi_version: vi.fn<() => number>(() => 2),
   wmi_init: vi.fn<() => number>(() => 0),
   wmi_get: vi.fn<
     (
@@ -140,9 +141,10 @@ describe("windows WMI FFI adapter", () => {
     dllExists = true;
 
     mockSymbols.wmi_init.mockImplementation(() => 0);
+    mockSymbols.wmi_abi_version.mockImplementation(() => 2);
     mockSymbols.wmi_get.mockImplementation(
       (_methodPtr, _argValue, resultsPtr, countPtr) => {
-        writeGetResults(resultsPtr, countPtr, [42]);
+        writeGetResults(resultsPtr, countPtr, [42, 0]);
         return 0;
       },
     );
@@ -156,7 +158,7 @@ describe("windows WMI FFI adapter", () => {
         resultsPtr,
         countPtr,
       ) => {
-        writeGetResults(resultsPtr, countPtr, [1, 2, 3]);
+        writeGetResults(resultsPtr, countPtr, [1, 2, 3, 4, 5]);
         return 0;
       },
     );
@@ -192,6 +194,17 @@ describe("windows WMI FFI adapter", () => {
 
     await expect(acpi.wmiInit()).rejects.toThrow(/WmiDll\.dll not found/);
     expect(mockDlopen).not.toHaveBeenCalled();
+  });
+
+  it("rejects an incompatible native output ABI before executing hardware calls", async () => {
+    mockSymbols.wmi_abi_version.mockReturnValue(1);
+    const acpi = await import("./acpi");
+    await expect(acpi.wmiInit()).rejects.toThrow(/incompatible ABI/);
+    expect(mockSymbols.wmi_init).not.toHaveBeenCalled();
+    expect(mockClose).toHaveBeenCalledTimes(1);
+    await expect(acpi.getCall("0xe1", "getCpuTemp")).rejects.toThrow(
+      /not initialized/,
+    );
   });
 
   it("retries wmiInit up to 3 times and surfaces native error text", async () => {
@@ -251,7 +264,7 @@ describe("windows WMI FFI adapter", () => {
       acpi.setCall("0x6b", "SetFixedFanSpeed", { Data: -1 }),
     ).rejects.toThrow(RangeError);
     await expect(
-      acpi.getCall("0xe1", "getCpuTemp", { Data: 1.5 }),
+      acpi.getCall("0x59", "GetLightBar", { Index: 1.5 }),
     ).rejects.toThrow(RangeError);
   });
 
@@ -285,7 +298,7 @@ describe("windows WMI FFI adapter", () => {
     ]);
 
     const lightBarVal = await acpi.getCall("0x59", "GetLightBar", { Index: 2 });
-    expect(lightBarVal).toBe(0x030201);
+    expect(lightBarVal).toBe(0x0504030201);
     expect(mockSymbols.wmi_get_named).toHaveBeenCalledTimes(1);
     const [getMethodPtr, getNamesPtr, getNamesLen, getValuesPtr, getCount] =
       mockSymbols.wmi_get_named.mock.calls[0]!;
@@ -294,13 +307,13 @@ describe("windows WMI FFI adapter", () => {
     expect(readUint8Values(getValuesPtr, getCount)).toEqual([2]);
   });
 
-  it("composes uint16 and multi-byte outputs identically to the legacy helper", async () => {
+  it("decodes canonical little-endian bytes without inferring uint16 width from its value", async () => {
     const acpi = await import("./acpi");
     await acpi.wmiInit();
 
     mockSymbols.wmi_get.mockImplementationOnce(
       (_methodPtr, _argValue, resultsPtr, countPtr) => {
-        writeGetResults(resultsPtr, countPtr, [3000]);
+        writeGetResults(resultsPtr, countPtr, [0xb8, 0x0b]);
         return 0;
       },
     );
@@ -315,6 +328,168 @@ describe("windows WMI FFI adapter", () => {
     await expect(acpi.getCall("0x56", "GetThermalData")).resolves.toBe(
       0x563412,
     );
+  });
+
+  it("preserves exact values for outputs wider than JavaScript safe integers", async () => {
+    const acpi = await import("./acpi");
+    await acpi.wmiInit();
+    mockSymbols.wmi_get.mockImplementationOnce(
+      (_methodPtr, _argValue, resultsPtr, countPtr) => {
+        writeGetResults(resultsPtr, countPtr, Array<number>(10).fill(255));
+        return 0;
+      },
+    );
+    await expect(acpi.getCall("0x60", "GetDeepFan")).resolves.toBe(
+      ((1n << 80n) - 1n).toString(),
+    );
+  });
+
+  it.each([-1, 0, 1, 3, 17, 2_147_483_647])(
+    "rejects invalid native result counts (%i)",
+    async (count) => {
+      const acpi = await import("./acpi");
+      await acpi.wmiInit();
+      mockSymbols.wmi_get.mockImplementationOnce(
+        (_methodPtr, _argValue, resultsPtr, countPtr) => {
+          writeGetResults(resultsPtr, countPtr, [42, 0]);
+          const bytes = pointerMemory.get(Number(countPtr))!;
+          new Int32Array(bytes.buffer, bytes.byteOffset, 1)[0] = count;
+          return 0;
+        },
+      );
+      await expect(acpi.getCall("0xe1", "getCpuTemp")).rejects.toThrow(
+        /byte count/,
+      );
+    },
+  );
+
+  it.each([NaN, Infinity, -1, 1.5, 256])(
+    "rejects invalid native byte values (%s)",
+    async (invalid) => {
+      const acpi = await import("./acpi");
+      await acpi.wmiInit();
+      mockSymbols.wmi_get.mockImplementationOnce(
+        (_methodPtr, _argValue, resultsPtr, countPtr) => {
+          writeGetResults(resultsPtr, countPtr, [invalid, 0]);
+          return 0;
+        },
+      );
+      await expect(acpi.getCall("0xe1", "getCpuTemp")).rejects.toThrow(
+        /invalid byte/,
+      );
+    },
+  );
+
+  it("rejects missing output instead of using data from a previous call", async () => {
+    const acpi = await import("./acpi");
+    await acpi.wmiInit();
+    await expect(acpi.getCall("0xe1", "getCpuTemp")).resolves.toBe(42);
+    mockSymbols.wmi_get.mockImplementationOnce(() => 0);
+    await expect(acpi.getCall("0xe1", "getCpuTemp")).rejects.toThrow(
+      /byte count/,
+    );
+  });
+
+  it("retains the full declared width when a uint16 output is below 256", async () => {
+    const acpi = await import("./acpi");
+    await acpi.wmiInit();
+    mockSymbols.wmi_get.mockImplementationOnce(
+      (_methodPtr, _argValue, resultsPtr, countPtr) => {
+        writeGetResults(resultsPtr, countPtr, [42, 0]);
+        return 0;
+      },
+    );
+    await expect(acpi.getCall("0xe4", "getRpm1")).resolves.toBe(42);
+    mockSymbols.wmi_get.mockImplementationOnce(
+      (_methodPtr, _argValue, resultsPtr, countPtr) => {
+        writeGetResults(resultsPtr, countPtr, [42]);
+        return 0;
+      },
+    );
+    await expect(acpi.getCall("0xe4", "getRpm1")).rejects.toThrow(/expected 2/);
+  });
+
+  it("validates method names and full input signatures before entering native code", async () => {
+    const acpi = await import("./acpi");
+    await acpi.wmiInit();
+    await expect(acpi.getCall("0xe1", "getCpuTemp\0other")).rejects.toThrow(
+      /Unknown WMI method/,
+    );
+    await expect(acpi.getCall("0xe1", "constructor")).rejects.toThrow(
+      /Unknown WMI method/,
+    );
+    await expect(acpi.getCall("0x59", "GetLightBar")).rejects.toThrow(
+      /requires a Index/,
+    );
+    await expect(
+      acpi.setCall("0x59", "SetLightBar", { Index: 1 }),
+    ).rejects.toThrow(/requires/);
+    await expect(
+      acpi.getCall("0xe1", "getCpuTemp", { Data: 1 }),
+    ).rejects.toThrow(/no input argument/);
+    expect(mockSymbols.wmi_get).not.toHaveBeenCalled();
+    expect(mockSymbols.wmi_get_named).not.toHaveBeenCalled();
+    expect(mockSymbols.wmi_set_named).not.toHaveBeenCalled();
+  });
+
+  it("coalesces simultaneous initialization requests", async () => {
+    const acpi = await import("./acpi");
+    await Promise.all([acpi.wmiInit(), acpi.wmiInit(), acpi.wmiInit()]);
+    expect(mockDlopen).toHaveBeenCalledTimes(1);
+    expect(mockSymbols.wmi_init).toHaveBeenCalledTimes(1);
+  });
+
+  it("permanently rejects commands and reinitialization after a native timeout", async () => {
+    const acpi = await import("./acpi");
+    await acpi.wmiInit();
+    lastErrorText = "ExecMethod(getCpuTemp) timed out; restart ALFC";
+    mockSymbols.wmi_get.mockReturnValueOnce(-2);
+    await expect(acpi.getCall("0xe1", "getCpuTemp")).rejects.toThrow(
+      /timed out/,
+    );
+    await expect(acpi.getCall("0xe1", "getCpuTemp")).rejects.toThrow(
+      /restart ALFC/,
+    );
+    await expect(
+      acpi.setCall("0x6b", "SetFixedFanSpeed", { Data: 100 }),
+    ).rejects.toThrow(/restart ALFC/);
+    await expect(acpi.wmiInit()).rejects.toThrow(/restart ALFC/);
+    expect(mockSymbols.wmi_get).toHaveBeenCalledTimes(1);
+    expect(mockSymbols.wmi_set).not.toHaveBeenCalled();
+    expect(mockSymbols.wmi_init).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reopen a library cleaned up during initialization backoff", async () => {
+    let resumeSleep: (() => void) | undefined;
+    Bun.sleep = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resumeSleep = resolve;
+        }),
+    ) as typeof Bun.sleep;
+    mockSymbols.wmi_init.mockReturnValueOnce(-1);
+    const acpi = await import("./acpi");
+    const pending = acpi.wmiInit();
+    const rejection = expect(pending).rejects.toThrow(/already closed/);
+    await vi.waitFor(() => expect(resumeSleep).toBeDefined());
+    acpi.wmiCleanup();
+    resumeSleep!();
+    await rejection;
+    expect(mockDlopen).toHaveBeenCalledTimes(1);
+    expect(mockSymbols.wmi_init).toHaveBeenCalledTimes(1);
+    expect(mockClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the library even when native cleanup throws", async () => {
+    const acpi = await import("./acpi");
+    await acpi.wmiInit();
+    mockSymbols.wmi_cleanup.mockImplementationOnce(() => {
+      throw new Error("cleanup failed");
+    });
+    expect(() => acpi.wmiCleanup()).toThrow("cleanup failed");
+    expect(mockClose).toHaveBeenCalledTimes(1);
+    acpi.wmiCleanup();
+    await expect(acpi.wmiInit()).rejects.toThrow(/already closed/);
   });
 
   it("releases native resources on wmiCleanup and rejects subsequent calls", async () => {

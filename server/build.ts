@@ -18,7 +18,11 @@ if (isWindows) {
 await rm("dist", { recursive: true, force: true });
 
 const result = await Bun.build({
-  entrypoints: ["index.ts"],
+  // Bundled workers must be explicit entrypoints so compiled executables can
+  // resolve their source URL in Bun's virtual filesystem.
+  entrypoints: isWindows
+    ? ["index.ts", "native/windows/hardware.worker.ts"]
+    : ["index.ts"],
   compile: {
     target,
     outfile,

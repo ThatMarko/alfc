@@ -57,14 +57,12 @@ describe("windows CPUOC FFI adapter", () => {
 
   it("defers dlopen until tuneInit and rejects tune when CPUOC.dll is absent", async () => {
     dllExists = false;
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cpuoc = await import("./cpuoc");
 
     expect(mockDlopen).not.toHaveBeenCalled();
-    await cpuoc.tuneInit();
+    await expect(cpuoc.tuneInit()).rejects.toThrow("CPUOC.dll not found");
     expect(mockDlopen).not.toHaveBeenCalled();
     await expect(cpuoc.tune(37, 106)).rejects.toThrow("CPUOC is not available");
-    warnSpy.mockRestore();
   });
 
   it("initializes CPUOC, applies PL1/PL2 limits, and frees native error strings", async () => {
@@ -84,13 +82,13 @@ describe("windows CPUOC FFI adapter", () => {
     expect(mockSymbols.cpuoc_free_string).toHaveBeenCalledWith(0xbeef);
   });
 
-  it("closes the library on cpuocCleanup and rejects subsequent calls", async () => {
+  it("retains the Native AOT library on cleanup and rejects subsequent calls", async () => {
     const cpuoc = await import("./cpuoc");
     await cpuoc.tuneInit();
 
     cpuoc.cpuocCleanup();
     cpuoc.cpuocCleanup();
-    expect(mockClose).toHaveBeenCalledTimes(1);
+    expect(mockClose).not.toHaveBeenCalled();
 
     await expect(cpuoc.tune(37, 106)).rejects.toThrow(
       "CPUOC library is already closed",
@@ -98,5 +96,17 @@ describe("windows CPUOC FFI adapter", () => {
     await expect(cpuoc.tuneInit()).rejects.toThrow(
       "CPUOC library is already closed",
     );
+  });
+
+  it("rejects tuning after failed initialization and validates limits before FFI", async () => {
+    const cpuoc = await import("./cpuoc");
+    mockSymbols.cpuoc_init.mockReturnValueOnce(-1);
+    await expect(cpuoc.tuneInit()).rejects.toThrow("CPUOC init failed");
+    await expect(cpuoc.tune(37, 106)).rejects.toThrow("CPUOC is not available");
+    await cpuoc.tuneInit();
+    for (const value of [NaN, Infinity, -1, 201, 37.5]) {
+      await expect(cpuoc.tune(value, 106)).rejects.toThrow(RangeError);
+    }
+    expect(mockSymbols.cpuoc_tune).not.toHaveBeenCalled();
   });
 });

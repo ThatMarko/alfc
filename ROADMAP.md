@@ -9,7 +9,7 @@
 
 What ships in v2.0.0:
 
-- **bun:ffi WMI bindings** — replaced the .NET Framework 4.8 helper process (`WmiAPI.exe`) with a C++ DLL (`WmiDll.dll`) loaded directly via `bun:ffi`. ~100,000x less call overhead, ~50-120 MB less memory, fewer failure modes.
+- **bun:ffi WMI bindings** — replaced the .NET Framework 4.8 helper process (`WmiAPI.exe`) with a C++ DLL (`WmiDll.dll`) loaded directly via `bun:ffi`. This removes the helper process and its IPC path; end-to-end latency and memory savings still require measurement on compatible hardware.
 - **Performance-optimized fan control** — 2-second decision cycle (500ms sampling; 1-cycle ramp-up, 30-cycle / 60s ramp-down), running-sum temperature averaging (zero per-cycle allocations), GC-safe FFI pointer caching, dynamic BSTR method name cache in the DLL.
 - **Relaxed WebSocket timers** — plasmoid keepalive 5s to 20s, 60s pong timeout with 5s watchdog check, reconnect backoff cap 5s to 30s, server idle timeout 30s to 120s. Fewer CPU wakeups across the stack.
 - **KDE Plasma 6 widget** — panel, system tray, desktop widget modes with context-aware UI, rich tooltip, fan curve editor, accessibility annotations.

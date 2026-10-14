@@ -8,10 +8,11 @@ const StyledLink = styled.a`
   right: 16px;
   padding: 8px 16px;
   background-color: ${theme.primary};
-  color: white;
+  color: #202027;
   text-decoration: none;
   border-radius: 4px;
   font-size: 14px;
+  max-width: calc(100vw - 32px);
 
   &:hover {
     opacity: 0.9;

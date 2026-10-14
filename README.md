@@ -115,7 +115,8 @@ hex string for Linux.
 
 - **Lint**: `bun run lint` — ESLint with TypeScript, React, Prettier integration. `no-explicit-any` warns, `no-unreachable` errors.
 - **Type-check**: `bun run type-check` — Strict TypeScript with `noUncheckedIndexedAccess` enabled.
-- **Test**: `bun run test` — Vitest (97 tests across server + frontend).
+- **Test**: `bun run test` — Vitest suites across native adapters, backend, frontend, and shared protocol.
+- **Browser checks**: `bun run test:web` — Chromium scenarios for backend state, commands, reconnection, capabilities, telemetry, and mobile layout. See [PORTING_REVIEW.md](PORTING_REVIEW.md) for browser and Qt checks.
 - **Full check**: `bun run all-checks` — Runs lint, type-check, test, and build in sequence.
 - **Pre-commit**: Husky + lint-staged runs ESLint, type-check, and Prettier on staged files.
 

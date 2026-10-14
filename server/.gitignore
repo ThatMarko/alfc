@@ -3,3 +3,5 @@ native/windows/wmidll/*.obj
 native/windows/wmidll/*.exp
 native/windows/wmidll/*.lib
 native/windows/CPUOC.dll
+/native/windows/cpuoc-dotnet/bin/
+/native/windows/cpuoc-dotnet/obj/

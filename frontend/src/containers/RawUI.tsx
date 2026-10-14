@@ -1,18 +1,19 @@
 import styled from "@emotion/styled";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
+import { MessageToServerKind } from "../../../common/types";
+import { managedFanMethods } from "../../../common/methods";
 import { getMethods, setMethods } from "../data/mof";
 import { theme } from "../utils/consts";
-import {
-  nextRequestId,
-  parseIntegerInRange,
-  validationToast,
-} from "../utils/misc";
-import { useWebSocket } from "../utils/useWebSocket";
+import { parseIntegerInRange, validationToast } from "../utils/misc";
+import { useBackendCommand, useWebSocket } from "../utils/useWebSocket";
 
-enum Kind {
-  Get = "get",
-  Set = "set",
-}
+const Kind = {
+  Get: MessageToServerKind.Get,
+  Set: MessageToServerKind.Set,
+} as const;
+type Kind = (typeof Kind)[keyof typeof Kind];
+const argumentMaximum = (type: string) =>
+  type === "uint16" ? 65535 : type === "uint32" ? 4294967295 : 255;
 
 const StyledHeader = styled.button`
   width: 100%;
@@ -38,51 +39,40 @@ const StyledContent = styled.div`
 const StyledControls = styled.div`
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
   padding: 8px;
+
+  > * {
+    min-width: 0;
+    max-width: 100%;
+  }
 `;
 
 const StyledForm = styled.form`
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+
+  > * {
+    min-width: 0;
+    max-width: 100%;
+  }
 `;
 
 export function RawUI() {
   const refRun = useRef<HTMLButtonElement>(null);
-  const pendingRequestIdRef = useRef<string | null>(null);
 
-  const [kind, setKind] = useState(Kind.Get);
+  const [kind, setKind] = useState<Kind>(Kind.Get);
   const [methodName, setMethodName] = useState("");
   const [args, setArgs] = useState<{ [key: string]: string }>({});
-  const [isRunning, setIsRunning] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [result, setResult] = useState("");
 
-  const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
-
-  useEffect(() => {
-    const { data, requestId } = lastJsonMessage;
-    // Only the response to our own Run matters here: server pushes
-    // (state, fancontrolactivity) never carry a requestId, and other
-    // requests echo their own id — even when they reuse the same WMI
-    // opcode (e.g. the GPU Boost toggle and SetAIBoostStatus).
-    if (
-      pendingRequestIdRef.current === null ||
-      requestId !== pendingRequestIdRef.current
-    ) {
-      return;
-    }
-    pendingRequestIdRef.current = null;
-    setIsRunning(false);
-    if (data !== undefined) {
-      const display =
-        typeof data === "number"
-          ? `${data} (0x${data.toString(16)})`
-          : String(data);
-      setResult(`${new Date().toLocaleTimeString()}: ${display}`);
-    } else if (lastJsonMessage.kind === "success") {
-      setResult(`${new Date().toLocaleTimeString()}: OK`);
-    }
-  }, [lastJsonMessage]);
+  const { isConnected, state } = useWebSocket();
+  const { isPending: isRunning, runCommand } = useBackendCommand();
 
   if (!isConnected) {
     return null;
@@ -97,30 +87,53 @@ export function RawUI() {
   const methods = kind === Kind.Get ? getMethods : setMethods;
   const selectedMethod = methodName !== "" ? methods[methodName] : undefined;
 
+  const isManaged = kind === Kind.Set && managedFanMethods.has(methodName);
+  const isUnavailableBoost =
+    kind === Kind.Set &&
+    methodName === "SetAIBoostStatus" &&
+    state?.isGpuBoostAvailable === false;
+
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
     refRun.current?.focus();
-    if (!selectedMethod) return;
+    if (!selectedMethod || isRunning || isManaged || isUnavailableBoost) return;
     const parsedArgs: { [key: string]: number } = {};
     for (const arg of selectedMethod.inArgs) {
-      const parsed = parseIntegerInRange(args[arg.name] ?? "", 0, 255);
+      const parsed = parseIntegerInRange(
+        args[arg.name] ?? "",
+        0,
+        argumentMaximum(arg.type),
+      );
       if (parsed === null) {
         validationToast(
-          `Argument ${arg.name} must be a whole number from 0 to 255.`,
+          `Argument ${arg.name} must be a whole number from 0 to ${argumentMaximum(arg.type)}.`,
         );
         return;
       }
       parsedArgs[arg.name] = parsed;
     }
-    const requestId = nextRequestId("rawui");
-    pendingRequestIdRef.current = requestId;
-    setIsRunning(true);
-    sendJsonMessage({
-      kind,
-      methodId: selectedMethod.methodId,
-      methodName,
-      requestId,
-      data: selectedMethod.inArgs.length > 0 ? parsedArgs : undefined,
+    void runCommand(
+      {
+        kind,
+        methodId: selectedMethod.methodId,
+        methodName,
+        data: parsedArgs,
+      },
+      false,
+    ).then((response) => {
+      const data = response?.data;
+      const display = !response
+        ? "Request failed; see the error notification."
+        : data === undefined
+          ? "OK"
+          : typeof data === "number"
+            ? `${data} (0x${data.toString(16)})`
+            : typeof data === "string" && /^\d+$/.test(data)
+              ? `${data} (0x${BigInt(data).toString(16)})`
+              : typeof data === "string"
+                ? data
+                : JSON.stringify(data);
+      setResult(`${new Date().toLocaleTimeString()}: ${display}`);
     });
   };
 
@@ -140,7 +153,11 @@ export function RawUI() {
               <input
                 type="number"
                 min={0}
-                max={255}
+                max={argumentMaximum(arg.type)}
+                required
+                step={1}
+                disabled={isRunning}
+                aria-label={`Argument ${arg.name}`}
                 onChange={(event) => {
                   setArgs((prev) => ({
                     ...prev,
@@ -156,21 +173,35 @@ export function RawUI() {
     );
 
   const isRunnable =
+    !isManaged &&
+    !isUnavailableBoost &&
     selectedMethod !== undefined &&
     selectedMethod.inArgs.every(
-      (arg) => parseIntegerInRange(args[arg.name] ?? "", 0, 255) !== null,
+      (arg) =>
+        parseIntegerInRange(
+          args[arg.name] ?? "",
+          0,
+          argumentMaximum(arg.type),
+        ) !== null,
     );
 
   const content = isVisible && (
     <StyledContent id="raw-ui-content">
       <div style={{ margin: 8 }}>
-        ⚠️ It goes without saying that you should know what you&apos;re doing
-        when using this.
-        <br />
-        Some of these simply won&apos;t work probably because these commands are
-        used on many different laptops and the Aorus 15G doesn&apos;t have
-        implementations for all of them.
+        Advanced hardware commands. Availability depends on the laptop and
+        operating system. Use the fan controls above for managed fan settings.
       </div>
+      {isManaged && (
+        <p role="status" style={{ margin: 8 }}>
+          This fan setting is managed by the backend. Use automatic mode, fixed
+          speed, or the fan curve editor above.
+        </p>
+      )}
+      {isUnavailableBoost && (
+        <p role="status" style={{ margin: 8 }}>
+          GPU boost is not available on this system.
+        </p>
+      )}
       <StyledControls>
         <StyledForm onSubmit={onSubmit}>
           <div>
@@ -181,6 +212,7 @@ export function RawUI() {
                 value={Kind.Get}
                 checked={kind === Kind.Get}
                 onChange={onKindChange}
+                disabled={isRunning}
               />
               Get
             </label>
@@ -192,6 +224,7 @@ export function RawUI() {
                 value={Kind.Set}
                 checked={kind === Kind.Set}
                 onChange={onKindChange}
+                disabled={isRunning}
               />
               Set
             </label>
@@ -200,12 +233,17 @@ export function RawUI() {
             name="methodName"
             aria-label="WMI method name"
             size={10}
+            disabled={isRunning}
+            style={{ maxWidth: "100%" }}
             value={methodName}
             onChange={(event) => {
               setArgs({});
               setMethodName(event.target.value);
             }}
           >
+            <option value="" disabled>
+              Select a method
+            </option>
             {methodNameOptions}
           </select>
           {argumentsComponent}
@@ -236,6 +274,7 @@ export function RawUI() {
               rows={4}
               cols={40}
               value={result}
+              style={{ maxWidth: "100%" }}
             />
           </label>
         </div>

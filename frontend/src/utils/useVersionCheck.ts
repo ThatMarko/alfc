@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import packageJson from "../../../package.json";
+import { isNewerReleaseVersion } from "./releaseVersion";
 
 const GITHUB_API_URL =
   "https://api.github.com/repos/ThatMarko/alfc/releases/latest";
@@ -9,28 +10,36 @@ export function useVersionCheck() {
   const [newVersionAvailable, setNewVersionAvailable] = useState(false);
 
   useEffect(() => {
+    const controller = new AbortController();
     const checkVersion = async () => {
       try {
-        const response = await fetch(GITHUB_API_URL);
+        const response = await fetch(GITHUB_API_URL, {
+          signal: controller.signal,
+        });
         const data = await response.json();
 
         if (
           response.ok &&
           typeof data?.tag_name === "string" &&
-          data.tag_name.length > 0 &&
-          data.tag_name.replace(/^v/, "") !== packageJson.version
+          !controller.signal.aborted
         ) {
-          setNewVersionAvailable(true);
+          setNewVersionAvailable(
+            isNewerReleaseVersion(data.tag_name, packageJson.version),
+          );
         }
       } catch (error) {
-        console.error("Failed to check for updates:", error);
+        if (!controller.signal.aborted)
+          console.error("Failed to check for updates:", error);
       }
     };
 
     checkVersion();
     const interval = setInterval(checkVersion, CHECK_INTERVAL);
 
-    return () => clearInterval(interval);
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+    };
   }, []);
 
   return newVersionAvailable;

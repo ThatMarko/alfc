@@ -16,6 +16,7 @@ type PersistedState = Omit<
   | "isCpuTuningAvailable"
   | "isGpuBoostAvailable"
   | "isFanControlAvailable"
+  | "restartRequired"
 >;
 
 const CONFIG_FILE = isDev
@@ -73,7 +74,17 @@ function loadPersistedState(): PersistedState {
     );
 
     if (isPersistedState(parsed)) {
-      return parsed;
+      // Capabilities describe this running machine, never a saved config.
+      // Whitelist settings so old or hand-edited files cannot inject them.
+      return {
+        cpuFanTable: parsed.cpuFanTable,
+        gpuFanTable: parsed.gpuFanTable,
+        gpuBoost: parsed.gpuBoost,
+        pl1: parsed.pl1,
+        pl2: parsed.pl2,
+        doFixedSpeed: parsed.doFixedSpeed,
+        fixedPercentage: parsed.fixedPercentage,
+      };
     }
 
     console.warn("[State] Corrupt or invalid config detected, using defaults.");
@@ -98,23 +109,23 @@ export function persistState() {
     return Promise.resolve();
   }
 
+  const {
+    protocolVersion: _protocolVersion,
+    isCpuTuningAvailable: _isCpuTuningAvailable,
+    isGpuBoostAvailable: _isGpuBoostAvailable,
+    isFanControlAvailable: _isFanControlAvailable,
+    restartRequired: _restartRequired,
+    ...persistable
+  } = state;
+  const serialized = stringifyCompact(persistable);
   const writeSnapshot = async () => {
-    const {
-      protocolVersion: _protocolVersion,
-      isCpuTuningAvailable: _isCpuTuningAvailable,
-      isGpuBoostAvailable: _isGpuBoostAvailable,
-      isFanControlAvailable: _isFanControlAvailable,
-      ...persistable
-    } = state;
-
-    try {
-      await Bun.write(TMP_CONFIG_FILE, stringifyCompact(persistable));
-      await rename(TMP_CONFIG_FILE, CONFIG_FILE);
-    } catch (error) {
-      console.error("[State] Error trying to persist config: " + error);
-    }
+    await Bun.write(TMP_CONFIG_FILE, serialized);
+    await rename(TMP_CONFIG_FILE, CONFIG_FILE);
   };
 
-  persistQueue = persistQueue.then(writeSnapshot, writeSnapshot);
-  return persistQueue;
+  const result = persistQueue.then(writeSnapshot);
+  persistQueue = result.catch((error: unknown) => {
+    console.error("[State] Error trying to persist config:", error);
+  });
+  return result;
 }

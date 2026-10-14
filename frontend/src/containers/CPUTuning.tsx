@@ -1,17 +1,17 @@
 import styled from "@emotion/styled";
 import { faInfoCircle } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef } from "react";
+import { MessageToServerKind } from "../../../common/types";
 import { SimpleTooltip } from "../components/SimpleTooltip";
 import { StyledApplyButton } from "../components/StyledApplyButton";
 import { StyledArea } from "../components/StyledArea";
-import xtuIncompatibility from "../images/xtu_incompatibility.png";
+import { parseIntegerInRange, validationToast } from "../utils/misc";
 import {
-  nextRequestId,
-  parseIntegerInRange,
-  validationToast,
-} from "../utils/misc";
-import { useWebSocket } from "../utils/useWebSocket";
+  useBackendCommand,
+  useBackendDraft,
+  useWebSocket,
+} from "../utils/useWebSocket";
 
 const StyledInput = styled.input`
   width: 56px;
@@ -23,35 +23,15 @@ const StyledLabel = styled.label`
 `;
 
 export function CPUTuning() {
-  const tooltipRef = useRef(null);
-  const pendingRequestIdRef = useRef<string | null>(null);
-
-  const [isCpuTuningAvailable, setIsCpuTuningAvailable] = useState<
-    boolean | undefined
-  >(false);
-  const [isApplying, setIsApplying] = useState(false);
-  const [pl1, setPL1] = useState<string>("37");
-  const [pl2, setPL2] = useState<string>("106");
-
-  const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
-
-  useEffect(() => {
-    const { kind, data, requestId } = lastJsonMessage;
-    if (kind === "state") {
-      if (data.isCpuTuningAvailable) {
-        setPL1(data.pl1.toString());
-        setPL2(data.pl2.toString());
-      }
-      setIsCpuTuningAvailable(data.isCpuTuningAvailable);
-    } else if (
-      (kind === "success" || kind === "error") &&
-      pendingRequestIdRef.current !== null &&
-      requestId === pendingRequestIdRef.current
-    ) {
-      pendingRequestIdRef.current = null;
-      setIsApplying(false);
-    }
-  }, [lastJsonMessage]);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
+  const { isConnected, state } = useWebSocket();
+  const isCpuTuningAvailable = state?.isCpuTuningAvailable === true;
+  const { isPending: isApplying, runCommand } = useBackendCommand();
+  const [limits, setLimits] = useBackendDraft({
+    pl1: String(state?.pl1 ?? 0),
+    pl2: String(state?.pl2 ?? 0),
+  });
+  const { pl1, pl2 } = limits;
 
   if (!isConnected) {
     return null;
@@ -59,18 +39,15 @@ export function CPUTuning() {
 
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
+    if (!isCpuTuningAvailable || isApplying) return;
     const nextPl1 = parseIntegerInRange(pl1, 0, 200);
     const nextPl2 = parseIntegerInRange(pl2, 0, 200);
     if (nextPl1 === null || nextPl2 === null) {
       validationToast("Power limits must be whole numbers from 0 to 200.");
       return;
     }
-    const requestId = nextRequestId("tune");
-    pendingRequestIdRef.current = requestId;
-    setIsApplying(true);
-    sendJsonMessage({
-      kind: "tune",
-      requestId,
+    void runCommand({
+      kind: MessageToServerKind.Tune,
       data: { pl1: nextPl1, pl2: nextPl2 },
     });
   };
@@ -79,14 +56,12 @@ export function CPUTuning() {
     <>
       <h2>
         CPU Tuning is not available.{" "}
-        <FontAwesomeIcon icon={faInfoCircle} ref={tooltipRef} />
-        <SimpleTooltip target={tooltipRef} unlimitedWidth>
-          The likely culprit:
-          <br />
-          <img
-            src={xtuIncompatibility}
-            alt="Intel xtu incompatibility message"
-          />
+        <span ref={tooltipRef} tabIndex={0} aria-label="About CPU tuning">
+          <FontAwesomeIcon icon={faInfoCircle} />
+        </span>
+        <SimpleTooltip target={tooltipRef}>
+          The backend did not detect a supported CPU tuning interface.
+          Availability depends on your hardware, drivers, and operating system.
         </SimpleTooltip>
       </h2>
     </>
@@ -94,47 +69,70 @@ export function CPUTuning() {
     <>
       <h2 style={{ marginBottom: 16 }}>
         CPU power limits{" "}
-        <FontAwesomeIcon icon={faInfoCircle} ref={tooltipRef} />
+        <span ref={tooltipRef} tabIndex={0} aria-label="About CPU tuning">
+          <FontAwesomeIcon icon={faInfoCircle} />
+        </span>
         <SimpleTooltip target={tooltipRef}>
           The ECO profile for the i7-10875H in the Gigabyte Control Center is
           38/107, Boost is 62/107.
           <br />
-          NOTE: Don&apos;t use <strong>exactly</strong> those numbers, otherwise
-          they might not get applied at startup.
+          Limits are applied and confirmed by the backend. Supported values are
+          0 to 200 watts.
         </SimpleTooltip>
       </h2>
       <form onSubmit={onSubmit}>
-        <StyledLabel>
-          PL1
-          <StyledInput
-            size={4}
-            type="number"
-            min={0}
-            max={200}
-            onChange={(event) => setPL1(event.target.value)}
-            value={pl1}
-          />
-        </StyledLabel>
-        <br />
-        <StyledLabel>
-          PL2
-          <StyledInput
-            size={4}
-            type="number"
-            min={0}
-            max={200}
-            onChange={(event) => setPL2(event.target.value)}
-            value={pl2}
-          />
-        </StyledLabel>
-        <br />
-        <StyledApplyButton
+        <fieldset
           disabled={isApplying}
-          type="submit"
-          style={{ marginTop: 16 }}
+          style={{ border: 0, padding: 0, margin: 0 }}
         >
-          Apply
-        </StyledApplyButton>
+          <StyledLabel>
+            PL1
+            <StyledInput
+              size={4}
+              type="number"
+              min={0}
+              max={200}
+              aria-label="PL1 power limit in watts"
+              required
+              step={1}
+              onChange={(event) =>
+                setLimits((current) => ({
+                  ...current,
+                  pl1: event.target.value,
+                }))
+              }
+              value={pl1}
+            />
+          </StyledLabel>
+          <br />
+          <StyledLabel>
+            PL2
+            <StyledInput
+              size={4}
+              type="number"
+              min={0}
+              max={200}
+              aria-label="PL2 power limit in watts"
+              required
+              step={1}
+              onChange={(event) =>
+                setLimits((current) => ({
+                  ...current,
+                  pl2: event.target.value,
+                }))
+              }
+              value={pl2}
+            />
+          </StyledLabel>
+          <br />
+          <StyledApplyButton
+            disabled={isApplying}
+            type="submit"
+            style={{ marginTop: 16 }}
+          >
+            Apply
+          </StyledApplyButton>
+        </fieldset>
       </form>
     </>
   );
