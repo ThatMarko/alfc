@@ -26,7 +26,7 @@
 - `setCall(methodId, methodName, args)` returns `Promise<void>` after the platform acknowledges the call. This does not prove a mechanical fan reached its requested RPM. A Linux write succeeding is insufficient: read `/proc/acpi/call` and reject firmware `Error:` responses.
 - `tune(pl1 = state.pl1, pl2 = state.pl2)` captures both values at invocation and returns `Promise<void>`. Limits are integer watts from 0 to 200. Both platform implementations verify readback and attempt to restore both previous limits after partial failure.
 - An unverifiable CPU rollback permanently disables tuning for that process and carries `restartRequired: true`. The abstraction publishes `isCpuTuningAvailable: false` and `state.restartRequired: true`. Unaffected fan/GPU features remain usable.
-- `initNativeServices(shouldStop?)` probes the platform backend, initializes managed fan control, initializes/tunes the independent CPU backend, and probes GPU boost. GPU boost availability is independent of successful managed fan initialization. Check shutdown after every awaited phase and before starting another mutation.
+- `initNativeServices(shouldStop?)` probes the platform backend, initializes managed fan control, initializes/tunes the independent CPU backend, and probes GPU boost. A failed managed fan initialization permits independent CPU/GPU startup only after a successful BIOS handoff; a failed handoff rejects startup so shutdown can retry restoration. Check shutdown after every awaited phase and before starting another mutation.
 - `drainNativeCalls()` intentionally drains the ACPI/WMI queue only. Optional CPU work must not consume the BIOS fan restoration budget.
 - `cleanupNativeServices()` rejects new operations, drains ACPI/WMI, cleans WMI on its owning thread, and closes the CPU parent channel without unloading NativeAOT. CPU operations still queued in the abstraction must reject after cleanup; active native calls cannot be safely cancelled by rejecting their parent promises.
 
@@ -43,6 +43,8 @@ RAPL checks package zero in these locations, in order:
 3. `/sys/class/powercap/intel-rapl-mmio:0`
 
 Resolve `constraint_0` / `constraint_1` through their optional `long_term` and `short_term` names; use legacy index ordering only when both names are absent. Sysfs power values are microwatts. Missing constraints, unsupported hardware, permission errors, clamping and failed restoration must not produce a success acknowledgement. This implementation targets a single Intel laptop CPU package; it is not a general multi-package power manager.
+
+Intel package zones expose an independent `enabled` attribute. Require a readable value of `1` during discovery, before writes, and when verifying application or rollback. Matching power-limit readbacks alone do not establish that PL1 enforcement is enabled. Never enable a zone implicitly; a disabled, missing or unreadable enable state rejects tuning, and an unverifiable rollback retains the permanent restart requirement.
 
 ## Windows workers and FFI ownership
 
@@ -92,5 +94,7 @@ Unit tests, cross-compilation, managed API compilation, source/compiled worker s
 - [Bun FFI and string/pointer ownership](https://bun.com/docs/runtime/ffi)
 - [acpi_call request/result syntax](https://github.com/mkottman/acpi_call)
 - [Linux powercap attributes and units](https://docs.kernel.org/power/powercap/powercap.html)
+- [Linux powercap sysfs ABI](https://www.kernel.org/doc/Documentation/ABI/testing/sysfs-class-powercap)
+- [Intel RAPL enable and power-limit operations](https://github.com/torvalds/linux/blob/master/drivers/powercap/intel_rapl_common.c)
 - [Microsoft WMI semisynchronous methods](https://learn.microsoft.com/en-us/windows/win32/api/wbemcli/nf-wbemcli-iwbemservices-execmethod)
 - [.NET NativeAOT shared library limitations](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/libraries)

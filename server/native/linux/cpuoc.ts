@@ -4,7 +4,7 @@ const RAPL_DIRECTORIES = [
   "/sys/class/powercap/intel-rapl-mmio:0",
 ];
 
-let limits: { pl1: string; pl2: string } | undefined;
+let limits: { pl1: string; pl2: string; enabled: string } | undefined;
 let poisonedError: Error | undefined;
 
 export async function tuneInit() {
@@ -36,13 +36,27 @@ export async function tuneInit() {
     const pl2 =
       paths[shortIndex < 0 && names.every((name) => !name) ? 1 : shortIndex];
     if (pl1 && pl2) {
-      limits = { pl1, pl2 };
+      const enabled = `${directory}/enabled`;
+      await requireEnabled(enabled);
+      limits = { pl1, pl2, enabled };
       return;
     }
   }
   throw new Error(
     "Intel RAPL long-term and short-term package limits are unavailable",
   );
+}
+
+async function requireEnabled(path: string) {
+  // Intel package zones expose enabled independently of their limit values.
+  // Writing power_limit_uw does not enable PL1 enforcement in the driver.
+  const value = (await Bun.file(path).text()).trim();
+  if (value === "0") {
+    throw new Error("Intel RAPL package power limiting is disabled");
+  }
+  if (value !== "1") {
+    throw new Error(`Invalid Intel RAPL enabled state at ${path}`);
+  }
 }
 
 async function readLimit(path: string) {
@@ -65,6 +79,7 @@ export async function tune(pl1: number, pl2: number) {
   if (!limits) throw new Error("Intel RAPL is not initialized");
   const paths = [limits.pl1, limits.pl2];
   const previous = await Promise.all(paths.map(readLimit));
+  await requireEnabled(limits.enabled);
   const requested = [String(pl1 * 1_000_000), String(pl2 * 1_000_000)];
   try {
     for (const [index, path] of paths.entries()) {
@@ -76,6 +91,7 @@ export async function tune(pl1: number, pl2: number) {
         "The kernel did not apply the requested CPU power limits",
       );
     }
+    await requireEnabled(limits.enabled);
   } catch (error) {
     const errors: unknown[] = [error];
     for (const [index, path] of paths.entries()) {
@@ -92,6 +108,7 @@ export async function tune(pl1: number, pl2: number) {
           new Error("The kernel did not restore the previous CPU power limits"),
         );
       }
+      await requireEnabled(limits.enabled);
     } catch (restoreError) {
       errors.push(restoreError);
     }

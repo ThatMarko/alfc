@@ -194,6 +194,38 @@ describe.each(platforms)("native services on %s", (platform) => {
     warn.mockRestore();
   });
 
+  it("rejects startup without initializing other hardware when BIOS restoration also fails", async () => {
+    const native = await import("./index");
+    const fan = await import("../fan-control/index");
+    const cpuoc = await getCpuAdapter();
+    const { state } = await import("../state/index");
+    const setupError = new Error(
+      "Fan setup failed after disabling BIOS control",
+    );
+    const restoreError = new Error("BIOS fan control could not be restored");
+    vi.mocked(fan.fanControl).mockRejectedValueOnce(setupError);
+    vi.mocked(fan.restoreAutoFanControl).mockRejectedValueOnce(restoreError);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(native.initNativeServices()).rejects.toMatchObject({
+      name: "AggregateError",
+      message:
+        "Fan control initialization failed and BIOS fan control could not be restored",
+      errors: [setupError, restoreError],
+      cause: restoreError,
+    });
+
+    expect(state.isFanControlAvailable).toBe(false);
+    expect(fan.restoreAutoFanControl).toHaveBeenCalledOnce();
+    expect(cpuoc.tuneInit).not.toHaveBeenCalled();
+    expect(cpuoc.tune).not.toHaveBeenCalled();
+    expect(transportState.operations).not.toContain("start:SetAIBoostStatus");
+    expect(log).not.toHaveBeenCalledWith("[Native] Initialization complete.");
+    log.mockRestore();
+    warn.mockRestore();
+  });
+
   it("captures explicit and configured tune limits before waiting in the queue", async () => {
     const native = await import("./index");
     const { state } = await import("../state/index");

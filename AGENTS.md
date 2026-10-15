@@ -71,10 +71,14 @@ Do not run service installers against the development host for routine tests.
   fixed mode. Both BIOS restoration commands must be attempted on shutdown.
 - Clients follow validated backend snapshots and their own request IDs.
   Current clients require protocol 1.1 within major 1; legacy requests without
-  IDs still work on the current server. Never replay disconnected hardware
+  IDs still work on the current server. The web client retains its last validated
+  snapshot across disconnects; only its separate connection-readiness flag may
+  authorize writes. Never replay disconnected hardware
   writes or settle a command from another client's response.
 - Preserve unrelated drafts, distinguish stale/failed telemetry, and expose
-  capability loss/restart guidance without disabling unaffected features.
+  capability loss/restart guidance without disabling unaffected features. Missing
+  initial telemetry becomes stale after ten seconds when monitoring is expected;
+  unrelated state updates and pongs must not refresh that deadline.
 - Production saves settings only, after ordered mutation handling. Runtime
   capability/restart fields must not be loaded from persisted configuration.
   Development deliberately skips persistence.

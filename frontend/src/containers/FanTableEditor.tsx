@@ -17,12 +17,13 @@ type Props = {
 };
 
 const StyledInput = styled.input`
-  width: 4.25rem;
+  width: 100%;
 `;
 
 const StyledButton = styled.button`
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 30px;
+  min-height: 30px;
   padding: 0;
 `;
 
@@ -130,11 +131,11 @@ export function FanTableEditor({
           <tr>
             <th aria-label="Temperature">
               <FontAwesomeIcon icon={faThermometerHalf} aria-hidden="true" />
-              <span className="sr-only">Temperature</span>
+              <span> °C</span>
             </th>
             <th aria-label="Fan Speed">
               <FontAwesomeIcon icon={faFan} aria-hidden="true" />
-              <span className="sr-only">Fan Speed</span>
+              <span> %</span>
             </th>
             <th aria-label="Add Row" />
             <th aria-label="Remove Row" />

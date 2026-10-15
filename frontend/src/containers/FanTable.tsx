@@ -1,8 +1,6 @@
-import styled from "@emotion/styled";
 import React, { useRef } from "react";
 import { MessageToServerKind } from "../../../common/types";
 import { StyledApplyButton } from "../components/StyledApplyButton";
-import { StyledArea } from "../components/StyledArea";
 import {
   useBackendCommand,
   useBackendDraft,
@@ -10,37 +8,16 @@ import {
 } from "../utils/useWebSocket";
 import { getFanTableRowError, validationToast } from "../utils/misc";
 import { FanTableEditor } from "./FanTableEditor";
-import { Status } from "./Status";
-import { disabledFormStyle, enabledFormStyle } from "./styles/misc";
 
 export type FanTableItems = [temperature: string, speed: string, id: string][];
 
-const StyledForm = styled.form<{ disabled: boolean }>`
-  position: relative;
-
-  text-align: center;
-  padding: 0 16px;
-  margin: 16px;
-
-  ${({ disabled }) => enabledFormStyle(disabled)}
-  ${({ disabled }) => disabledFormStyle(disabled)}
-`;
-
-export function FanTable({
-  disabled,
-  statusDisabled = disabled,
-}: {
-  disabled: boolean;
-  statusDisabled?: boolean;
-}) {
+export function FanTable({ disabled }: { disabled: boolean }) {
   const submitRef = useRef<HTMLButtonElement>(null);
   const { isConnected, state } = useWebSocket();
   const { isPending: isApplying, runCommand } = useBackendCommand();
   const [cpuTable, setCPUTable] = useBackendDraft(
     (state?.cpuFanTable ?? []).map(
       ([temperature, speed]) =>
-        // Valid backend temperatures are unique. Keep this initial identity
-        // when editing a row so insertion/removal cannot move input focus.
         [
           String(temperature),
           String(speed),
@@ -59,17 +36,12 @@ export function FanTable({
     ),
   );
 
-  if (!isConnected) {
-    return null;
-  }
-
+  if (!state) return null;
+  const isDisabled = disabled || !isConnected;
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
-    if (disabled || isApplying) {
-      return;
-    }
+    if (isDisabled || isApplying) return;
     submitRef.current?.focus();
-
     const cpuInvalidRow = getFanTableRowError(
       cpuTable.map(([temperature, speed]) => [temperature, speed]),
     );
@@ -78,14 +50,18 @@ export function FanTable({
     );
     const tableName = cpuInvalidRow ? "CPU" : "GPU";
     const invalidRow = cpuInvalidRow ?? gpuInvalidRow;
-
     if (invalidRow) {
       validationToast(
-        `Invalid ${tableName} fan table (row ${invalidRow.row + 1}): ${invalidRow.reason}.`,
+        "Invalid " +
+          tableName +
+          " fan table (row " +
+          (invalidRow.row + 1) +
+          "): " +
+          invalidRow.reason +
+          ".",
       );
       return;
     }
-
     void runCommand({
       kind: MessageToServerKind.FanTable,
       data: {
@@ -102,44 +78,57 @@ export function FanTable({
   };
 
   return (
-    <div style={{ textAlign: "center" }}>
-      <StyledForm disabled={disabled} onSubmit={onSubmit}>
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            justifyContent: "center",
-          }}
-        >
-          <StyledArea>
-            <h2 style={{ marginTop: 0 }}>CPU</h2>
-            <FanTableEditor
-              disabled={disabled || isApplying}
-              label="CPU"
-              onChange={setCPUTable}
-              value={cpuTable}
-            />
-          </StyledArea>
-          <StyledArea style={{ marginRight: 0 }}>
-            <h2 style={{ marginTop: 0 }}>GPU</h2>
-            <FanTableEditor
-              disabled={disabled || isApplying}
-              label="GPU"
-              onChange={setGPUTable}
-              value={gpuTable}
-            />
-          </StyledArea>
-        </div>
+    <form
+      id="automatic-fan-curves"
+      tabIndex={-1}
+      className="panel"
+      onSubmit={onSubmit}
+      aria-label="Automatic fan curves"
+    >
+      <div className="panel-header">
+        <h2>Automatic fan curves</h2>
+        <span className="status-pill">
+          {state.doFixedSpeed ? "Stored preset" : "Active mode"}
+        </span>
+      </div>
+      <p className="section-description">
+        Set temperature thresholds and fan targets. Both fans use the higher CPU
+        or GPU target; values between thresholds use the previous step.
+      </p>
+      <div className="curve-editors">
+        <section aria-label="CPU fan curve editor">
+          <h3>CPU</h3>
+          <FanTableEditor
+            disabled={isDisabled || isApplying}
+            label="CPU"
+            onChange={setCPUTable}
+            value={cpuTable}
+          />
+        </section>
+        <section aria-label="GPU fan curve editor">
+          <h3>GPU</h3>
+          <FanTableEditor
+            disabled={isDisabled || isApplying}
+            label="GPU"
+            onChange={setGPUTable}
+            value={gpuTable}
+          />
+        </section>
+      </div>
+      <div className="form-actions">
+        <span className="helper-text">
+          {state.doFixedSpeed
+            ? "You can save curves now. They take effect in automatic mode."
+            : "Accepted changes update the automatic fan policy."}
+        </span>
         <StyledApplyButton
           ref={submitRef}
           type="submit"
-          disabled={disabled || isApplying}
-          style={{ marginBottom: 16 }}
+          disabled={isDisabled || isApplying}
         >
-          Apply
+          {isApplying ? "Applying…" : "Apply"}
         </StyledApplyButton>
-      </StyledForm>
-      <Status disabled={statusDisabled} />
-    </div>
+      </div>
+    </form>
   );
 }

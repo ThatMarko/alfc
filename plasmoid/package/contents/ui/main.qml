@@ -29,6 +29,7 @@ PlasmoidItem {
     readonly property string protocolVersion: backendConnection.protocolVersion
     readonly property bool hasActivity: backendConnection.hasFreshActivity
     readonly property bool hasTelemetrySnapshot: backendConnection.hasActivity
+    readonly property bool telemetryUnavailable: backendConnection.initialActivityTimedOut
     readonly property int telemetryAgeSeconds: hasTelemetrySnapshot
         ? Math.ceil(backendConnection.activityAgeMs / 1000)
         : 0
@@ -79,7 +80,7 @@ PlasmoidItem {
             return PlasmaCore.Types.RequiresAttentionStatus
         }
 
-        if (root.sensorFailure || root.restartRequired) {
+        if (root.sensorFailure || root.restartRequired || root.telemetryUnavailable) {
             return PlasmaCore.Types.RequiresAttentionStatus
         }
 
@@ -104,6 +105,10 @@ PlasmoidItem {
 
         if (root.sensorFailure || root.restartRequired) {
             return "dialog-error-symbolic"
+        }
+
+        if (root.telemetryUnavailable) {
+            return "dialog-warning-symbolic"
         }
 
         return "computer-laptop"
@@ -148,6 +153,14 @@ PlasmoidItem {
 
         if (backendConnection.lastRequestError.length > 0) {
             return i18n("Last action failed: %1", backendConnection.lastRequestError)
+        }
+
+        if (!root.fanControlAvailable) {
+            return i18n("Fan control unavailable")
+        }
+
+        if (root.telemetryUnavailable) {
+            return i18n("Telemetry unavailable")
         }
 
         if (!backendConnection.hasFreshActivity) {
@@ -206,7 +219,7 @@ PlasmoidItem {
                     color: (root.isOverheating || root.sensorFailure || root.restartRequired
                             || !root.protocolCompatible)
                         ? Kirigami.Theme.negativeTextColor
-                        : (root.isWarm
+                        : (root.isWarm || root.telemetryUnavailable || !root.fanControlAvailable
                             ? Kirigami.Theme.neutralTextColor
                             : (backendConnection.isConnected
                                 ? Kirigami.Theme.positiveTextColor

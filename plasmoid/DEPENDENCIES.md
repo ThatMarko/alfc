@@ -2,7 +2,7 @@
 
 ## Installed widget
 
-The widget requires a **Linux Plasma 6 session**, Qt 6 QML modules, and a running ALFC backend with protocol **1.1 or a newer major-1 minor version**. The package metadata declares Plasma `6.0` as its minimum API. Headless checks passed all 56 cases with Qt `6.8.2` and Plasma `6.3.5`. Qt `6.12.0` passed 48 cases, with eight editor cases explicitly skipped because matching Plasma modules were absent. Complete shell compatibility still needs validation on the oldest supported and a current Plasma release.
+The widget requires a **Linux Plasma 6 session**, Qt 6 QML modules, and a running ALFC backend with protocol **1.1 or a newer major-1 minor version**. The package metadata declares Plasma `6.0` as its minimum API. Headless checks passed all 67 cases with Qt `6.8.2` and Plasma `6.3.5`. Qt `6.12.0` passed 59 cases, with eight editor cases explicitly skipped because matching Plasma modules were absent. Complete shell compatibility still needs validation on the oldest supported and a current Plasma release.
 
 Required imports are:
 

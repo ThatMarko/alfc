@@ -1,4 +1,3 @@
-import styled from "@emotion/styled";
 import React, { useRef } from "react";
 import { MessageToServerKind } from "../../../common/types";
 import { StyledApplyButton } from "../components/StyledApplyButton";
@@ -8,24 +7,6 @@ import {
   useWebSocket,
 } from "../utils/useWebSocket";
 import { parseIntegerInRange, validationToast } from "../utils/misc";
-import { disabledFormStyle, enabledFormStyle } from "./styles/misc";
-
-const StyledForm = styled.form<{ disabled: boolean }>`
-  position: relative;
-  display: flex;
-  align-items: center;
-
-  text-align: center;
-  padding: 0 32px;
-  margin: 32px;
-
-  ${({ disabled }) => enabledFormStyle(disabled)}
-  ${({ disabled }) => disabledFormStyle(disabled)}
-`;
-
-const StyledInput = styled.input`
-  width: 3rem;
-`;
 
 export function FixedSpeed({ disabled }: { disabled: boolean }) {
   const submitRef = useRef<HTMLButtonElement>(null);
@@ -35,25 +16,19 @@ export function FixedSpeed({ disabled }: { disabled: boolean }) {
     String(state?.fixedPercentage ?? 0),
   );
   const { isPending: isApplying, runCommand } = useBackendCommand();
-
-  if (!isConnected) {
-    return null;
-  }
+  if (!state) return null;
+  const isDisabled = disabled || !isConnected;
 
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
-    if (disabled || isApplying) {
-      return;
-    }
+    if (isDisabled || isApplying) return;
     submitRef.current?.focus();
-
     const percentage = parseIntegerInRange(fixedPercentage, 0, 100);
     if (percentage === null) {
       inputRef.current?.focus();
       validationToast("Fan speed must be a whole number from 0 to 100.");
       return;
     }
-
     void runCommand({
       kind: MessageToServerKind.FixedPercentage,
       data: percentage,
@@ -61,35 +36,52 @@ export function FixedSpeed({ disabled }: { disabled: boolean }) {
   };
 
   return (
-    <StyledForm disabled={disabled} onSubmit={onSubmit}>
-      <div>
-        <h2>Fan Speed</h2>
-        <StyledInput
+    <form
+      id="fixed-speed-preset"
+      tabIndex={-1}
+      className="panel"
+      onSubmit={onSubmit}
+      aria-label="Fixed speed preset"
+    >
+      <div className="panel-header">
+        <h2>Fixed speed</h2>
+        <span className="status-pill">
+          {state.doFixedSpeed ? "Active mode" : "Stored preset"}
+        </span>
+      </div>
+      <p className="section-description">
+        Use one fan target independent of the temperature curves.
+      </p>
+      <label className="field" style={{ marginTop: 18 }}>
+        Fan target (%)
+        <input
           ref={inputRef}
           type="number"
           name="percentage"
           aria-label="Fixed fan speed percentage"
-          disabled={disabled || isApplying}
+          disabled={isDisabled || isApplying}
           min={0}
           max={100}
           required
           step={1}
-          size={4}
-          onChange={(event) => {
-            setFixedPercentage(event.target.value);
-          }}
+          onChange={(event) => setFixedPercentage(event.target.value)}
           value={fixedPercentage}
         />
-        <br />
+      </label>
+      <div className="form-actions">
+        <span className="helper-text">
+          {state.doFixedSpeed
+            ? "Applies to both fans after confirmation."
+            : "Save a preset here, then choose Fixed speed to activate it."}
+        </span>
         <StyledApplyButton
           ref={submitRef}
           type="submit"
-          disabled={disabled || isApplying}
-          style={{ marginTop: 16 }}
+          disabled={isDisabled || isApplying}
         >
-          Apply
+          {isApplying ? "Applying…" : "Apply"}
         </StyledApplyButton>
       </div>
-    </StyledForm>
+    </form>
   );
 }

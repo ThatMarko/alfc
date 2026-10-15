@@ -1,9 +1,7 @@
-import styled from "@emotion/styled";
 import React from "react";
 import { MessageToServerKind } from "../../../common/types";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { StyledApplyButton } from "../components/StyledApplyButton";
-import { StyledArea } from "../components/StyledArea";
 import { parseIntegerInRange, validationToast } from "../utils/misc";
 import {
   useBackendCommand,
@@ -11,29 +9,17 @@ import {
   useWebSocket,
 } from "../utils/useWebSocket";
 
-const StyledInput = styled.input`
-  width: 56px;
-`;
-
-const StyledLabel = styled.label`
-  display: inline-flex;
-  align-items: center;
-`;
-
 export function CPUTuning() {
   const { isConnected, state } = useWebSocket();
   const isCpuTuningAvailable = state?.isCpuTuningAvailable === true;
   const { isPending: isApplying, runCommand } = useBackendCommand();
   const [pl1, setPL1] = useBackendDraft(String(state?.pl1 ?? 0));
   const [pl2, setPL2] = useBackendDraft(String(state?.pl2 ?? 0));
-
-  if (!isConnected) {
-    return null;
-  }
+  if (!state) return null;
 
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
-    if (!isCpuTuningAvailable || isApplying) return;
+    if (!isConnected || !isCpuTuningAvailable || isApplying) return;
     const nextPl1 = parseIntegerInRange(pl1, 0, 200);
     const nextPl2 = parseIntegerInRange(pl2, 0, 200);
     if (nextPl1 === null || nextPl2 === null) {
@@ -46,74 +32,76 @@ export function CPUTuning() {
     });
   };
 
-  const content = !isCpuTuningAvailable ? (
-    <>
-      <h2>
-        CPU Tuning is not available.{" "}
-        <InfoTooltip label="About CPU tuning">
-          The backend did not detect a supported CPU tuning interface.
-          Availability depends on your hardware, drivers, and operating system.
-        </InfoTooltip>
-      </h2>
-    </>
-  ) : (
-    <>
-      <h2 style={{ marginBottom: 16 }}>
-        CPU power limits{" "}
-        <InfoTooltip label="About CPU tuning">
-          The ECO profile for the i7-10875H in the Gigabyte Control Center is
-          38/107, Boost is 62/107.
-          <br />
-          Limits are applied and confirmed by the backend. Supported values are
-          0 to 200 watts.
-        </InfoTooltip>
-      </h2>
-      <form onSubmit={onSubmit}>
-        <fieldset
-          disabled={isApplying}
-          style={{ border: 0, padding: 0, margin: 0 }}
-        >
-          <StyledLabel>
-            PL1
-            <StyledInput
-              size={4}
-              type="number"
-              min={0}
-              max={200}
-              aria-label="PL1 power limit in watts"
-              required
-              step={1}
-              onChange={(event) => setPL1(event.target.value)}
-              value={pl1}
-            />
-          </StyledLabel>
-          <br />
-          <StyledLabel>
-            PL2
-            <StyledInput
-              size={4}
-              type="number"
-              min={0}
-              max={200}
-              aria-label="PL2 power limit in watts"
-              required
-              step={1}
-              onChange={(event) => setPL2(event.target.value)}
-              value={pl2}
-            />
-          </StyledLabel>
-          <br />
-          <StyledApplyButton
-            disabled={isApplying}
-            type="submit"
-            style={{ marginTop: 16 }}
-          >
-            Apply
-          </StyledApplyButton>
-        </fieldset>
-      </form>
-    </>
+  return (
+    <section className="panel" aria-label="CPU power limits">
+      <div className="panel-header">
+        <h2>
+          CPU power limits{" "}
+          <InfoTooltip label="About CPU tuning">
+            PL1 is the sustained power limit; PL2 is the short-term limit. The
+            backend accepts whole numbers from 0 to 200 watts. That range is
+            input validation, not a hardware rating. Choose limits appropriate
+            for your CPU.
+          </InfoTooltip>
+        </h2>
+      </div>
+      {!isCpuTuningAvailable ? (
+        <p className="capability-unavailable">
+          CPU Tuning is not available. A supported power-limit interface was not
+          detected.
+        </p>
+      ) : (
+        <>
+          <p className="section-description">
+            Manage sustained and short-term CPU power.
+          </p>
+          <form onSubmit={onSubmit}>
+            <fieldset disabled={!isConnected || isApplying}>
+              <div className="fields-row">
+                <label className="field">
+                  PL1 (W)
+                  <input
+                    type="number"
+                    min={0}
+                    max={200}
+                    aria-label="PL1 power limit in watts"
+                    required
+                    step={1}
+                    onChange={(event) => setPL1(event.target.value)}
+                    value={pl1}
+                  />
+                  <small>Sustained</small>
+                </label>
+                <label className="field">
+                  PL2 (W)
+                  <input
+                    type="number"
+                    min={0}
+                    max={200}
+                    aria-label="PL2 power limit in watts"
+                    required
+                    step={1}
+                    onChange={(event) => setPL2(event.target.value)}
+                    value={pl2}
+                  />
+                  <small>Short-term</small>
+                </label>
+              </div>
+              <div className="form-actions">
+                <span className="helper-text">
+                  Use limits appropriate for this CPU.
+                </span>
+                <StyledApplyButton
+                  type="submit"
+                  disabled={!isConnected || isApplying}
+                >
+                  {isApplying ? "Applying…" : "Apply"}
+                </StyledApplyButton>
+              </div>
+            </fieldset>
+          </form>
+        </>
+      )}
+    </section>
   );
-
-  return <StyledArea style={{ marginTop: 32 }}>{content}</StyledArea>;
 }

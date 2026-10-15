@@ -193,7 +193,14 @@ async function initNativeServices(shouldStop = () => false) {
       try {
         await restoreAutoFanControl();
       } catch (restoreError) {
-        console.warn("[FanControl] BIOS restoration failed:", restoreError);
+        // A partial setup may already have disabled BIOS control. Without a
+        // confirmed handoff, startup must fail so the server's shutdown path
+        // retries restoration instead of leaving an unmonitored manual mode.
+        throw new AggregateError(
+          [error, restoreError],
+          "Fan control initialization failed and BIOS fan control could not be restored",
+          { cause: restoreError },
+        );
       }
     }
   } else {

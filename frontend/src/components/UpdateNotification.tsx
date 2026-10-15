@@ -3,9 +3,8 @@ import { theme } from "../utils/consts";
 import { useVersionCheck } from "../utils/useVersionCheck";
 
 const StyledLink = styled.a`
-  position: fixed;
-  top: 16px;
-  right: 16px;
+  display: inline-block;
+  margin-top: 16px;
   padding: 8px 16px;
   background-color: ${theme.primary};
   color: #202027;

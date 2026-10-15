@@ -13,11 +13,22 @@ See [PROTOCOL.md](PROTOCOL.md) for the exact envelope, constraints, and errors.
 | Older/custom clients without `requestId` | The 1.1 server still accepts their envelope | Local WebSocket client                     | Must obey current method/payload validation; responses can echo method metadata, but safe correlation is the client's responsibility. |
 | Current clients with a 1.0 server        | Unsupported                                 | Any                                        | Current clients require the request correlation introduced in 1.1 and reject the snapshot.                                            |
 
+Both current clients can save inactive fan presets without changing mode. The web
+UI retains its last validated settings and edits to unchanged fields across reconnects, with
+controls disabled until the new socket supplies a valid snapshot. Interrupted
+requests stay unconfirmed and are not replayed.
+
 Both current clients validate incoming snapshots and telemetry before using them,
 correlate their commands with `requestId`, stop pending commands on connection
 loss, and mark activity older than ten seconds stale. They resubscribe after
 reconnecting and do not replay uncertain writes. Sharing one machine or listening
 on a different loopback address does not create separate backend state.
+
+The local `/ws` and `/ws/` endpoints are equivalent and enforce the same GET and
+Origin policy. The shipped browser UI requires plain HTTP on the local hostname
+and backend port 5522 (Vite uses port 3000 for its page in development). Widget
+URL parsing also accepts other ports, TLS schemes, and prefixes, but this does
+not establish a supported HTTPS, proxy, or remote browser deployment.
 
 The server accepts JSON requests in text frames and valid UTF-8 binary frames,
 and sends responses in text frames. Malformed UTF-8 binary input receives
@@ -67,7 +78,7 @@ a confirmed zero or maximum.
 | Component                     | Linux                                                                                                                                | Windows                                                                                                                                                                                                                                                  |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Fan/temperature/GPU interface | `/proc/acpi/call` using the catalog opcodes and positional byte packing; needs the `acpi_call` kernel module and supported firmware. | `WmiDll.dll` using the catalog WMI method/argument names in a dedicated worker; needs the supported AORUS WMI classes and an elevated token.                                                                                                             |
-| CPU power limits              | Writable CPU package `intel-rapl` sysfs power-limit interfaces; unsupported machines report tuning unavailable.                      | Unsupported CPUOC/Intel XTU prototype, excluded from standard archives. Experimental builds/publication require explicit opt-in and an independently validated proprietary legacy SDK dependency closure; see [PORTING_REVIEW.md](../PORTING_REVIEW.md). |
+| CPU power limits              | Enabled, readable CPU package `intel-rapl` sysfs power-limit interfaces; unsupported machines report tuning unavailable.             | Unsupported CPUOC/Intel XTU prototype, excluded from standard archives. Experimental builds/publication require explicit opt-in and an independently validated proprietary legacy SDK dependency closure; see [PORTING_REVIEW.md](../PORTING_REVIEW.md). |
 | Failure isolation             | ACPI access is serialized. A kernel call already blocked in the kernel cannot be forcibly cancelled by a JavaScript timeout.         | CPU and WMI channels are separate. Permanently failed/timed-out channels are not reused and advertise `restartRequired`.                                                                                                                                 |
 | Packaging                     | Bun-compiled executable plus frontend, config, and service scripts.                                                                  | Bun-compiled executable plus frontend, config, supported `WmiDll.dll`, and service wrapper. Standard archives omit CPUOC and the proprietary SDK.                                                                                                        |
 

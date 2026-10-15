@@ -23,18 +23,24 @@ const StyledInfoButton = styled.button`
   padding: 2px;
   margin: 0;
   background: transparent;
-  color: inherit;
+  color: var(--muted);
+  min-height: 24px;
+  min-width: 24px;
+  border: 0;
   cursor: help;
 `;
 
 const StyledContent = styled.div`
   z-index: 1080;
-  background-color: white;
-  color: #202027;
+  background-color: var(--surface-raised);
+  color: var(--text);
   box-shadow: 0 4px 16px #0006;
   width: 400px;
   max-width: calc(100vw - 32px);
-  border-radius: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.6;
   padding: 16px;
 `;
 

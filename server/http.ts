@@ -2,6 +2,29 @@ import path from "node:path";
 
 const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+// null leaves non-WebSocket paths to the static HTTP handler; undefined means
+// Bun accepted an upgrade and owns the response.
+export function handleWebSocketRequest(
+  request: Request,
+  server: Pick<Bun.Server<undefined>, "upgrade">,
+): Response | null | undefined {
+  const pathname = new URL(request.url).pathname;
+  if (pathname !== "/ws" && pathname !== "/ws/") return null;
+  if (request.method !== "GET") {
+    return new Response("Method Not Allowed", {
+      status: 405,
+      headers: { Allow: "GET" },
+    });
+  }
+  const origin = request.headers.get("origin");
+  if (!isAllowedWebSocketOrigin(origin)) {
+    console.warn(`[WebSocket] Origin rejected: ${origin}`);
+    return new Response("Forbidden", { status: 403 });
+  }
+  if (server.upgrade(request, { data: undefined })) return undefined;
+  return new Response("WebSocket upgrade failed", { status: 400 });
+}
+
 export function isAllowedWebSocketOrigin(origin: string | null): boolean {
   // Native clients (including the Plasma widget) do not send an Origin header.
   if (origin === null) return true;

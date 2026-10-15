@@ -26,8 +26,17 @@ Item {
             ? Math.min(2147483647, Math.max(0, Date.now() - root.lastActivityAt))
             : 2147483647
     }
-    readonly property bool hasFreshActivity: hasActivity
+    readonly property bool hasFreshActivity: ready
+        && latestState.isFanControlAvailable !== false && hasActivity
+        && receivedActivityInCurrentPeriod
         && activityAgeMs < activityStaleTimeout
+    readonly property bool initialActivityTimedOut: {
+        root.freshnessTick
+        const activityExpectedAt = Math.max(root.activityExpectedSince, root.lastActivityAt)
+        return root.ready && root.latestState.isFanControlAvailable !== false
+            && !root.receivedActivityInCurrentPeriod && root.activityExpectedSince > 0
+            && Date.now() - activityExpectedAt >= root.activityStaleTimeout
+    }
 
     property string lastError: ""
     property string lastRequestError: ""
@@ -41,6 +50,8 @@ Item {
     property real lastPongTime: 0
     property real lastActivityAt: 0
     property real lastStateAt: 0
+    property real activityExpectedSince: 0
+    property bool receivedActivityInCurrentPeriod: false
     property int reconnectDelay: 1000
     property bool quickReconnect: false
     property int activityStaleTimeout: 10000
@@ -67,6 +78,8 @@ Item {
         root.latestActivity = null
         root.lastActivityAt = 0
         root.lastStateAt = 0
+        root.activityExpectedSince = 0
+        root.receivedActivityInCurrentPeriod = false
         root.receivedProtocolVersion = ""
     }
 
@@ -185,6 +198,7 @@ Item {
             if (!Protocol.isState(data.data)) {
                 root.latestState = null
                 root.latestActivity = null
+                root.receivedActivityInCurrentPeriod = false
                 root.lastError = root.protocolCompatible
                     ? i18n("The backend sent an invalid state snapshot.")
                     : i18n("Unsupported backend protocol %1. This widget requires ALFC 1.1 or a newer 1.x version.",
@@ -195,12 +209,23 @@ Item {
             root.lastError = ""
             root.latestState = data.data
             root.lastStateAt = Date.now()
+            // Monitoring stops when fan control is unavailable. Start a grace
+            // period when it becomes available, without extending it for state
+            // updates or pongs on a connection that already expects telemetry.
+            if (data.data.isFanControlAvailable === false) {
+                root.activityExpectedSince = 0
+                root.receivedActivityInCurrentPeriod = false
+            } else if (root.activityExpectedSince === 0) {
+                root.activityExpectedSince = root.lastStateAt
+            }
         } else if (data.kind === "fancontrolactivity") {
-            if (!root.ready || !Protocol.isActivity(data.data)) {
+            if (!root.ready || root.latestState.isFanControlAvailable === false
+                    || !Protocol.isActivity(data.data)) {
                 return
             }
             root.latestActivity = data.data
             root.lastActivityAt = Date.now()
+            root.receivedActivityInCurrentPeriod = true
         } else if (data.kind === "success" || data.kind === "error") {
             if (data.kind === "error" && typeof data.data !== "string") {
                 return

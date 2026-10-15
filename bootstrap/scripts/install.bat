@@ -37,5 +37,6 @@ alfc-service.exe start || (
     exit /b 1
 )
 
-echo Done. UI available @ http://localhost:5522
-start "" "http://localhost:5522"
+echo Service started. ALFC may still be initializing.
+echo Open http://localhost:5522 once startup finishes.
+echo Check alfc-service.out.log if the UI is not available yet.

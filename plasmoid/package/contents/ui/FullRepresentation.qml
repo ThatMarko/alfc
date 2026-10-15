@@ -25,6 +25,8 @@ PlasmaExtras.Representation {
     readonly property bool hasTelemetrySnapshot: backend != null && backend.hasActivity
     readonly property bool staleActivity: hasTelemetrySnapshot
         && !backend.hasFreshActivity
+    readonly property bool telemetryUnavailable: backend != null
+        && backend.initialActivityTimedOut
     readonly property int staleActivitySeconds: staleActivity
         ? Math.ceil(backend.activityAgeMs / 1000)
         : 0
@@ -54,12 +56,20 @@ PlasmaExtras.Representation {
             return i18n("Sensor error")
         }
 
+        if (!fanControlAvailable) {
+            return i18n("Fan control unavailable")
+        }
+
         if (hasActivity) {
             return i18n("Live telemetry")
         }
 
         if (staleActivity) {
             return i18n("Telemetry stale")
+        }
+
+        if (telemetryUnavailable) {
+            return i18n("Telemetry unavailable")
         }
 
         return i18n("Connected, waiting for telemetry")
@@ -128,11 +138,15 @@ PlasmaExtras.Representation {
             return Kirigami.Theme.negativeTextColor
         }
 
+        if (!fanControlAvailable) {
+            return Kirigami.Theme.neutralTextColor
+        }
+
         if (hasActivity) {
             return Kirigami.Theme.positiveTextColor
         }
 
-        if (staleActivity) {
+        if (staleActivity || telemetryUnavailable) {
             return Kirigami.Theme.neutralTextColor
         }
 
@@ -438,13 +452,15 @@ PlasmaExtras.Representation {
                 Layout.column: 0
                 Layout.row: 2
                 Layout.columnSpan: fullRoot.isWide ? 2 : 1
-                visible: fullRoot.staleActivity
+                visible: (fullRoot.staleActivity || fullRoot.telemetryUnavailable)
                     && fullRoot.connected
                     && fullRoot.hasState
                     && fullRoot.protocolCompatible
                 type: Kirigami.MessageType.Warning
-                text: i18n("Telemetry last updated %1 seconds ago. ALFC reconnects automatically, but you can retry now if the values stay stale.",
-                    fullRoot.staleActivitySeconds)
+                text: fullRoot.telemetryUnavailable
+                    ? i18n("Fan telemetry is unavailable. Reconnect if telemetry remains unavailable.")
+                    : i18n("Telemetry last updated %1 seconds ago. Reconnect if the values stay stale.",
+                        fullRoot.staleActivitySeconds)
                 Layout.fillWidth: true
                 actions: Kirigami.Action {
                     icon.name: "view-refresh"
@@ -486,7 +502,9 @@ PlasmaExtras.Representation {
                             ? i18n("Average temperature")
                             : (fullRoot.staleActivity
                                 ? i18n("Stale (%1s ago)", fullRoot.staleActivitySeconds)
-                                : i18n("Average temperature"))
+                                : (fullRoot.telemetryUnavailable
+                                    ? i18n("Telemetry unavailable")
+                                    : i18n("Average temperature")))
                     }
 
                     MetricTile {
@@ -506,7 +524,9 @@ PlasmaExtras.Representation {
                             ? i18n("Average temperature")
                             : (fullRoot.staleActivity
                                 ? i18n("Stale (%1s ago)", fullRoot.staleActivitySeconds)
-                                : i18n("Average temperature"))
+                                : (fullRoot.telemetryUnavailable
+                                    ? i18n("Telemetry unavailable")
+                                    : i18n("Average temperature")))
                     }
 
                     MetricTile {
@@ -520,7 +540,9 @@ PlasmaExtras.Representation {
                             ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor
                         subtitle: fullRoot.hasTelemetrySnapshot
                             ? i18n("Target %1%", Math.round(fullRoot.safeActivity.target))
-                            : i18n("Waiting for fan telemetry")
+                            : (fullRoot.telemetryUnavailable
+                                ? i18n("Telemetry unavailable")
+                                : i18n("Waiting for fan telemetry"))
                     }
 
                     MetricTile {

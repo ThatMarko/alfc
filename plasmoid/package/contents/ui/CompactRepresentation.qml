@@ -20,6 +20,8 @@ Item {
     readonly property bool hasActivity: backend != null && backend.hasFreshActivity
     readonly property bool hasTelemetrySnapshot: backend != null && backend.hasActivity
     readonly property bool staleActivity: hasTelemetrySnapshot && !hasActivity
+    readonly property bool telemetryUnavailable: backend != null
+        && backend.initialActivityTimedOut
     readonly property int staleActivitySeconds: staleActivity
         ? Math.ceil(backend.activityAgeMs / 1000)
         : 0
@@ -89,7 +91,10 @@ Item {
         }
 
         if (!hasTelemetrySnapshot) {
-            return i18n("Waiting")
+            if (!fanControlAvailable) {
+                return i18n("No fan control")
+            }
+            return telemetryUnavailable ? i18n("No telemetry") : i18n("Waiting")
         }
 
         if (sensorFailure) {
@@ -119,6 +124,10 @@ Item {
 
         if (staleActivity) {
             return i18n("Stale %1s", staleActivitySeconds)
+        }
+
+        if (telemetryUnavailable) {
+            return i18n("Telemetry unavailable")
         }
 
         if (fixedModeEnabled) {
@@ -257,9 +266,9 @@ Item {
             color: compactRoot.isCritical || compactRoot.restartRequired || compactRoot.sensorFailure
                 || !compactRoot.protocolCompatible
                 ? Kirigami.Theme.negativeTextColor
-                : (compactRoot.isWarm
+                : (compactRoot.isWarm || !compactRoot.fanControlAvailable
                     ? Kirigami.Theme.neutralTextColor
-                    : (compactRoot.staleActivity
+                    : (compactRoot.staleActivity || compactRoot.telemetryUnavailable
                         ? Kirigami.Theme.neutralTextColor
                         : (compactRoot.isDisconnected
                         ? Kirigami.Theme.disabledTextColor

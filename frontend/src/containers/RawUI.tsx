@@ -3,7 +3,6 @@ import React, { useRef, useState } from "react";
 import { MessageToServerKind } from "../../../common/types";
 import { managedFanMethods } from "../../../common/methods";
 import { getMethods, setMethods } from "../data/mof";
-import { theme } from "../utils/consts";
 import { parseIntegerInRange, validationToast } from "../utils/misc";
 import { useBackendCommand, useWebSocket } from "../utils/useWebSocket";
 
@@ -17,14 +16,15 @@ const argumentMaximum = (type: string) =>
 
 const StyledHeader = styled.button`
   width: 100%;
-  margin: 32px 0 0 0;
-  padding: 8px;
+  margin: 0;
+  padding: 0;
+  justify-content: flex-start;
 
-  background-color: ${theme.secondary};
+  background-color: transparent;
 
   color: inherit;
-  font-size: inherit;
-  font-weight: inherit;
+  font-size: 18px;
+  font-weight: 650;
   letter-spacing: inherit;
   text-align: left;
   border-radius: 0;
@@ -34,6 +34,7 @@ const StyledHeader = styled.button`
 
 const StyledContent = styled.div`
   font-size: 14px;
+  padding-top: 16px;
 `;
 
 const StyledControls = styled.div`
@@ -41,7 +42,7 @@ const StyledControls = styled.div`
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 16px;
-  padding: 8px;
+  padding-top: 16px;
 
   > * {
     min-width: 0;
@@ -74,9 +75,15 @@ export function RawUI() {
   const { isConnected, state } = useWebSocket();
   const { isPending: isRunning, runCommand } = useBackendCommand();
 
-  if (!isConnected) {
+  if (!state) {
     return null;
   }
+
+  const isBusy = !isConnected || isRunning;
+  const maximumForArgument = (type: string) =>
+    kind === Kind.Set && methodName === "SetAIBoostStatus"
+      ? 1
+      : argumentMaximum(type);
 
   const onKindChange: React.ChangeEventHandler<HTMLInputElement> = (event) => {
     setKind(event.target.value as Kind);
@@ -96,17 +103,24 @@ export function RawUI() {
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
     runRef.current?.focus();
-    if (!selectedMethod || isRunning || isManaged || isUnavailableBoost) return;
+    if (
+      !isConnected ||
+      !selectedMethod ||
+      isRunning ||
+      isManaged ||
+      isUnavailableBoost
+    )
+      return;
     const parsedArgs: { [key: string]: number } = {};
     for (const arg of selectedMethod.inArgs) {
       const parsed = parseIntegerInRange(
         args[arg.name] ?? "",
         0,
-        argumentMaximum(arg.type),
+        maximumForArgument(arg.type),
       );
       if (parsed === null) {
         validationToast(
-          `Argument ${arg.name} must be a whole number from 0 to ${argumentMaximum(arg.type)}.`,
+          `Argument ${arg.name} must be a whole number from 0 to ${maximumForArgument(arg.type)}.`,
         );
         return;
       }
@@ -153,10 +167,10 @@ export function RawUI() {
               <input
                 type="number"
                 min={0}
-                max={argumentMaximum(arg.type)}
+                max={maximumForArgument(arg.type)}
                 required
                 step={1}
-                disabled={isRunning}
+                disabled={isBusy}
                 aria-label={`Argument ${arg.name}`}
                 onChange={(event) => {
                   setArgs((prev) => ({
@@ -173,6 +187,7 @@ export function RawUI() {
     );
 
   const isRunnable =
+    isConnected &&
     !isManaged &&
     !isUnavailableBoost &&
     selectedMethod !== undefined &&
@@ -181,24 +196,24 @@ export function RawUI() {
         parseIntegerInRange(
           args[arg.name] ?? "",
           0,
-          argumentMaximum(arg.type),
+          maximumForArgument(arg.type),
         ) !== null,
     );
 
   const content = isVisible && (
     <StyledContent id="raw-ui-content">
-      <div style={{ margin: 8 }}>
+      <div className="section-description">
         Advanced hardware commands. Availability depends on the laptop and
         operating system. Use the fan controls above for managed fan settings.
       </div>
       {isManaged && (
-        <p role="status" style={{ margin: 8 }}>
+        <p role="status" className="section-description">
           This fan setting is managed by the backend. Use automatic mode, fixed
           speed, or the fan curve editor above.
         </p>
       )}
       {isUnavailableBoost && (
-        <p role="status" style={{ margin: 8 }}>
+        <p role="status" className="section-description">
           GPU boost is not available on this system.
         </p>
       )}
@@ -212,7 +227,7 @@ export function RawUI() {
                 value={Kind.Get}
                 checked={kind === Kind.Get}
                 onChange={onKindChange}
-                disabled={isRunning}
+                disabled={isBusy}
               />
               Get
             </label>
@@ -224,7 +239,7 @@ export function RawUI() {
                 value={Kind.Set}
                 checked={kind === Kind.Set}
                 onChange={onKindChange}
-                disabled={isRunning}
+                disabled={isBusy}
               />
               Set
             </label>
@@ -233,7 +248,7 @@ export function RawUI() {
             name="methodName"
             aria-label="WMI method name"
             size={10}
-            disabled={isRunning}
+            disabled={isBusy}
             style={{ maxWidth: "100%" }}
             value={methodName}
             onChange={(event) => {
@@ -248,13 +263,6 @@ export function RawUI() {
           </select>
           {argumentsComponent}
           <div>
-            {selectedMethod &&
-              selectedMethod.outArgs.length > 0 &&
-              selectedMethod.outArgs[0]?.type === "uint16" && (
-                <div style={{ marginLeft: 4 }}>
-                  uint16 output =&gt; little endian!
-                </div>
-              )}
             <button
               disabled={!isRunnable || isRunning}
               type="submit"
@@ -283,7 +291,7 @@ export function RawUI() {
   );
 
   return (
-    <div>
+    <section className="panel" aria-label="Advanced diagnostics">
       <StyledHeader
         type="button"
         aria-label="Toggle Raw UI"
@@ -291,9 +299,9 @@ export function RawUI() {
         aria-expanded={isVisible}
         aria-controls="raw-ui-content"
       >
-        Raw UI
+        {isVisible ? "▾" : "▸"} Advanced diagnostics
       </StyledHeader>
       {content}
-    </div>
+    </section>
   );
 }

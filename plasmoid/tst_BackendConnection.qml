@@ -240,5 +240,256 @@ Item {
             compare(finished.signalArguments[0][1], false)
             compare(fixture.requests.length, 0)
         }
+
+        function test_initialTelemetryDeadlineIgnoresUnrelatedTraffic() {
+            backend.activityStaleTimeout = 100
+            const firstStateAt = backend.activityExpectedSince
+            verify(firstStateAt > 0)
+            verify(!backend.initialActivityTimedOut)
+            const firstPongAt = backend.lastPongTime
+            for (let index = 0; index < 12; index += 1) {
+                fixture.push("state", fixture.state())
+                fixture.peer.sendTextMessage("pong")
+                fixture.push("fancontrolactivity", { avgCPUTemp: null })
+                wait(100)
+            }
+            verify(backend.initialActivityTimedOut)
+            compare(backend.activityExpectedSince, firstStateAt)
+            verify(backend.lastStateAt > firstStateAt)
+            verify(backend.lastPongTime > firstPongAt)
+            verify(backend.ready)
+            verify(!backend.hasActivity)
+            verify(!backend.hasFreshActivity)
+            compare(backend.latestActivity, null)
+            compare(backend.lastActivityAt, 0)
+        }
+
+        function test_initialTelemetryDeadlineStartsAtValidatedState() {
+            fixture.autoState = false
+            backend.activityStaleTimeout = 200
+            backend.reconnect()
+            compare(backend.activityExpectedSince, 0)
+            tryCompare(backend, "isConnected", true)
+            tryCompare(fixture, "subscriptions", 2)
+            fixture.push("state", {})
+            wait(250)
+            verify(!backend.ready)
+            compare(backend.activityExpectedSince, 0)
+            verify(!backend.initialActivityTimedOut)
+
+            fixture.push("state", fixture.state())
+            tryCompare(backend, "ready", true)
+            verify(backend.activityExpectedSince > 0)
+            verify(!backend.initialActivityTimedOut)
+            wait(50)
+            verify(!backend.initialActivityTimedOut)
+            tryCompare(backend, "initialActivityTimedOut", true, 2000)
+        }
+
+        function test_initialTelemetryRecoversWithoutLosingFailureFlags() {
+            backend.activityStaleTimeout = 100
+            tryCompare(backend, "initialActivityTimedOut", true, 2000)
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 0, avgGPUTemp: 65, appliedSpeed: 0, target: 100,
+                sensorFailure: true
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+            verify(!backend.initialActivityTimedOut)
+            compare(backend.latestActivity.appliedSpeed, 0)
+            compare(backend.latestActivity.sensorFailure, true)
+            tryCompare(backend, "hasFreshActivity", false, 2000)
+            verify(backend.hasActivity)
+            verify(!backend.initialActivityTimedOut)
+            compare(backend.latestActivity.sensorFailure, true)
+
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 50, avgGPUTemp: 60, appliedSpeed: null, target: 30
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+            verify(!backend.initialActivityTimedOut)
+            compare(backend.latestActivity.appliedSpeed, null)
+        }
+
+        function test_initialTelemetryDeadlineSurvivesInvalidState() {
+            backend.activityStaleTimeout = 100
+            const firstStateAt = backend.activityExpectedSince
+            const incompatible = fixture.state()
+            incompatible.protocolVersion = "2.0"
+            fixture.push("state", incompatible)
+            tryCompare(backend, "ready", false)
+            verify(!backend.initialActivityTimedOut)
+            compare(backend.activityExpectedSince, firstStateAt)
+            wait(150)
+
+            fixture.push("state", fixture.state())
+            tryCompare(backend, "ready", true)
+            verify(backend.initialActivityTimedOut)
+            compare(backend.activityExpectedSince, firstStateAt)
+        }
+
+        function test_initialTelemetryReconnectRestartsDeadline() {
+            backend.activityStaleTimeout = 100
+            tryCompare(backend, "initialActivityTimedOut", true, 2000)
+            const previousStateAt = backend.activityExpectedSince
+            backend.activityStaleTimeout = 1000
+            backend.reconnect()
+            verify(!backend.initialActivityTimedOut)
+            compare(backend.activityExpectedSince, 0)
+            tryCompare(backend, "ready", true)
+            tryCompare(fixture, "subscriptions", 2)
+            verify(backend.activityExpectedSince > previousStateAt)
+            verify(!backend.initialActivityTimedOut)
+            verify(!backend.hasActivity)
+            tryCompare(backend, "initialActivityTimedOut", true, 2500)
+        }
+
+        function test_initialTelemetryDeadlineTracksLastActivityAfterInvalidState() {
+            backend.activityStaleTimeout = 300
+            const firstStateAt = backend.activityExpectedSince
+            wait(350)
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 50, avgGPUTemp: 60, appliedSpeed: 0, target: 0
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+            const lastActivityAt = backend.lastActivityAt
+            fixture.push("state", {})
+            tryCompare(backend, "ready", false)
+            verify(!backend.hasActivity)
+            fixture.push("state", fixture.state())
+            tryCompare(backend, "ready", true)
+            verify(!backend.initialActivityTimedOut)
+            compare(backend.activityExpectedSince, firstStateAt)
+            compare(backend.lastActivityAt, lastActivityAt)
+            tryCompare(backend, "initialActivityTimedOut", true, 2000)
+        }
+
+        function test_initialTelemetryNotExpectedWhenFanControlUnavailable() {
+            backend.activityStaleTimeout = 100
+            const unavailable = fixture.state()
+            unavailable.isFanControlAvailable = false
+            unavailable.restartRequired = true
+            fixture.push("state", unavailable)
+            tryVerify(function () {
+                return backend.latestState.isFanControlAvailable === false
+            })
+            wait(1100)
+            verify(!backend.initialActivityTimedOut)
+            compare(backend.activityExpectedSince, 0)
+            verify(!backend.hasActivity)
+            verify(backend.ready)
+            verify(backend.latestState.restartRequired)
+
+            backend.setGpuBoost(true)
+            tryVerify(function () { return fixture.requests.length === 1 })
+            compare(fixture.requests[0].kind, "set")
+        }
+
+        function test_fanControlLossPreservesTelemetryWithoutMarkingItFresh() {
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 50, avgGPUTemp: 60, appliedSpeed: 0, target: 100,
+                sensorFailure: true
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+            const lastActivityAt = backend.lastActivityAt
+            const unavailable = fixture.state()
+            unavailable.isFanControlAvailable = false
+            unavailable.restartRequired = true
+            fixture.push("state", unavailable)
+            tryCompare(backend, "hasFreshActivity", false)
+            verify(backend.hasActivity)
+            compare(backend.latestActivity.sensorFailure, true)
+            compare(backend.latestActivity.appliedSpeed, 0)
+            compare(backend.lastActivityAt, lastActivityAt)
+            verify(backend.ready)
+            verify(backend.latestState.restartRequired)
+            verify(!backend.initialActivityTimedOut)
+            compare(backend.activityExpectedSince, 0)
+
+            fixture.push("state", fixture.state())
+            tryVerify(function () { return backend.activityExpectedSince > lastActivityAt })
+            verify(!backend.hasFreshActivity)
+            verify(backend.hasActivity)
+            compare(backend.latestActivity.sensorFailure, true)
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 55, avgGPUTemp: 65, appliedSpeed: 0, target: 0
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+        }
+
+        function test_initialTelemetryStartsWhenFanControlBecomesAvailable_data() {
+            return [
+                { tag: "explicit-availability", legacy: false },
+                { tag: "legacy-availability", legacy: true }
+            ]
+        }
+
+        function test_initialTelemetryStartsWhenFanControlBecomesAvailable(data) {
+            backend.activityStaleTimeout = 400
+            const unavailable = fixture.state()
+            unavailable.isFanControlAvailable = false
+            fixture.push("state", unavailable)
+            tryCompare(backend, "activityExpectedSince", 0)
+            const unavailableAt = backend.lastStateAt
+            wait(500)
+            verify(!backend.initialActivityTimedOut)
+
+            const available = fixture.state()
+            if (data.legacy) {
+                delete available.isFanControlAvailable
+            }
+            fixture.push("state", available)
+            tryVerify(function () { return backend.activityExpectedSince > unavailableAt })
+            const expectedSince = backend.activityExpectedSince
+            verify(!backend.initialActivityTimedOut)
+            wait(50)
+            fixture.push("state", available)
+            fixture.peer.sendTextMessage("pong")
+            tryVerify(function () { return backend.lastStateAt > expectedSince })
+            compare(backend.activityExpectedSince, expectedSince)
+            verify(!backend.initialActivityTimedOut)
+            tryCompare(backend, "initialActivityTimedOut", true, 2000)
+        }
+
+        function test_sameMillisecondCapabilityChangeNeedsCurrentPeriodActivity() {
+            backend.activityStaleTimeout = 500
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 50, avgGPUTemp: 60, appliedSpeed: 0, target: 100,
+                sensorFailure: true
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+
+            const unavailable = fixture.state()
+            unavailable.isFanControlAvailable = false
+            fixture.push("state", unavailable)
+            tryCompare(backend, "activityExpectedSince", 0)
+            verify(!backend.receivedActivityInCurrentPeriod)
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 55, avgGPUTemp: 65, appliedSpeed: 0, target: 0
+            })
+            wait(20)
+            verify(!backend.receivedActivityInCurrentPeriod)
+            compare(backend.latestActivity.sensorFailure, true)
+
+            fixture.push("state", fixture.state())
+            tryVerify(function () { return backend.activityExpectedSince > 0 })
+            // Reproduce equal millisecond timestamps after real socket state
+            // transitions. The cached packet still belongs to an earlier period.
+            backend.activityExpectedSince = backend.lastActivityAt
+            compare(backend.lastActivityAt, backend.activityExpectedSince)
+            verify(backend.hasActivity)
+            verify(!backend.hasFreshActivity)
+            verify(!backend.receivedActivityInCurrentPeriod)
+            compare(backend.latestActivity.sensorFailure, true)
+            compare(backend.latestActivity.appliedSpeed, 0)
+            verify(!backend.initialActivityTimedOut)
+
+            tryCompare(backend, "initialActivityTimedOut", true, 2000)
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 55, avgGPUTemp: 65, appliedSpeed: 0, target: 0
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+            verify(backend.receivedActivityInCurrentPeriod)
+            verify(!backend.initialActivityTimedOut)
+        }
     }
 }

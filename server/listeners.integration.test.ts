@@ -64,6 +64,7 @@ process.stdin.on('end', finish);
 const networkFixture = `
 import assert from 'node:assert/strict';
 import { listenOnLoopback } from ${JSON.stringify(path.join(repositoryRoot, "server/listeners.ts"))};
+import { handleWebSocketRequest } from ${JSON.stringify(path.join(repositoryRoot, "server/http.ts"))};
 import { websocketHandlers, setServers, publishActivity, publishState } from ${JSON.stringify(path.join(repositoryRoot, "server/websocket/index.ts"))};
 import { state } from ${JSON.stringify(path.join(repositoryRoot, "server/state/index.ts"))};
 
@@ -88,10 +89,8 @@ async function client(url) {
 const options = {
   port: 0,
   fetch(request, server) {
-    if (new URL(request.url).pathname === '/ws') {
-      if (server.upgrade(request)) return;
-      return new Response('Upgrade failed', { status: 400 });
-    }
+    const response = handleWebSocketRequest(request, server);
+    if (response !== null) return response;
     return new Response('ALFC loopback');
   },
   websocket: websocketHandlers,
@@ -103,12 +102,32 @@ try {
   assert.equal(servers[0].hostname, '127.0.0.1');
   assert.equal(await (await fetch(servers[0].url)).text(), 'ALFC loopback');
   clients.push(await client('ws://127.0.0.1:' + servers[0].port + '/ws'));
+  for (const pathname of ['/ws', '/ws/']) {
+    const target = new URL(pathname, servers[0].url);
+    assert.equal((await fetch(target)).status, 400, 'A non-upgrade GET must fail for ' + pathname);
+    const post = await fetch(target, { method: 'POST' });
+    assert.equal(post.status, 405, 'Only GET may upgrade ' + pathname);
+    assert.equal(post.headers.get('allow'), 'GET');
+    assert.equal((await fetch(target, { headers: { Origin: 'https://example.com' } })).status, 403,
+      'A foreign browser origin must be rejected for ' + pathname);
+  }
+  for (const pathname of ['/ws//', '/ws/extra', '/prefix/ws']) {
+    const response = await fetch(new URL(pathname, servers[0].url), {
+      headers: { Connection: 'Upgrade', Upgrade: 'websocket',
+        'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==' },
+    });
+    assert.equal(response.status, 200, 'Other paths must remain ordinary HTTP: ' + pathname);
+    assert.equal(await response.text(), 'ALFC loopback');
+  }
+  console.log('PASS canonical and trailing-slash WebSocket paths share GET/origin policy; unrelated paths do not upgrade');
   if (servers.length === 2) {
     assert.equal(servers[1].hostname, '::1');
     assert.equal(servers[1].port, servers[0].port, 'Both loopback families must use the same port');
     assert.equal(await (await fetch(servers[1].url)).text(), 'ALFC loopback');
     clients.push(await client('ws://[::1]:' + servers[1].port + '/ws'));
   } else console.log('IPv6 unavailable: verified the documented IPv4 fallback');
+  clients.push(await client('ws://127.0.0.1:' + servers[0].port + '/ws/'));
+  if (servers.length === 2) clients.push(await client('ws://[::1]:' + servers[1].port + '/ws/'));
   for (const [index, percentage] of [61, 73].entries()) {
     const source = clients[index % clients.length];
     const requestId = 'mutation-' + index;
@@ -310,6 +329,9 @@ describe("real Bun loopback networking", () => {
       );
       expect(stdout).toContain(
         "PASS UTF-8 binary validation and exact 64 KiB text/binary payload limit",
+      );
+      expect(stdout).toContain(
+        "PASS canonical and trailing-slash WebSocket paths share GET/origin policy; unrelated paths do not upgrade",
       );
       expect(stdout).toContain(
         "PASS native pub/sub closes a paused TCP subscriber at the backpressure limit",

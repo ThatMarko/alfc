@@ -15,9 +15,11 @@ import type {
 
 export type Command = Omit<MessageToServer, "requestId">;
 export type BackendConnection = {
+  // The last validated snapshot can remain visible during a disconnect.
   state: State | null;
   activity: FanControlActivity | null;
   isActivityStale: boolean;
+  // True only after the current socket supplies its own validated snapshot.
   isConnected: boolean;
   connectionError: string | null;
   sendRequest: (message: Command, notify?: boolean) => Promise<MessageToClient>;

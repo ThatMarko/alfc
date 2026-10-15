@@ -16,7 +16,7 @@ import {
   restoreAutoFanControl,
   startFanControlShutdown,
 } from "./fan-control/index";
-import { isAllowedWebSocketOrigin, resolveFrontendPath } from "./http";
+import { handleWebSocketRequest, resolveFrontendPath } from "./http";
 import { isElevated } from "./permissions";
 import { listenOnLoopback } from "./listeners";
 
@@ -205,23 +205,8 @@ async function runServer() {
       }
       const url = new URL(req.url);
 
-      if (url.pathname === "/ws") {
-        if (req.method !== "GET") {
-          return new Response("Method Not Allowed", {
-            status: 405,
-            headers: { Allow: "GET" },
-          });
-        }
-        const origin = req.headers.get("origin");
-        if (!isAllowedWebSocketOrigin(origin)) {
-          console.warn(`[WebSocket] Origin rejected: ${origin}`);
-          return new Response("Forbidden", { status: 403 });
-        }
-
-        const upgraded = server.upgrade(req, { data: undefined });
-        if (upgraded) return undefined;
-        return new Response("WebSocket upgrade failed", { status: 400 });
-      }
+      const webSocketResponse = handleWebSocketRequest(req, server);
+      if (webSocketResponse !== null) return webSocketResponse;
 
       if (req.method !== "GET" && req.method !== "HEAD") {
         return new Response("Method Not Allowed", {

@@ -21,6 +21,11 @@ not support it. It never binds a wildcard address. Supported endpoint forms are:
 - `ws://127.0.0.1:5522/ws`
 - `ws://[::1]:5522/ws`, when IPv6 is available
 
+`/ws/` is an equivalent trailing-slash alias on each listener. Both paths use
+the same GET and Origin checks. Other suffixes and prefixed paths are not endpoints.
+The shipped web UI connects by plain WebSocket to its page's hostname on port 5522. HTTPS, alternate ports, and proxy prefixes are not supported web deployments;
+remote exposure remains unsupported.
+
 Both listeners share one state and request queue. A mutation from either address
 broadcasts the same state to clients on both. Each connection immediately receives
 a full `state` snapshot and is subscribed to subsequent state updates.
@@ -254,7 +259,11 @@ successful averages, not fresh measurements. Until the first successful
 collection of a run, no activity with invented temperatures is published. Clients
 show waiting/stale telemetry instead. Absence of the optional `sensorFailure`
 field means no explicit failure flag; it does not replace stale detection. Both
-shipped clients mark telemetry older than ten seconds stale.
+shipped clients mark telemetry older than ten seconds stale. When fan monitoring
+is available, a missing first activity packet also becomes stale after ten
+seconds. State broadcasts and pongs do not postpone that deadline; an explicit
+fan-unavailable state suppresses it, and restored availability starts a new grace
+period. Reconnection starts a new telemetry session.
 
 A fatal native channel failure sets the affected capability flags to `false`,
 latches runtime-only `restartRequired: true`, and broadcasts the snapshot. New
@@ -270,7 +279,7 @@ driver or firmware.
 Browser upgrades require an `http` or `https` Origin on `localhost`, `127.0.0.1`,
 or `[::1]`; ports may vary. Origins containing credentials, paths, queries, or
 fragments are rejected. Missing Origin is allowed for native clients such as QML.
-Rejected Origins receive HTTP 403 before upgrade. `/ws` requires GET.
+Rejected Origins receive HTTP 403 before upgrade. `/ws` and `/ws/` require GET.
 
 This is a privileged local control interface. Loopback binding and the Origin
 check restrict browser access; they are not authentication against another local

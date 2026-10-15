@@ -13,5 +13,5 @@ pushd "%~dp0" || exit /b 1
 echo Starting ALFC fan control (temporary, non-service mode)...
 echo Press Ctrl+C to stop.
 set "NODE_ENV=production"
-start "" "http://localhost:5522"
+echo Open http://localhost:5522 after the server reports startup finished.
 alfc.exe

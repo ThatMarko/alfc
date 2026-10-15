@@ -91,7 +91,7 @@ test("mode follows backend snapshots and only its own response settles a command
 }) => {
   const server = await backend(page);
   const fixed = page.getByLabel("Fixed fan speed percentage");
-  await expect(fixed).toBeDisabled();
+  await expect(fixed).toBeEnabled();
   const mode = page.getByRole("button", { name: "Switch to fixed mode" });
   await mode.click();
   await expect.poll(() => server.requests.length).toBe(1);
@@ -111,7 +111,7 @@ test("mode follows backend snapshots and only its own response settles a command
     data: "ACPI_ERROR: hardware refused the mode change",
   });
   await expect(mode).toBeEnabled();
-  await expect(fixed).toBeDisabled();
+  await expect(fixed).toBeEnabled();
   await mode.click();
   await expect.poll(() => server.requests.length).toBe(2);
   server.send({
@@ -121,9 +121,21 @@ test("mode follows backend snapshots and only its own response settles a command
   });
   server.push({ doFixedSpeed: true });
   await expect(fixed).toBeEnabled();
-  await expect(page.getByLabel("CPU temperature for row 1")).toBeDisabled();
+  await expect(page.getByLabel("CPU temperature for row 1")).toBeEnabled();
+  await expect(mode).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("link", { name: "Edit fixed preset" }).click();
+  await expect(page).toHaveURL(/#fixed-speed-preset$/);
+  await expect(page.locator("#fixed-speed-preset")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(fixed).toBeFocused();
   server.push({ doFixedSpeed: false, gpuBoost: false });
-  await expect(fixed).toBeDisabled();
+  await expect(fixed).toBeEnabled();
+  await expect(mode).toHaveAttribute("aria-pressed", "false");
+  await page.getByRole("link", { name: "Edit fan curves" }).click();
+  await expect(page).toHaveURL(/#automatic-fan-curves$/);
+  await expect(page.locator("#automatic-fan-curves")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("CPU temperature for row 1")).toBeFocused();
   await expect(
     page.getByRole("checkbox", { name: "GPU Boost" }),
   ).not.toBeChecked();
@@ -181,6 +193,56 @@ test("unrelated snapshots preserve drafts and tuning uses correlated acknowledge
   expect(server.errors).toEqual([]);
 });
 
+test("inactive fixed presets and fan curves can be saved without changing modes", async ({
+  page,
+}) => {
+  const server = await backend(page);
+  const fixed = page.getByLabel("Fixed fan speed percentage");
+  await fixed.fill("65");
+  await page
+    .locator("form")
+    .filter({ has: fixed })
+    .getByRole("button", { name: "Apply" })
+    .click();
+  await expect.poll(() => server.requests.length).toBe(1);
+  expect(server.requests[0]).toMatchObject({
+    kind: "fixedpercentage",
+    data: 65,
+  });
+  server.push({ fixedPercentage: 65 });
+  server.send({ kind: "success", requestId: server.requests[0]?.requestId });
+  await expect(
+    page.getByRole("button", { name: "Switch to auto mode" }),
+  ).toHaveAttribute("aria-pressed", "true");
+
+  server.push({ doFixedSpeed: true });
+  const temperature = page.getByLabel("CPU temperature for row 1");
+  await temperature.fill("42");
+  await page
+    .locator("form")
+    .filter({ has: temperature })
+    .getByRole("button", { name: "Apply" })
+    .click();
+  await expect.poll(() => server.requests.length).toBe(2);
+  expect(server.requests[1]).toMatchObject({
+    kind: "fantable",
+    data: {
+      cpu: [
+        [42, 15],
+        [83, 50],
+        [88, 100],
+      ],
+    },
+  });
+  expect(
+    server.requests.some((request) => request.kind === "dofixedspeed"),
+  ).toBe(false);
+  await expect(
+    page.getByRole("button", { name: "Switch to fixed mode" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(server.errors).toEqual([]);
+});
+
 test("unavailable hardware cannot be changed through disabled controls", async ({
   page,
 }) => {
@@ -213,18 +275,38 @@ test("unavailable hardware cannot be changed through disabled controls", async (
   expect(server.errors).toEqual([]);
 });
 
-test("disconnect aborts pending work and reconnect never replays a hardware write", async ({
+test("disconnect preserves drafts and rejection guidance while requiring a fresh snapshot without replaying writes", async ({
   page,
 }) => {
-  const server = await backend(page);
+  const server = await backend(page, {}, { stateOnReconnect: false });
+  const temperature = page.getByLabel("CPU temperature for row 1");
+  const pl1 = page.getByLabel("PL1 power limit in watts");
+  const mode = page.getByRole("button", { name: "Switch to fixed mode" });
+  await temperature.fill("41.5");
+  await pl1.fill("62");
   await page.getByRole("button", { name: "Switch to fixed mode" }).click();
   await expect.poll(() => server.requests.length).toBe(1);
+  await page.clock.install();
   await server.connections[0]?.close({ code: 1012, reason: "Service restart" });
-  await expect.poll(() => server.connections.length).toBe(2);
+  await expect(mode).toBeDisabled();
+  await expect(temperature).toHaveValue("41.5");
+  await expect(pl1).toHaveValue("62");
   await expect(
-    page.getByRole("button", { name: "Switch to fixed mode" }),
-  ).toBeEnabled();
+    page.getByRole("alert").filter({
+      hasText: "Connection lost before the server confirmed this request",
+    }),
+  ).toBeVisible();
+  await page.clock.fastForward(1000);
+  await expect.poll(() => server.connections.length).toBe(2);
+  await expect(mode).toBeDisabled();
   await expect(page.getByLabel("Fixed fan speed percentage")).toBeDisabled();
+  server.send({ kind: "success", requestId: server.requests[0]?.requestId });
+  await expect(mode).toBeDisabled();
+  server.push({});
+  await expect(mode).toBeEnabled();
+  await expect(temperature).toHaveValue("41.5");
+  await expect(pl1).toHaveValue("62");
+  await expect(page.getByLabel("Fixed fan speed percentage")).toBeEnabled();
   expect(server.requests).toHaveLength(1);
   expect(server.errors).toEqual([]);
 });
@@ -255,11 +337,11 @@ test("a replacement connection requires its own snapshot and ignores retired soc
     .toBe(3);
   await page.clock.fastForward(1000);
   await expect.poll(() => server.connections.length).toBe(2);
-  await expect(page.getByLabel("Fixed fan speed percentage")).toHaveCount(0);
+  await expect(page.getByLabel("Fixed fan speed percentage")).toBeDisabled();
   server.send({ kind: "success", requestId: server.requests[0]?.requestId });
   await expect(
     page.getByRole("button", { name: "Switch to fixed mode" }),
-  ).toHaveCount(0);
+  ).toBeDisabled();
   server.push({});
   await expect(
     page.getByRole("button", { name: "Switch to fixed mode" }),
@@ -339,10 +421,12 @@ test("invalid state disables the UI and valid state restores it", async ({
     kind: "state",
     data: { ...initialState, protocolVersion: "2.0" },
   });
-  await expect(page.getByRole("alert")).toContainText(
-    "incompatible or invalid state",
-  );
-  await expect(page.getByLabel("Fixed fan speed percentage")).toHaveCount(0);
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "incompatible or invalid state" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Fixed fan speed percentage")).toBeDisabled();
   server.send({ kind: "success", requestId: server.requests[0]?.requestId });
   server.push({});
   await expect(page.getByLabel("Fixed fan speed percentage")).toBeVisible();
@@ -358,10 +442,10 @@ test("invalid state disables the UI and valid state restores it", async ({
   });
   await expect(
     page.getByLabel("Fan control status", { exact: true }),
-  ).toHaveValue(/CPU: 0°C/);
+  ).toContainText("0°C");
   await expect(
     page.getByLabel("Fan control status", { exact: true }),
-  ).toHaveValue(/Last applied: 0%/);
+  ).toContainText("0%");
   expect(server.errors).toEqual([]);
 });
 
@@ -404,6 +488,7 @@ test("mobile UI and expanded raw controls fit the viewport", async ({
   await page.locator("#root > div").evaluate((element) => {
     element.scrollTop = 0;
   });
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: testInfo.outputPath("mobile-ui.png") });
   await page.getByLabel("WMI method name").scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath("mobile-raw-ui.png") });
@@ -455,7 +540,7 @@ test("stale telemetry is marked until fresh data arrives and restart guidance pe
   server.send({ kind: "fancontrolactivity", data: activity });
   await expect(
     page.getByLabel("Fan control status", { exact: true }),
-  ).toHaveValue(/CPU: 52°C/);
+  ).toContainText("52°C");
   await page.clock.fastForward(10001);
   await expect(
     page.getByText(
@@ -464,14 +549,14 @@ test("stale telemetry is marked until fresh data arrives and restart guidance pe
   ).toBeVisible();
   await expect(
     page.getByLabel("Fan control status", { exact: true }),
-  ).toHaveValue(/^Telemetry is stale/);
+  ).toContainText("Telemetry is stale");
   server.send({
     kind: "fancontrolactivity",
     data: { ...activity, avgCPUTemp: 53 },
   });
   await expect(
     page.getByLabel("Fan control status", { exact: true }),
-  ).toHaveValue(/^CPU: 53°C/);
+  ).toContainText("53°C");
   server.push({ restartRequired: true, isCpuTuningAvailable: false });
   await expect(
     page.getByText(
@@ -481,6 +566,66 @@ test("stale telemetry is marked until fresh data arrives and restart guidance pe
   await expect(
     page.getByRole("button", { name: "Switch to fixed mode" }),
   ).toBeEnabled();
+  expect(server.errors).toEqual([]);
+});
+
+test("a missing initial activity stream expires despite settings broadcasts and resets on reconnect", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const server = await backend(page);
+  const status = page.getByLabel("Fan control status", { exact: true });
+  await expect(status).toContainText("Waiting for readings");
+  await page.clock.fastForward(9000);
+  server.push({ pl1: 45 });
+  await expect(page.getByLabel("PL1 power limit in watts")).toHaveValue("45");
+  await page.clock.fastForward(1001);
+  await expect(status).toContainText("Telemetry is stale");
+
+  server.send({
+    kind: "fancontrolactivity",
+    data: {
+      appliedSpeed: null,
+      avgCPUTemp: 52,
+      avgGPUTemp: 43,
+      target: 30,
+      sensorFailure: false,
+    },
+  });
+  await expect(status).toContainText("Unconfirmed");
+  await expect(status).not.toContainText("Telemetry is stale");
+  await server.connections[0]?.close({ code: 1012, reason: "Service restart" });
+  await expect(page.getByLabel("Fixed fan speed percentage")).toBeDisabled();
+  await page.clock.fastForward(1000);
+  await expect.poll(() => server.connections.length).toBe(2);
+  await expect(page.getByLabel("Fixed fan speed percentage")).toBeEnabled();
+  await expect(status).toContainText("Waiting for readings");
+  await expect(status).not.toContainText("Unconfirmed");
+  await expect(status).not.toContainText("Telemetry is stale");
+
+  server.push({ isFanControlAvailable: false });
+  await expect(status).toContainText("Unavailable");
+  await expect(status).not.toContainText("Telemetry is stale");
+  await page.clock.fastForward(20000);
+  server.push({ pl1: 47 });
+  await expect(status).not.toContainText("Telemetry is stale");
+  server.push({ isFanControlAvailable: true });
+  await expect(status).toContainText("Waiting for readings");
+  await expect(status).not.toContainText("Telemetry is stale");
+  await page.clock.fastForward(9000);
+  server.push({ pl1: 48 });
+  server.connections.at(-1)?.send("pong");
+  await expect(page.getByLabel("PL1 power limit in watts")).toHaveValue("48");
+  await expect(status).not.toContainText("Telemetry is stale");
+  server.send({
+    kind: "state",
+    data: { ...initialState, protocolVersion: "2.0" },
+  });
+  await expect(page.getByLabel("Fixed fan speed percentage")).toBeDisabled();
+  server.push({ pl1: 49 });
+  await expect(page.getByLabel("Fixed fan speed percentage")).toBeEnabled();
+  await page.clock.fastForward(1001);
+  await expect(status).toContainText("Telemetry is stale");
   expect(server.errors).toEqual([]);
 });
 
@@ -544,10 +689,12 @@ test("a server without request correlation is rejected before writes are enabled
 }) => {
   const server = await backend(page);
   server.push({ protocolVersion: "1.0" });
-  await expect(page.getByRole("alert")).toContainText(
-    "incompatible or invalid state",
-  );
-  await expect(page.getByLabel("Fixed fan speed percentage")).toHaveCount(0);
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "incompatible or invalid state" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Fixed fan speed percentage")).toBeDisabled();
   server.push({ protocolVersion: "1.1" });
   await expect(
     page.getByRole("button", { name: "Switch to fixed mode", exact: true }),
@@ -603,6 +750,13 @@ test("unknown GPU capability cannot advertise or enable GPU boost writes", async
   await expect(
     page.getByRole("button", { name: "Run", exact: true }),
   ).toBeEnabled();
+  await page.getByLabel("Argument Data", { exact: true }).fill("2");
+  await expect(
+    page.getByRole("button", { name: "Run", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByLabel("Argument Data", { exact: true }),
+  ).toHaveAttribute("max", "1");
   expect(server.requests).toEqual([]);
   expect(server.errors).toEqual([]);
 });

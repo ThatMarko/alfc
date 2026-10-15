@@ -34,6 +34,10 @@ echo acpi_call | sudo tee /etc/modules-load.d/acpi_call.conf
 On OpenRC, configure your distribution's module loader (`/etc/modules` on some
 systems or `/etc/conf.d/modules` on Gentoo). Fan access and Intel RAPL CPU tuning
 are separate capabilities. RAPL may be unavailable even when fan control works.
+The selected Intel RAPL package zone must expose a readable enabled state of
+`1`; ALFC does not turn disabled zones on. It checks enablement before and after
+applying limits, because matching limit registers alone do not establish active
+long-term power limiting.
 The UI and widget display backend availability rather than assuming all hardware
 features exist.
 

@@ -17,6 +17,25 @@ const execute = promisify(execFile);
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 
 describe("Windows service wrapper configuration", () => {
+  it("keeps foreground startup attached and avoids premature browser launch in Windows entrypoints", async () => {
+    const source = await readFile(
+      path.join(import.meta.dirname, "scripts/run.bat"),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /^echo Open http:\/\/localhost:5522 after the server reports startup finished\.$/m,
+    );
+    const installer = await readFile(
+      path.join(import.meta.dirname, "scripts/install.bat"),
+      "utf8",
+    );
+    for (const entrypoint of [source, installer]) {
+      expect(entrypoint).not.toMatch(/^\s*start\b/im);
+      expect(entrypoint).toContain("http://localhost:5522");
+    }
+    expect(source).toMatch(/^alfc\.exe\s*$/m);
+  });
+
   it("uses WinSW v2.12 shutdown settings that allow the 12-second BIOS handoff", async () => {
     const config = await readFile(
       path.join(import.meta.dirname, "scripts/alfc-service.xml"),

@@ -47,7 +47,10 @@ function resolveWebSocketUrl(): string {
 }
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
+  // Keep the last validated snapshot while reconnecting so forms can preserve
+  // their drafts. Only readiness for this socket may authorize new commands.
   const [state, setState] = useState<State | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
   const [activity, setActivity] = useState<FanControlActivity | null>(null);
   const [isActivityStale, setIsActivityStale] = useState(false);
   const activityTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -55,6 +58,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [requests] = useState(() => new BackendRequests());
   const activeSocketRef = useRef<WebSocket | null>(null);
   const connectedRef = useRef(false);
+  const activityExpectedRef = useRef(false);
   const mountedRef = useRef(true);
 
   const clearActivityTimeout = useCallback(() => {
@@ -63,10 +67,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     activityTimeoutRef.current = null;
   }, []);
 
+  const startActivityTimeout = useCallback(() => {
+    clearActivityTimeout();
+    activityTimeoutRef.current = setTimeout(() => {
+      activityTimeoutRef.current = null;
+      setIsActivityStale(true);
+    }, 10000);
+  }, [clearActivityTimeout]);
+
   const resetConnection = useCallback(() => {
     activeSocketRef.current = null;
     connectedRef.current = false;
-    setState(null);
+    activityExpectedRef.current = false;
+    setIsConnected(false);
     setActivity(null);
     setIsActivityStale(false);
     clearActivityTimeout();
@@ -112,15 +125,30 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       if (!message) return;
       if (message.kind === MessageToClientKind.State) {
         if (isState(message.data)) {
+          // Monitoring is intentionally off when fan control is unavailable.
+          // Its return starts a new grace period; unrelated snapshots do not
+          // extend an existing collector deadline.
+          const activityExpected = message.data.isFanControlAvailable !== false;
+          if (!activityExpected) {
+            clearActivityTimeout();
+            setActivity(null);
+            setIsActivityStale(false);
+          } else if (!activityExpectedRef.current) {
+            setIsActivityStale(false);
+            startActivityTimeout();
+          }
+          activityExpectedRef.current = activityExpected;
           connectedRef.current = true;
+          setIsConnected(true);
           setState(message.data);
           setConnectionError(null);
         } else {
           connectedRef.current = false;
-          setState(null);
+          setIsConnected(false);
           setActivity(null);
-          setIsActivityStale(false);
-          clearActivityTimeout();
+          // Keep this socket's existing expectation deadline. An invalid then
+          // valid settings broadcast must not grant a silent collector more
+          // time; disconnected status masks the warning until validation.
           requests.disconnect(
             "The server sent an invalid state. Check the server before applying more changes; pending requests could not be confirmed.",
           );
@@ -130,23 +158,20 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         }
       } else if (
         connectedRef.current &&
+        activityExpectedRef.current &&
         message.kind === MessageToClientKind.FanControlActivity &&
         isFanControlActivity(message.data)
       ) {
-        clearActivityTimeout();
         setActivity(message.data);
         setIsActivityStale(false);
         // A live socket does not establish that collection or hardware writes
         // are still progressing. Match the Plasma widget's freshness window.
-        activityTimeoutRef.current = setTimeout(() => {
-          activityTimeoutRef.current = null;
-          setIsActivityStale(true);
-        }, 10000);
+        startActivityTimeout();
       } else if (connectedRef.current) {
         requests.receive(message);
       }
     },
-    [clearActivityTimeout, requests],
+    [clearActivityTimeout, requests, startActivityTimeout],
   );
 
   const shouldReconnect = useCallback(
@@ -183,6 +208,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       mountedRef.current = false;
       activeSocketRef.current = null;
       connectedRef.current = false;
+      activityExpectedRef.current = false;
       clearActivityTimeout();
       currentRequests.disconnect();
     };
@@ -201,7 +227,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           // hardware write on whichever socket happens to open next.
           sendBackendMessage(socket, payload);
         });
-        if (notify) successToast("Successfully applied.");
+        if (notify) successToast("Change accepted.");
         return response;
       } catch (error) {
         errorToast(
@@ -219,10 +245,17 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       activity,
       isActivityStale,
       connectionError,
-      isConnected: state !== null,
+      isConnected,
       sendRequest,
     }),
-    [state, activity, isActivityStale, connectionError, sendRequest],
+    [
+      state,
+      activity,
+      isActivityStale,
+      connectionError,
+      isConnected,
+      sendRequest,
+    ],
   );
 
   return <BackendContext value={connection}>{children}</BackendContext>;

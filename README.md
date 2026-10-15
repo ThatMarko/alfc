@@ -47,7 +47,9 @@ multiple fan-control tools against the same firmware at once.
 
 ## Operation
 
-![Example web UI](assets/screenshot.png)
+![Web UI with simulated telemetry](assets/screenshot.png)
+
+The example uses simulated readings; it is not a hardware validation result.
 
 - Open `http://localhost:5522`. Explicit IPv4 loopback (`127.0.0.1`) and available
   IPv6 loopback (`::1`) share the same backend. The service does not listen on
@@ -58,14 +60,15 @@ multiple fan-control tools against the same firmware at once.
   Startup uses the highest configured target until a valid temperature collection
   selects the first curve target. Later ramp-up needs one qualifying cycle and
   ramp-down needs 30.
+- Both interfaces can save the inactive fixed preset or automatic curves without switching modes. The active mode and the saved settings are shown separately.
 - Fixed mode applies the configured percentage. Telemetry distinguishes the
   target from the last confirmed write; an unknown result is not shown as a
-  confirmed speed. Clients mark telemetry stale after ten seconds.
+  confirmed speed. Both interfaces warn after ten seconds without telemetry, including a missing first reading when monitoring is available.
 - Settings change after backend validation and hardware acceptance where a
   hardware call is required. A fan-table acknowledgement means the table was
   accepted (and persisted in production), not that a particular fan speed was
   measured. Unrelated state updates
-  preserve unsaved edits.
+  preserve unsaved edits. The web dashboard retains edits to unchanged fields through reconnects, refreshes fields changed by the server, disables writes until a fresh snapshot is validated, and keeps interrupted-request errors visible.
 - Production settings live in `alfc.config.json` beside the executable
   (`/opt/alfc` for manual Linux installs, `/usr/lib/alfc` for AUR packaging).
   Stop the service before editing it, then restart. Development loads the
@@ -87,7 +90,8 @@ requirements. For the optional widget, see [plasmoid/README.md](plasmoid/README.
 The web UI works without KDE.
 
 For Windows, extract a release archive and run `install.bat` with administrator
-rights. `run.bat` starts a temporary elevated instance; `uninstall.bat` removes
+rights. The installer and `run.bat` print the local web address; open it after
+initialization finishes. `run.bat` starts a temporary elevated instance; `uninstall.bat` removes
 the service. Keep the executable, ABI-compatible WMI DLL, frontend directory,
 configuration, and WinSW files together. CPUOC is not part of the standard
 archive. Windows logs are `alfc-service.out.log` and `alfc-service.err.log` in

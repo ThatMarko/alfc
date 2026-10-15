@@ -4,6 +4,8 @@ describe("linux RAPL CPUOC adapter", () => {
   let failSecondWrite = false;
   let kernelClamps = false;
   let rollbackClamps = false;
+  let unreadablePaths: Set<string>;
+  let afterWrite: (() => void) | undefined;
   const root = "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0";
 
   beforeEach(() => {
@@ -13,7 +15,10 @@ describe("linux RAPL CPUOC adapter", () => {
     failSecondWrite = false;
     kernelClamps = false;
     rollbackClamps = false;
+    unreadablePaths = new Set();
+    afterWrite = undefined;
     values = new Map([
+      [`${root}/enabled`, "1"],
       [`${root}/constraint_0_power_limit_uw`, "45000000"],
       [`${root}/constraint_1_power_limit_uw`, "95000000"],
       [`${root}/constraint_0_name`, "long_term"],
@@ -25,7 +30,10 @@ describe("linux RAPL CPUOC adapter", () => {
       ...originalBun,
       file: vi.fn((path: string) => ({
         exists: () => Promise.resolve(values.has(path)),
-        text: () => Promise.resolve(values.get(path) ?? ""),
+        text: () =>
+          unreadablePaths.has(path)
+            ? Promise.reject(new Error("Permission denied"))
+            : Promise.resolve(values.get(path) ?? ""),
       })),
       write: vi.fn((path: string, data: string) => {
         writes.push({ path, data });
@@ -38,10 +46,117 @@ describe("linux RAPL CPUOC adapter", () => {
             ? "30000000"
             : data,
         );
+        afterWrite?.();
         return Promise.resolve(data.length);
       }),
     } as unknown as typeof Bun;
   });
+
+  it("rejects a disabled package zone before initialization or writes", async () => {
+    values.set(`${root}/enabled`, "0");
+    const cpuoc = await import("./cpuoc");
+    await expect(cpuoc.tuneInit()).rejects.toThrow(
+      "power limiting is disabled",
+    );
+    await expect(cpuoc.tune(37, 106)).rejects.toThrow(
+      "power limiting is disabled",
+    );
+    expect(writes).toEqual([]);
+    expect(values.get(`${root}/enabled`)).toBe("0");
+  });
+
+  it.each([undefined, "", "invalid"])(
+    "rejects missing or invalid enabled state %j without writes",
+    async (value) => {
+      if (value === undefined) values.delete(`${root}/enabled`);
+      else values.set(`${root}/enabled`, value);
+      const cpuoc = await import("./cpuoc");
+      await expect(cpuoc.tune(37, 106)).rejects.toThrow(
+        "Invalid Intel RAPL enabled state",
+      );
+      expect(writes).toEqual([]);
+    },
+  );
+
+  it.each(["disabled", "unreadable"])(
+    "rechecks a cached zone that becomes %s before writing",
+    async (condition) => {
+      const cpuoc = await import("./cpuoc");
+      await cpuoc.tuneInit();
+      if (condition === "disabled") values.set(`${root}/enabled`, "0");
+      else unreadablePaths.add(`${root}/enabled`);
+      await expect(cpuoc.tune(37, 106)).rejects.toThrow(
+        condition === "disabled"
+          ? "power limiting is disabled"
+          : "Permission denied",
+      );
+      expect(writes).toEqual([]);
+    },
+  );
+
+  it.each(["disabled", "unreadable"])(
+    "rolls back and requires restart if a zone becomes %s during application",
+    async (condition) => {
+      const cpuoc = await import("./cpuoc");
+      afterWrite = () => {
+        if (writes.length !== 2) return;
+        if (condition === "disabled") values.set(`${root}/enabled`, "0");
+        else unreadablePaths.add(`${root}/enabled`);
+      };
+      await expect(cpuoc.tune(37, 106)).rejects.toMatchObject({
+        restartRequired: true,
+      });
+      expect(writes).toHaveLength(4);
+      expect(values.get(`${root}/constraint_0_power_limit_uw`)).toBe(
+        "45000000",
+      );
+      expect(values.get(`${root}/constraint_1_power_limit_uw`)).toBe(
+        "95000000",
+      );
+      expect(
+        writes.every((write) => write.path.endsWith("_power_limit_uw")),
+      ).toBe(true);
+      await expect(cpuoc.tune(45, 95)).rejects.toMatchObject({
+        restartRequired: true,
+      });
+      expect(writes).toHaveLength(4);
+    },
+  );
+
+  it("confirms rollback only after the zone is readable and enabled again", async () => {
+    const cpuoc = await import("./cpuoc");
+    afterWrite = () => {
+      if (writes.length === 2) values.set(`${root}/enabled`, "0");
+      if (writes.length === 4) values.set(`${root}/enabled`, "1");
+    };
+    await expect(cpuoc.tune(37, 106)).rejects.toMatchObject({
+      restartRequired: false,
+    });
+    expect(values.get(`${root}/constraint_0_power_limit_uw`)).toBe("45000000");
+    expect(values.get(`${root}/constraint_1_power_limit_uw`)).toBe("95000000");
+    expect(writes).toHaveLength(4);
+  });
+
+  it.each([
+    "/sys/class/powercap/intel-rapl:0",
+    "/sys/class/powercap/intel-rapl-mmio:0",
+  ])(
+    "checks the selected fallback zone enable state at %s",
+    async (directory) => {
+      values = new Map(
+        [...values].map(([path, value]) => [
+          path.replace(root, directory),
+          value,
+        ]),
+      );
+      values.set(`${directory}/enabled`, "0");
+      const cpuoc = await import("./cpuoc");
+      await expect(cpuoc.tune(37, 106)).rejects.toThrow(
+        "power limiting is disabled",
+      );
+      expect(writes).toEqual([]);
+    },
+  );
 
   it("restores both previous limits when PL2 fails after PL1 succeeded", async () => {
     const cpuoc = await import("./cpuoc");

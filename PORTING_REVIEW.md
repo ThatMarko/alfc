@@ -13,8 +13,10 @@ and all 18 Markdown documents. Images/icons were inspected visually and through
 metadata; the vendor DLL was inspected through PE/CLR metadata and its managed
 API/dependencies. The complete lockfile was parsed, checked against workspace
 manifests, installed frozen, and audited against registry advisories. New source
-and regression files were reviewed as part of their owning component. The review
-ledgers cover all 176 resulting files, with no uncovered paths.
+and regression files were reviewed as part of their owning component. The original review
+ledgers covered all 176 resulting files at that revision. Subsequent toolchain,
+runtime, and UI review changes are described below; this is a historical coverage
+record rather than a certification of the current application.
 
 | Area            | Reviewed scope                                                                                                              |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
@@ -173,6 +175,43 @@ actual WMI DLL with MSVC and executes the COM completion/integer-decoder harness
 without a firmware provider. [RELEASING.md](RELEASING.md) describes complete
 archives and the distinction between standard and experimental CPUOC packaging.
 
+## Follow-up UI and implementation review
+
+The follow-up after the package upgrade inspected rendered desktop/mobile states
+and actual client lifecycles. A passing protocol suite had missed reconnecting
+forms being unmounted, pending error notifications disappearing with them,
+missing first telemetry never becoming stale, and unconfirmed fan output
+rendering as a dash. The web UI now retains a last validated snapshot independently
+of connection readiness, preserves drafts, disables writes until a fresh socket
+snapshot, and keeps notifications mounted. The current mode, inactive presets,
+temperature/target readings, unconfirmed writes, and capability loss have explicit
+presentations. System fonts remove the remote-font dependency. The screenshot in
+README uses simulated telemetry, not measured hardware data.
+
+Both web and Qt clients now time out a missing initial activity stream without
+extending the deadline for unrelated state or heartbeat messages. Monitoring
+being explicitly unavailable suppresses the warning; restored availability gets
+its own grace period. Inactive curves/presets can be edited without changing fan
+mode. The web preset shortcut keeps the active editor reachable on narrow screens.
+
+The review also reproduced startup continuing after both initial fan setup and
+BIOS restoration failed. That path now rejects startup so existing shutdown
+recovery retries the handoff. It does not claim firmware restoration succeeded.
+Linux RAPL previously accepted matching limit values while its package zone
+was disabled. Discovery, application and rollback now verify the separate
+`enabled` state and never turn a disabled zone on. This follows the
+[Linux Intel RAPL driver](https://github.com/torvalds/linux/blob/master/drivers/powercap/intel_rapl_common.c)
+package zone operations; readback is not a measurement of actual CPU power.
+
+The widget's documented `/ws/` URL now upgrades through the same method/Origin
+validation as `/ws`. The Windows temporary launcher and installer print the local web address
+rather than opening a browser before initialization/listening finishes. Remote
+HTTPS/proxy examples no longer imply supported browser management.
+
+The original PR description contained historical test counts and unmeasured
+nanosecond/CPU/memory comparisons. Those claims are not evidence for this
+implementation; the checks and physical release gates here supersede them.
+
 ## Experimental Windows CPU tuning boundary
 
 The shipped `IntelOverclockingSDK.dll` is managed AnyCPU .NET Framework 4
@@ -198,13 +237,13 @@ loaded until process exit.
 ## Verification results
 
 - Frozen installation, ESLint, strict TypeScript, and both workspace builds pass.
-  Vitest executes 23 files: 308 tests pass on Linux and one Windows-only effective
+  Vitest executes 23 files: 322 tests pass on Linux and one Windows-only effective
   token test is explicitly skipped there. That test runs on Windows CI.
-- All 15 Chromium scenarios pass, covering authoritative state, independent
+- All 17 Chromium scenarios pass, covering authoritative state, independent
   drafts, correlated failures, reconnect/no replay, retired-socket callbacks, transport pressure, capability changes, invalid
   versions, stale activity, exact raw values, tooltips, and a 320px layout.
-- All 56 Qt checks pass with matching Plasma/Kirigami modules. Qt-only execution
-  passes 48 and explicitly skips eight Plasma editor cases on both Qt 6.8.2
+- All 67 Qt checks pass with matching Plasma/Kirigami modules. Qt-only execution
+  passes 59 and explicitly skips eight Plasma editor cases on both Qt 6.8.2
   and Qt 6.12.0. A broken installed
   Plasma plugin is a failure, not an unavailable-module skip.
 - Portable C++ packing checks and the strict MinGW Windows DLL compile/link pass.
