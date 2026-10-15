@@ -50,6 +50,12 @@ The manual Linux installation directory is `/opt/alfc`; the command symlink is
 files. A foreign command symlink must not be overwritten or removed. Stop an
 existing service successfully before overwriting or deleting its files. Preserve
 `alfc.config.json` on upgrade and ordinary uninstall; `--purge` deletes it.
+Reject a foreign `/usr/bin/alfc` command before uninstalling as well: the service
+name is shared with package installations, so preserving that symlink alone does
+not establish ownership of the service.
+The installer fixes the owned installation directory and optional desktop
+resource permissions so a restrictive root umask cannot block unprivileged
+Plasma/Omarchy installation. Retain existing configuration bytes and mode.
 
 systemd uses `TimeoutStopSec=15s` and journal logging. OpenRC uses
 `retry="TERM/15/KILL/5"`, requires local mounts, and orders after module loading;
@@ -61,8 +67,9 @@ systems fail before mutation; do not fall back to `killall`.
 
 Run `bunx vitest run bootstrap/scripts.test.ts` with the repository toolchain.
 Linux script tests rebase every privileged filesystem target into a temporary
-directory and replace service commands. They verify config preservation, obsolete
-asset removal, failed-stop aborts, conflicting installations, and tar layout.
+directory and replace service commands. They verify fresh installation, upgrade,
+config preservation, explicit purge, obsolete asset removal, failed stop/restart
+reporting, conflicting-installation refusal before service access, and tar layout.
 Windows also runs the real batch entrypoints against disposable compiled command
 substitutes for administrator detection, SCM queries, and WinSW. These verify
 fresh installation, shutdown ordering, and failed-stop/removal aborts without elevation or host service access;

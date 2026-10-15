@@ -1,0 +1,23 @@
+# Debian 13 (trixie): native Qt 6.8.2, Plasma 6.3.5, Kirigami 6.13.
+# All packages come from the same signed stable distribution repository.
+ca-certificates
+cmake
+g++
+ninja-build
+python3
+fonts-dejavu-core
+qt6-base-dev
+qt6-declarative-dev
+qt6-declarative-dev-tools
+qml6-module-qttest
+qml6-module-qtqml-workerscript
+qml6-module-qtquick-controls
+qml6-module-qtquick-layouts
+qml6-module-qtquick-effects
+qml6-module-qtquick-shapes
+qml6-module-qtquick-templates
+qml6-module-qtquick-window
+qml6-module-qtwebsockets
+qml6-module-org-kde-kirigami
+qml6-module-org-kde-ksvg
+plasma-desktoptheme

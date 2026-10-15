@@ -4,6 +4,8 @@ This directory prepares an **unpublished** x86_64 package for the glibc Linux
 release. A stable, published release and its verified archive digest are required
 before submitting it to the AUR. The current `SKIP` checksum is a development
 placeholder and must never be shipped as a published package.
+The [AUR RPC lookup](https://aur.archlinux.org/rpc/v5/info?arg%5B%5D=alfc-bin)
+returned no `alfc-bin` package on 2026-10-15; recheck before claiming publication.
 
 ## Package sources and service
 
@@ -14,6 +16,11 @@ license files under the usual `/usr/share` locations. Widget scripts retain thei
 executable permission; the widget itself is installed in each user's account.
 The documentation directory preserves root/common/widget/AUR Markdown paths so
 relative links in the installed README remain usable.
+The optional [Omarchy integration](../OMARCHY.md) helpers and Quickshell module
+are staged under `/usr/lib/alfc/omarchy`; the packaged Plasma protocol guard
+remains available for its user-session installer. Desktop integration is opt-in
+and unprivileged. Its installer requires Python 3; the runtime requirements are
+documented separately from the backend's native-library requirements.
 
 The service is generated from the archive's
 `bootstrap/scripts/linux/alfc.service` template, delivered at archive root as
@@ -47,8 +54,11 @@ points back to this repository after cloning elsewhere.
 
 ## User operations
 
-After the package is published, install with an AUR helper, install a matching
-`acpi_call` or `acpi_call-dkms` module and kernel headers, then run:
+After the package is published, install with an AUR helper and choose the
+kernel module from the [Linux requirements](../LINUX.md#requirements).
+`acpi_call` targets Arch's `linux` kernel; `acpi_call-lts` targets `linux-lts`.
+Other kernels need a matching module package or `acpi_call-dkms` with that
+kernel's headers. These module packages are alternatives. Then run:
 
 ```sh
 sudo modprobe acpi_call

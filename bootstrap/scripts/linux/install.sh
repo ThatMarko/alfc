@@ -6,6 +6,10 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   exit 1
 fi
 
+# Service files and optional desktop resources must remain readable by the
+# desktop user even when sudo preserves a restrictive caller umask.
+umask 022
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_NAME="alfc"
 INSTALL_DIR="/opt/alfc"
@@ -51,6 +55,7 @@ install_files() {
   esac
 
   mkdir -p "${INSTALL_DIR}"
+  chmod 755 "${INSTALL_DIR}"
 
   # Preserve existing config if present
   local preserve_config=false
@@ -73,11 +78,19 @@ install_files() {
     cp "${SCRIPT_DIR}/alfc.config.json" "${INSTALL_DIR}/alfc.config.json"
   fi
 
-  # Plasmoid (user installs separately via kpackagetool6)
-  if [[ -d "${SCRIPT_DIR}/plasmoid" ]]; then
-    rm -rf "${INSTALL_DIR}/plasmoid"
-    cp -r "${SCRIPT_DIR}/plasmoid" "${INSTALL_DIR}/plasmoid"
-  fi
+  # Optional desktop integrations; users opt in separately. Normalize the
+  # owned resource tree so restrictive archive extraction cannot hide helpers
+  # or QML/JS resources from the unprivileged desktop session.
+  local desktop
+  for desktop in plasmoid omarchy; do
+    if [[ -d "${SCRIPT_DIR}/${desktop}" ]]; then
+      rm -rf "${INSTALL_DIR}/${desktop}"
+      cp -r "${SCRIPT_DIR}/${desktop}" "${INSTALL_DIR}/${desktop}"
+      find "${INSTALL_DIR}/${desktop}" -type d -exec chmod 755 {} +
+      find "${INSTALL_DIR}/${desktop}" -type f -exec chmod 644 {} +
+      find "${INSTALL_DIR}/${desktop}" -type f -name '*.sh' -exec chmod 755 {} +
+    fi
+  done
 
   # Management scripts — so users can uninstall/run from /opt/alfc
   for script in uninstall.sh run.sh; do
@@ -193,4 +206,9 @@ if [[ -d "${INSTALL_DIR}/plasmoid" ]]; then
   echo ""
   echo "  KDE Plasma 6 widget (optional):"
   echo "    ${INSTALL_DIR}/plasmoid/install.sh"
+fi
+if [[ -d "${INSTALL_DIR}/omarchy" ]]; then
+  echo ""
+  echo "  Omarchy status/launcher module (optional, run as desktop user):"
+  echo "    ${INSTALL_DIR}/omarchy/install.sh"
 fi

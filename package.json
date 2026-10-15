@@ -22,13 +22,15 @@
     "prepare": "husky",
     "test": "vitest run",
     "test:watch": "vitest",
-    "type-check": "bun run --filter frontend --filter server type-check",
+    "type-check": "bun run --filter frontend --filter server type-check && tsc --noEmit -p integration",
     "del:tscache": "bun clean-tscache.ts",
     "all-checks": "bun run lint && bun run type-check && bun run test && bun run build",
-    "test:web": "playwright test"
+    "test:web": "playwright test",
+    "test:integration": "playwright test --config integration/playwright.config.ts",
+    "check:docs": "python3 tools/check_docs.py"
   },
   "devDependencies": {
-    "@eslint-react/eslint-plugin": "^5.27.0",
+    "@eslint-react/eslint-plugin": "^5.27.2",
     "@eslint/compat": "^2.1.1",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.64.1",
@@ -44,7 +46,7 @@
     "prettier": "^3.9.10",
     "typescript": "6.0.3",
     "typescript-eslint": "^8.71.2",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.5"
   },
   "packageManager": "bun@1.4.3"
 }

@@ -18,6 +18,16 @@ for arg in "$@"; do
   esac
 done
 
+# The service name is shared with packaged installations. A foreign command
+# means this manual uninstaller cannot safely claim ownership of that service.
+# Check before stopping/disabling it or removing any installation files.
+if [[ -e /usr/bin/alfc || -L /usr/bin/alfc ]]; then
+  if [[ "$(readlink /usr/bin/alfc || true)" != "${INSTALL_DIR}/alfc" ]]; then
+    echo "/usr/bin/alfc belongs to another installation; remove it with its package manager first."
+    exit 1
+  fi
+fi
+
 detect_init() {
   if [[ -d /run/systemd/system ]]; then
     echo "systemd"

@@ -4,11 +4,17 @@
   "scripts": {
     "setup": {
       "enabled": true,
-      "command": "apt-get update -qq && apt-get install --no-install-recommends -y -qq git-lfs && bun install --frozen-lockfile"
+      "command": "apt-get update -qq && apt-get install --no-install-recommends -y -qq git-lfs && sh tools/check-cloud-runtime.sh && bun install --frozen-lockfile"
     },
-    "run": { "enabled": true, "command": "bun run start" },
+    "run": {
+      "enabled": true,
+      "command": "sh tools/check-cloud-runtime.sh && bun run --cwd frontend start"
+    },
     "archive": { "enabled": true, "command": null },
-    "check": { "enabled": true, "command": "bun run all-checks" }
+    "check": {
+      "enabled": true,
+      "command": "sh tools/check-cloud-runtime.sh && bun run all-checks"
+    }
   },
   "mcpServers": []
 }

@@ -20,20 +20,23 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: "1.4.3"
 
-      - name: Setup Node for Vitest
-        uses: actions/setup-node@v6
+      - name: Setup Node for development tools
+        uses: actions/setup-node@v7.1.0
         with:
-          node-version: "24"
+          node-version: "24.22.0"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Audit installed dependencies
+        run: bun audit
 
       - name: Lint, type-check, test, build
         run: bun run all-checks
@@ -44,13 +47,30 @@ jobs:
       - name: Verify web UI against backend protocol scenarios
         run: bun run test:web
 
+      - name: Setup Python for cross-client Qt integration
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Qt protocol client runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libegl1 libgl1
+          python -m pip install "PySide6==6.12.0"
+
+      - name: Verify web and Qt against production protocol handlers
+        run: bun run test:integration
+
+      - name: Verify documentation links and anchors
+        run: bun run check:docs
+
       - name: Verify native WMI output packing
         run: |
           c++ -std=c++17 -Wall -Wextra -Werror server/native/windows/wmidll/WmiOutput.test.cpp -o "$RUNNER_TEMP/alfc-wmi-output-test"
           "$RUNNER_TEMP/alfc-wmi-output-test"
 
       - name: Setup .NET for CPU tuning export checks
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6.0.0
         with:
           dotnet-version: "8.0.x"
 
@@ -58,7 +78,7 @@ jobs:
         run: dotnet run --project server/native/windows/cpuoc-dotnet/CPUOC.Tests.csproj
 
   qt:
-    name: Qt ${{ matrix.pyside }} widget
+    name: Qt-only ${{ matrix.pyside }} widget
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -66,10 +86,10 @@ jobs:
         pyside: ["6.8.2.1", "6.12.0"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Setup Python for Qt client runtime checks
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.12"
 
@@ -83,7 +103,7 @@ jobs:
       - name: Verify widget connection and protocol with Qt
         run: |
           qt_log="$RUNNER_TEMP/alfc-qt.log"
-          if python plasmoid/run_qml_tests.py >"$qt_log" 2>&1; then
+          if python plasmoid/run_qml_tests.py --tier qt-only >"$qt_log" 2>&1; then
             cat "$qt_log"
           else
             qt_status=$?
@@ -103,25 +123,72 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           QT_QUICK_BACKEND: software
 
+      - name: Verify Omarchy protocol and lifecycle with Qt only
+        run: python omarchy/run_tests.py --qt-python "$(command -v python)"
+
+  plasma-components:
+    name: Plasma components (Debian 13)
+    # Ubuntu 26.04 supplies the 2025 Debian archive signing keys for trixie.
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Build matching Qt and Plasma component environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y debootstrap debian-archive-keyring
+          sudo debootstrap --variant=minbase --include=ca-certificates --keyring=/usr/share/keyrings/debian-archive-keyring.gpg trixie "$RUNNER_TEMP/alfc-debian13" https://deb.debian.org/debian
+          sudo mkdir -p "$RUNNER_TEMP/alfc-debian13/alfc"
+          sudo cp -a plasmoid omarchy "$RUNNER_TEMP/alfc-debian13/alfc/"
+
+      - name: Require matching Plasma editor and representation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo chroot "$RUNNER_TEMP/alfc-debian13" /bin/bash -c '
+            set -euo pipefail
+            apt-get update
+            xargs -r apt-get install --no-install-recommends -y < <(sed -e "/^#/d" -e "/^$/d" /alfc/plasmoid/tests/debian-component-packages.txt)
+            dpkg-query -W > /alfc/plasmoid/component-packages.log
+            bash /alfc/plasmoid/run_component_tests.sh
+            python3 /alfc/omarchy/run_tests.py --qml-runner /usr/lib/qt6/bin/qmltestrunner
+          ' 2>&1 | tee "$RUNNER_TEMP/alfc-plasma-components.log"
+
+      - name: Upload component diagnostics and resolved packages
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: plasma-component-diagnostics
+          retention-days: 5
+          path: |
+            ${{ runner.temp }}/alfc-plasma-components.log
+            ${{ runner.temp }}/alfc-debian13/alfc/plasmoid/component-packages.log
+
   windows:
     runs-on: windows-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: "1.4.3"
 
-      - name: Setup Node for Vitest
-        uses: actions/setup-node@v6
+      - name: Setup Node for development tools
+        uses: actions/setup-node@v7.1.0
         with:
-          node-version: "24"
+          node-version: "24.22.0"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Audit installed dependencies
+        run: bun audit
 
       - name: Lint, type-check, test, build
         run: bun run all-checks

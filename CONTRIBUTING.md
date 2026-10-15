@@ -2,25 +2,29 @@
 
 ALFC changes hardware state with elevated privileges. Describe the behavior you
 changed, how you verified it, and which physical platforms remain untested.
-Use [the issue templates](https://github.com/ThatMarko/alfc/issues/new/choose)
-for reproducible bugs and feature requests. An issue is useful context, not a
-prerequisite for a focused fix. Report vulnerabilities through [SECURITY.md](SECURITY.md)
+The fork’s issue tracker was disabled when checked on 2026-10-15. Submit a
+focused pull request for a concrete fix; if issues are enabled later, use
+[the issue templates](https://github.com/ThatMarko/alfc/issues/new/choose) for
+reproducible bugs and feature requests. An issue is not a prerequisite for a fix. Report vulnerabilities through [SECURITY.md](SECURITY.md)
 and follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Toolchain and development
 
-The checked toolchain is Bun 1.4.3 and one Node.js 24.11 or newer within major 24 installation:
+The tested toolchain is Bun 1.4.3 and Node.js 24.22.0 LTS. Node 24.11 remains
+the minimum supported patch within major 24; testing a newer patch does not
+raise that minimum:
 
-| Runtime        | Current uses                                                                                |
-| -------------- | ------------------------------------------------------------------------------------------- |
-| Bun 1.4.3      | Dependency installation, workspace scripts, backend, native FFI/workers, server compilation |
-| Node.js 24.11+ | Vite, Vitest, ESLint, TypeScript, Playwright, Husky, and lint-staged CLIs                   |
+| Runtime                         | Current uses                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------- |
+| Bun 1.4.3                       | Dependency installation, workspace scripts, backend, native FFI/workers, server compilation |
+| Node.js 24.22.0 (minimum 24.11) | Vite, Vitest, ESLint, TypeScript, Playwright, Husky, and lint-staged CLIs                   |
 
 `bun run` and `bunx` honor a CLI's `#!/usr/bin/env node` shebang unless explicitly
 forced to use Bun with `--bun`; invoking them through Bun does not switch every
 tool's JavaScript runtime. See the [versioned Bun documentation](https://github.com/oven-sh/bun/blob/bun-v1.4.3/docs/runtime/index.mdx#L134-L147).
-Node 26 was an alternative allowed by dependency engine ranges, not an additional
-requirement. ALFC declares Node 24 to match its Linux/Windows CI and release jobs.
+The official [Node release index](https://nodejs.org/dist/index.json), rechecked
+on 2026-10-15, lists 24.22.0 as Krypton LTS and 26.12.0 as Current. ALFC
+declares major 24 and pins the tested patch in Linux/Windows CI and release jobs.
 
 The Babel 8 transform requires Node 24.11 or newer within major 24. React 19
 and Vite 8 are used by the frontend; Vite's default browser target is
@@ -39,11 +43,16 @@ the global `Bun` object, which is read-only in the actual Bun runtime. Some Vite
 tests can run under Bun; removing Node requires a deliberate mock-boundary and
 tool-launch migration with the same Windows/Linux coverage, not just `--bun`.
 
-The Debian/Ubuntu Hoplite setup retains `apt-get update` and installation of
-Git LFS before the frozen dependency install. That provisioning step needs
-privileged APT access and an image with the Bun/Node versions above. Git LFS is
-a development utility; current tracked binaries are ordinary Git objects.
-Browser, Qt, and native compiler test prerequisites remain documented separately.
+Cloud setup must activate Bun 1.4.3 and Node 24.22.0 in every setup, run and
+check shell, or use an image containing those versions. The tracked Hoplite
+configuration preserves privileged APT/Git LFS provisioning, then runs
+`sh tools/check-cloud-runtime.sh` before the frozen install. This script
+validates the exact cloud pins and prints activation guidance; it does not
+install runtimes or change the package engine minima. Cloud preview starts
+only the normal-user Vite frontend. Start the backend separately with elevation
+on an appropriate hardware host. Current tracked binaries are ordinary Git
+objects; Git LFS is a development utility. Browser, matching Qt/KDE components,
+and native compiler prerequisites remain separate from the JavaScript install.
 
 ```bash
 bun install --frozen-lockfile
@@ -71,6 +80,8 @@ the executable and serves the packaged frontend.
 bun run all-checks       # ESLint, strict TypeScript, Vitest, workspace builds
 bunx playwright install chromium
 bun run test:web        # Chromium protocol and layout scenarios
+bun run test:integration # Built web UI + real QML client + production handlers/fake hardware
+bun run check:docs      # Local Markdown paths and heading anchors
 bun outdated --recursive # Available updates across all workspaces
 bun audit               # Current advisory data; network required
 bun run del:tscache     # Remove only this workspace's known compiler caches
@@ -89,8 +100,16 @@ Avoid an unrelated server on port 3000 when running them.
 Additional checks, with prerequisites and limits, are in
 [PORTING_REVIEW.md](PORTING_REVIEW.md):
 
-- Qt Quick tests execute widget connection, protocol, URLs, and editor behavior.
-  Missing Plasma/Kirigami editor modules produce explicit skips in Qt-only CI.
+- Qt-only tests execute connection, protocol and URL behavior; missing
+  Plasma/Kirigami produces explicit optional skips only in that tier.
+  `bash plasmoid/run_component_tests.sh` uses matching distro Qt/KDE libraries
+  and fails when required imports or components are broken. See
+  [the tier dependencies](plasmoid/DEPENDENCIES.md#development-checks).
+- The cross-client integration requires built frontend assets, Chromium,
+  PySide6 6.12.0 and free port 5522 on both loopback families. Set
+  `ALFC_QT_PYTHON` to a separate Qt virtual environment’s interpreter. It runs
+  production handlers and real web/QML clients with explicit fake native
+  adapters in a disposable source tree; no elevation or real hardware is used.
 - Native C++ output packing tests run without Windows. CI also compiles the
   actual WMI DLL with MSVC on Windows.
 - .NET export tests use a controlled SDK fixture. They do not establish that
@@ -129,8 +148,11 @@ and telemetry-confirmed output are separate facts.
 
 ## Pull requests
 
-Work from the intended branch; PR #1 is `feat/wmi-ffi`. New unrelated changes
-normally start from the appropriate target branch. Keep commits focused and
+Discover the remote default branch (`master` at the merged PR #1 baseline),
+fetch it, inspect the working tree, and base follow-up changes on its current
+revision. Do not rename it to match the colloquial name “main.” Preserve user
+changes and use a review branch when required by protections or review practice;
+do not force-push, merge automatically, or publish releases as routine maintenance. Keep commits focused and
 use conventional messages such as `fix(windows): ...` or `docs: ...`.
 
 Include the problem, resulting behavior, actual checks, and limitations. Changes

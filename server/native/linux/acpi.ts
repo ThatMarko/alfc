@@ -28,7 +28,9 @@ function validateMethodId(methodId: string): string {
   if (!ACPI_METHOD_ID_PATTERN.test(methodId)) {
     throw new RangeError(`Invalid ACPI methodId: ${JSON.stringify(methodId)}`);
   }
-  return methodId;
+  // acpi_call's argument parser recognizes only a lowercase "0x" prefix.
+  // Its decimal branch parses an otherwise valid "0XE1" as zero.
+  return methodId.toLowerCase();
 }
 
 function argsToHexString(
@@ -126,7 +128,7 @@ export async function getCall(
   }
 
   try {
-    const command = `\\_SB.PCI0.AMW0.WMBC 0 ${methodId} ${argsToHexString(getMethods, methodId, methodName, args)}`;
+    const command = `\\_SB.PCI0.AMW0.WMBC 0 ${validateMethodId(methodId)} ${argsToHexString(getMethods, methodId, methodName, args)}`;
     await Bun.write(ACPI_CALL_PATH, command);
     const result = await Bun.file(ACPI_CALL_PATH).text();
     const outputBytes =
@@ -153,7 +155,7 @@ export async function setCall(
     throw new Error(`${ACPI_CALL_PATH} is not available`);
   }
 
-  const command = `\\_SB.PCI0.AMW0.WMBD 0 ${methodId} ${argsToHexString(setMethods, methodId, methodName, args)}`;
+  const command = `\\_SB.PCI0.AMW0.WMBD 0 ${validateMethodId(methodId)} ${argsToHexString(setMethods, methodId, methodName, args)}`;
   try {
     await Bun.write(ACPI_CALL_PATH, command);
     // acpi_call reports firmware errors through its read result, even when

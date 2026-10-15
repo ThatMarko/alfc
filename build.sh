@@ -20,6 +20,9 @@ mkdir -p "${RELEASE_DIR}/common" "${RELEASE_DIR}/aur" "${RELEASE_DIR}/assets"
 cp common/*.md "${RELEASE_DIR}/common/"
 cp aur/README.md "${RELEASE_DIR}/aur/"
 cp assets/screenshot.png "${RELEASE_DIR}/assets/"
+mkdir -p "${RELEASE_DIR}/omarchy"
+cp omarchy/install.sh omarchy/uninstall.sh omarchy/manage.py "${RELEASE_DIR}/omarchy/"
+cp -r omarchy/module "${RELEASE_DIR}/omarchy/module"
 
 # Keep the archive outside the directory being archived.
 tar -czf dist/alfc.tar.gz -C dist alfc

@@ -2,11 +2,11 @@
 
 The current server emits protocol **1.1**. This document describes the wire
 contract implemented by
-[types.ts](https://github.com/ThatMarko/alfc/blob/feat/wmi-ffi/common/types.ts),
-[protocol.ts](https://github.com/ThatMarko/alfc/blob/feat/wmi-ffi/common/protocol.ts),
-[validation.ts](https://github.com/ThatMarko/alfc/blob/feat/wmi-ffi/common/validation.ts),
+[types.ts](https://github.com/ThatMarko/alfc/blob/master/common/types.ts),
+[protocol.ts](https://github.com/ThatMarko/alfc/blob/master/common/protocol.ts),
+[validation.ts](https://github.com/ThatMarko/alfc/blob/master/common/validation.ts),
 and the
-[server handlers](https://github.com/ThatMarko/alfc/blob/feat/wmi-ffi/server/websocket/index.ts).
+[server handlers](https://github.com/ThatMarko/alfc/blob/master/server/websocket/index.ts).
 Client and platform support is
 listed in [COMPATIBILITY.md](COMPATIBILITY.md).
 
@@ -38,8 +38,10 @@ connection: subscribe again and use its new initial state.
 Bun sends WebSocket protocol pings automatically (`sendPings: true`); the idle
 timeout is 120 seconds. Browser WebSocket implementations answer those protocol
 pings. ALFC also accepts a plain text `ping` message and answers plain text `pong`.
-The Plasma client uses this application heartbeat every 25 seconds, with a
-60-second response watchdog. Heartbeats bypass the hardware queue.
+The Plasma client and optional Omarchy status module use this application
+heartbeat every 25 seconds, with a 60-second response watchdog. The Omarchy
+module is read-only and opens the existing web UI for mutations; it adds no
+HTTP status endpoint or privileged controller. Heartbeats bypass the hardware queue.
 
 Incoming messages are limited to **64 KiB**. Connections reaching **1 MiB** of outbound
 backpressure are terminated. The application checks buffered bytes around direct
@@ -86,7 +88,7 @@ A native GPU-boost request illustrates the complete envelope:
 `kind` identifies the operation. For `get` and `set`, `methodId` is the firmware
 opcode, not a request identifier; it accepts decimal or `0x` hexadecimal notation.
 `methodName` must identify the same method in the shared
-[MOF catalog](https://github.com/ThatMarko/alfc/blob/feat/wmi-ffi/common/methods.ts).
+[MOF catalog](https://github.com/ThatMarko/alfc/blob/master/common/methods.ts).
 Both fields are required for these native operations.
 For configuration and subscription messages they are optional metadata.
 

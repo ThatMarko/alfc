@@ -54,6 +54,18 @@ describe("linux ACPI adapter", () => {
     expect(writtenCommands).toEqual(["\\_SB.PCI0.AMW0.WMBD 0 104 0x030201"]);
   });
 
+  it("normalizes uppercase hexadecimal IDs for acpi_call's lowercase-prefix parser", async () => {
+    const acpi = await import("./acpi");
+    await acpi.getCall("0XE1", "getCpuTemp");
+    await acpi.setCall("0X81", "SetAIBoostStatus", { Data: 1 });
+    // acpi_call.c recognizes only a literal lowercase '0x' prefix before
+    // choosing hexadecimal parsing; '0XE1' otherwise parses as decimal zero.
+    expect(writtenCommands).toEqual([
+      "\\_SB.PCI0.AMW0.WMBC 0 0xe1 0",
+      "\\_SB.PCI0.AMW0.WMBD 0 0x81 0x01",
+    ]);
+  });
+
   it("rejects firmware errors returned after a successful write", async () => {
     const acpi = await import("./acpi");
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

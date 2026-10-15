@@ -684,6 +684,34 @@ test("fan row controls cannot insert duplicate floating-point temperatures", asy
   expect(server.errors).toEqual([]);
 });
 
+test("removing a fan curve row keeps keyboard focus in the remaining curve", async ({
+  page,
+}) => {
+  const server = await backend(page);
+  const gpuTemperature = page.getByLabel("GPU temperature for row 1");
+  await gpuTemperature.fill("42.5");
+  await page
+    .getByRole("button", { name: "Remove CPU row 2", exact: true })
+    .focus();
+  await page.keyboard.press("Enter");
+  const nextTemperature = page.getByLabel("CPU temperature for row 2");
+  await expect(nextTemperature).toHaveValue("88");
+  await expect(nextTemperature).toBeFocused();
+  await nextTemperature.fill("89");
+  await page
+    .getByRole("button", { name: "Remove CPU row 2", exact: true })
+    .focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("CPU temperature for row 1")).toBeFocused();
+  await expect(page.getByLabel("CPU temperature for row 2")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Remove CPU row 1", exact: true }),
+  ).toBeDisabled();
+  await expect(gpuTemperature).toHaveValue("42.5");
+  expect(server.requests).toEqual([]);
+  expect(server.errors).toEqual([]);
+});
+
 test("a server without request correlation is rejected before writes are enabled", async ({
   page,
 }) => {

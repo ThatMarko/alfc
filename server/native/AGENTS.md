@@ -36,6 +36,13 @@ Fan control requires the `acpi_call` kernel module and the firmware namespace `\
 
 Input fields are packed in canonical MOF declaration order, rather than JSON insertion order. Current input fields are all `uint8`; adding another type requires updating both native transports, not merely the frontend form. Accept only complete integer/buffer results. Reject error text, stale `not called` results, malformed/truncated buffers and out-of-range output values.
 
+Normalize validated hexadecimal method IDs to lowercase before sending them to
+`acpi_call`. Its [argument parser](https://github.com/nix-community/acpi_call/blob/master/acpi_call.c)
+checks a literal lowercase `0x` prefix; forwarding an accepted uppercase `0X`
+prefix would select decimal parsing and dispatch method zero. WebSocket callers
+already use catalog IDs, but the native boundary must honor the same accepted
+numeric ID forms independently.
+
 RAPL checks package zero in these locations, in order:
 
 1. `/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0`

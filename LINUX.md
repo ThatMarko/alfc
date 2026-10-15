@@ -12,13 +12,32 @@ scripts are included; an OpenRC machine still needs a compatible binary.
 Musl-only distributions such as a default Alpine installation need a separately
 validated musl build or compatible runtime; the glibc archive is not universal.
 
-Install the `acpi_call` kernel module and headers matching your running kernel.
-On Arch-based systems:
+Install an `acpi_call` module built for the kernel you boot. On Arch-based
+systems, choose a matching prebuilt package or DKMS with the target kernel's
+headers:
+
+| Kernel                                            | Prebuilt module              | DKMS alternative                         |
+| ------------------------------------------------- | ---------------------------- | ---------------------------------------- |
+| `linux`                                           | `acpi_call`                  | `acpi_call-dkms` + `linux-headers`       |
+| `linux-lts`                                       | `acpi_call-lts`              | `acpi_call-dkms` + `linux-lts-headers`   |
+| `linux-zen`, `linux-hardened`, or a custom kernel | Check for a matching package | `acpi_call-dkms` + that kernel's headers |
+
+For example, with the standard `linux` kernel:
 
 ```sh
-sudo pacman -S acpi_call-dkms
+sudo pacman -Syu acpi_call-dkms linux-headers
 sudo modprobe acpi_call
 ```
+
+Use `uname -r` and `pacman -Q` to identify the running and installed kernels;
+install headers for every kernel you intend to boot. A kernel upgrade may need
+a reboot before its newly built module can load. Check `dkms status` and pacman
+build output after upgrades. The prebuilt and DKMS module packages conflict;
+choose one approach. See the current Arch package pages for
+[`acpi_call`](https://archlinux.org/packages/extra/x86_64/acpi_call/),
+[`acpi_call-lts`](https://archlinux.org/packages/extra/x86_64/acpi_call-lts/), and
+[`acpi_call-dkms`](https://archlinux.org/packages/extra/any/acpi_call-dkms/), and
+the [DKMS instructions](https://wiki.archlinux.org/title/Dynamic_Kernel_Module_Support).
 
 For other distributions, use their matching kernel-module packages or follow
 [nix-community/acpi_call](https://github.com/nix-community/acpi_call). Secure Boot
@@ -88,6 +107,9 @@ sudo /opt/alfc/uninstall.sh
 This stops the service before deleting files and preserves only the top-level
 configuration. To delete it too, run the same command with `--purge`. A failed
 service stop or unknown init system aborts removal, leaving files in place.
+Removal also refuses a foreign `/usr/bin/alfc` command before touching the
+shared `alfc` service name; remove a package installation with its package
+manager instead.
 Uninstall the per-user widget separately.
 
 ## Troubleshooting
@@ -107,6 +129,18 @@ stopping the other instance, not by opening the service on all network interface
 If ALFC started before `acpi_call` was loaded, load the module and restart ALFC
 (`sudo systemctl restart alfc` or `sudo rc-service alfc restart`). Availability is
 cached for the process; loading the module alone does not refresh the capability.
+
+ALFC owns its paired ACPI fan writes and Intel RAPL package limits while running.
+Review other configured controllers before enabling it: for example,
+[`fancontrol` and NBFC](https://wiki.archlinux.org/title/Fan_speed_control) also
+control fans, while RAPL tools can write the same
+[`constraint_*_power_limit_uw` attributes](https://docs.kernel.org/power/powercap/powercap.html).
+Whether they conflict depends on the actual device and configured controls.
+CPU governors, energy preferences, and RAPL limits are different controls; the
+presence of a power-profile service alone is not proof of conflict. ALFC's
+installers do not disable other services or change system power policy. Choose
+one owner for overlapping controls and validate behavior on the laptop,
+including suspend/resume and service restart.
 
 ## KDE Plasma 6 widget
 
@@ -129,3 +163,12 @@ confirmed state. See [plasmoid/README.md](plasmoid/README.md) for supported cont
 connection settings, and runtime test instructions. For development,
 `plasmoidviewer -a plasmoid/package` requires the Plasma development tools;
 `plasmawindowed org.kde.alfc` opens an installed widget.
+
+## Omarchy desktop integration
+
+Omarchy uses Hyprland and Quickshell rather than Plasma. The optional
+status/launcher module is staged under `/opt/alfc/omarchy` by the manual installer
+and `/usr/lib/alfc/omarchy` by the AUR template. Run its `install.sh` as the desktop
+user and follow [OMARCHY.md](OMARCHY.md) for supported versions, runtime packages,
+configuration, upgrade, removal, and the separate physical-device validation
+requirements. The backend and local web UI operate independently of this module.

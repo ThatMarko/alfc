@@ -163,6 +163,9 @@ PlasmaExtras.Representation {
     property bool pl1DraftDirty: false
     property bool pl2DraftDirty: false
     property string draftSourceUrl: ""
+    property int authoritativeFixedPercentage: -1
+    property int authoritativePl1: -1
+    property int authoritativePl2: -1
     property string pendingModeRequestId: ""
     property string pendingFixedRequestId: ""
     property string pendingBoostRequestId: ""
@@ -206,6 +209,12 @@ PlasmaExtras.Representation {
 
         const sourceUrl = String(fullRoot.backend.url ?? "")
         const sourceChanged = sourceUrl !== fullRoot.draftSourceUrl
+        const fixedChanged = fullRoot.authoritativeFixedPercentage >= 0
+            && fullRoot.authoritativeFixedPercentage !== fullRoot.safeState.fixedPercentage
+        const pl1Changed = fullRoot.authoritativePl1 >= 0
+            && fullRoot.authoritativePl1 !== fullRoot.safeState.pl1
+        const pl2Changed = fullRoot.authoritativePl2 >= 0
+            && fullRoot.authoritativePl2 !== fullRoot.safeState.pl2
         if (sourceChanged) {
             fullRoot.draftSourceUrl = sourceUrl
             fullRoot.fixedDraftDirty = false
@@ -217,17 +226,27 @@ PlasmaExtras.Representation {
         }
         fullRoot.syncModeSelection()
 
-        if ((sourceChanged || fullRoot.canSyncFixedDraft) && typeof fullRoot.safeState.fixedPercentage === "number") {
+        if (fixedChanged) fullRoot.fixedDraftDirty = false
+        if (pl1Changed) fullRoot.pl1DraftDirty = false
+        if (pl2Changed) fullRoot.pl2DraftDirty = false
+
+        if ((sourceChanged || fixedChanged || fullRoot.canSyncFixedDraft) && typeof fullRoot.safeState.fixedPercentage === "number") {
             fullRoot.draftFixedPercentage = String(fullRoot.safeState.fixedPercentage)
+            if (sourceChanged || fixedChanged) speedField.text = fullRoot.draftFixedPercentage
         }
 
-        if ((sourceChanged || fullRoot.canSyncPl1Draft) && typeof fullRoot.safeState.pl1 === "number") {
+        if ((sourceChanged || pl1Changed || fullRoot.canSyncPl1Draft) && typeof fullRoot.safeState.pl1 === "number") {
             fullRoot.draftPl1 = String(fullRoot.safeState.pl1)
+            if (sourceChanged || pl1Changed) pl1Field.text = fullRoot.draftPl1
         }
 
-        if ((sourceChanged || fullRoot.canSyncPl2Draft) && typeof fullRoot.safeState.pl2 === "number") {
+        if ((sourceChanged || pl2Changed || fullRoot.canSyncPl2Draft) && typeof fullRoot.safeState.pl2 === "number") {
             fullRoot.draftPl2 = String(fullRoot.safeState.pl2)
+            if (sourceChanged || pl2Changed) pl2Field.text = fullRoot.draftPl2
         }
+        fullRoot.authoritativeFixedPercentage = fullRoot.safeState.fixedPercentage
+        fullRoot.authoritativePl1 = fullRoot.safeState.pl1
+        fullRoot.authoritativePl2 = fullRoot.safeState.pl2
     }
 
     function syncModeSelection() {
@@ -640,6 +659,7 @@ PlasmaExtras.Representation {
 
                         PlasmaComponents.TextField {
                             id: speedField
+                            objectName: "fixedPercentageField"
 
                             Layout.preferredWidth: Kirigami.Units.gridUnit * 4
                             horizontalAlignment: Text.AlignHCenter
@@ -750,6 +770,7 @@ PlasmaExtras.Representation {
                     }
 
                     PlasmaComponents.Switch {
+                        objectName: "gpuBoostSwitch"
                         Binding on checked {
                             value: fullRoot.hasState && fullRoot.safeState.gpuBoost === true
                             when: !fullRoot.boostBusy

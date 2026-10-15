@@ -2,7 +2,7 @@
 
 ## Validate the source revision
 
-Use Bun 1.4.3 or newer and Node 24.11 or newer within major 24. Run `bun install --frozen-lockfile`,
+Use the pinned Bun 1.4.3 and tested Node 24.22.0 LTS (minimum Node 24.11 within major 24). Run `bun install --frozen-lockfile`,
 `bun run all-checks`, and the documented browser and Qt runtime checks before
 creating a tag. CI runs the shared checks on Linux and Windows, browser/Qt checks
 on Linux, and builds the Windows WMI DLL with MSVC. Native SDK substitute tests
@@ -20,9 +20,9 @@ Node runs the current Vite, Vitest, and other Node-shebang development CLIs:
 simple switch to `--bun`. See [the toolchain explanation](CONTRIBUTING.md#toolchain-and-development)
 for the runtime roles and versioned API reference.
 
-Use one Node.js 24.11 or newer within major 24 installation, matching both platform workflows. Node 26 was
-an upstream-compatible alternative, not a second required installation; ALFC's
-declared engine now matches the checked Node 24 workflow. Release users install
+Use one Node.js 24.22.0 LTS installation, matching both platform workflows.
+The minimum engine remains 24.11 within major 24; Node 26.12 is Current. ALFC's
+declared engine and checked patch have different purposes. Release users install
 neither development runtime: the compiled executable embeds Bun.
 
 Update the version in root `package.json`, `frontend/package.json`,
@@ -38,24 +38,33 @@ git push origin vX.Y.Z
 Avoid publishing every local tag with `--tags`. The workflow validates that the
 release tag is a version-shaped `v...` value matching root `package.json`.
 
+No release is authorized by merging a maintenance PR. As checked on 2026-10-15,
+`v2.0.0-alpha.7` is the latest published prerelease and predates PR #1’s merge;
+older alpha drafts are not stable releases. Complete the physical gates below
+and inspect the final revision’s CI before preparing a new tag.
+
 ## Automated artifacts
 
 `.github/workflows/release.yml` builds Linux x64 and Windows x64 independently,
 runs lint/type/tests/build checks on both, builds `WmiDll.dll` on Windows, and
 assembles these assets into a **draft** GitHub Release:
 
-| Asset                          | Contents                                                                                                                                 |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `alfc-vX.Y.Z-linux-x64.tar.gz` | Executable, frontend, default config, systemd/OpenRC scripts, widget package/helpers, LICENSE, and root/common/widget/AUR Markdown docs  |
-| `alfc-vX.Y.Z-windows-x64.zip`  | Executable, frontend, default config, WmiDll.dll, WinSW v2.12.0 x64, service scripts, LICENSE, and the same Markdown documentation paths |
-| `org.kde.alfc.plasmoid`        | Zip of `plasmoid/package` for per-user KDE installation                                                                                  |
-| `SHA256SUMS`                   | SHA-256 digests of all three distributable artifacts                                                                                     |
+| Asset                          | Contents                                                                                                                                                                         |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `alfc-vX.Y.Z-linux-x64.tar.gz` | Executable, frontend, default config, systemd/OpenRC scripts, widget package/helpers, optional Omarchy module/install helpers, LICENSE, and root/common/widget/AUR Markdown docs |
+| `alfc-vX.Y.Z-windows-x64.zip`  | Executable, frontend, default config, WmiDll.dll, WinSW v2.12.0 x64, service scripts, LICENSE, and the same Markdown documentation paths                                         |
+| `org.kde.alfc.plasmoid`        | Zip of `plasmoid/package` for per-user KDE installation                                                                                                                          |
+| `SHA256SUMS`                   | SHA-256 digests of all three distributable artifacts                                                                                                                             |
 
 The Windows service XML uses WinSW's exact `stopparentprocessfirst` and
 `stoptimeout` element names. The 15-second wrapper allowance covers the backend's
 12-second bounded shutdown attempt. Review archive contents and checksum entries,
 release notes, platform results, and hardware limitations before publishing the
-draft. Generated checksums detect asset changes; they are not a detached signature.
+draft. Validate extracted Markdown with `python3 tools/check_docs.py PATH_TO_STAGE`
+from the source checkout. The Omarchy installer needs its QML files and the
+canonical `plasmoid/package/contents/ui/Protocol.js` guard, which both archives
+preserve; the optional installer uses Python 3 and the running module uses Qt,
+without adding a Node/Bun runtime requirement. Generated checksums detect asset changes; they are not a detached signature.
 
 The Windows installer and uninstaller use `stopwait` before removing an existing
 service and abort if shutdown fails. The pinned wrapper's `stop` command only

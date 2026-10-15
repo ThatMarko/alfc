@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.22)
+project(alfc_widget_tests LANGUAGES CXX)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 6.8 REQUIRED COMPONENTS QuickTest Qml Quick)
+add_executable(alfc-widget-tests runner.cpp)
+target_link_libraries(alfc-widget-tests PRIVATE Qt6::QuickTest Qt6::Qml Qt6::Quick)
+target_compile_definitions(alfc-widget-tests PRIVATE ALFC_TEST_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/..")
