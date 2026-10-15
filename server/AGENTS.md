@@ -11,7 +11,7 @@ permission checks use Advapi32 directly and do not require the LanmanServer serv
 | ---------------------------------- | ------------------------------------------------------------------------- |
 | Startup, signal handling, shutdown | `index.ts`, `listeners.integration.test.ts`                               |
 | Loopback listeners                 | `listeners.ts`: required IPv4 `127.0.0.1`, optional IPv6 `::1`, port 5522 |
-| HTTP origin and asset boundaries   | `http.ts`, `http.test.ts`                                                 |
+| HTTP origin and asset boundaries   | `http.ts`, `http.test.ts`, `http.integration.test.ts`                     |
 | Effective process privileges       | `permissions.ts`, `permissions.test.ts`                                   |
 | Automatic/fixed fan modes          | `fan-control/index.ts` and colocated tests                                |
 | Native platform boundaries         | `native/index.ts`; read `native/AGENTS.md` before editing adapters        |
@@ -30,6 +30,9 @@ permission checks use Advapi32 directly and do not require the LanmanServer serv
   including QtWebSockets, may omit Origin. Origin checking is not user authentication.
 - Only GET upgrades `/ws`; static files accept GET/HEAD. Decode asset URLs before
   containment checks and reject encoded Windows separators on every platform.
+  Check resolved filesystem paths too: symlinks and Windows junctions may point
+  inside the real asset root, but must not serve files outside it. The installed
+  asset tree remains trusted; path checks do not protect concurrent replacement.
 - WebSocket input is limited to 64 KiB; output backpressure is bounded to 1 MiB
   with connection closure. Keep shared validation and client error handling aligned.
 - Register shutdown handlers before native initialization. Stop new work, clear

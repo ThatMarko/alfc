@@ -16,7 +16,7 @@ import {
   restoreAutoFanControl,
   startFanControlShutdown,
 } from "./fan-control/index";
-import { handleWebSocketRequest, resolveFrontendPath } from "./http";
+import { handleWebSocketRequest, serveFrontendAsset } from "./http";
 import { isElevated } from "./permissions";
 import { listenOnLoopback } from "./listeners";
 
@@ -199,7 +199,7 @@ async function runServer() {
   const options = {
     port: PORT,
 
-    async fetch(req: Request, server: Bun.Server<undefined>) {
+    fetch(req: Request, server: Bun.Server<undefined>) {
       if (isShuttingDown) {
         return new Response("Service Unavailable", { status: 503 });
       }
@@ -216,20 +216,7 @@ async function runServer() {
       }
 
       if (!isDev) {
-        const resolved = resolveFrontendPath(frontendDir, url.pathname);
-        if ("status" in resolved) {
-          return new Response(
-            resolved.status === 400 ? "Bad Request" : "Forbidden",
-            { status: resolved.status },
-          );
-        }
-
-        const file = Bun.file(resolved.filePath);
-        if (await file.exists()) {
-          return new Response(file);
-        }
-
-        return new Response("Not Found", { status: 404 });
+        return serveFrontendAsset(frontendDir, url.pathname);
       }
 
       return new Response("Nothing to see here.");

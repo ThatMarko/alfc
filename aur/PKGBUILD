@@ -43,8 +43,8 @@ package() {
   fi
 
   # systemd service — generated from shared template
-  sed "s|@@INSTALL_DIR@@|/usr/lib/alfc|g" "${_srcdir}/alfc.service" \
-    | install -Dm644 /dev/stdin "${pkgdir}/usr/lib/systemd/system/alfc.service"
+  install -Dm644 "${_srcdir}/alfc.service" "${pkgdir}/usr/lib/systemd/system/alfc.service"
+  sed -i "s|@@INSTALL_DIR@@|/usr/lib/alfc|g" "${pkgdir}/usr/lib/systemd/system/alfc.service"
 
   # License
   install -Dm644 "${_srcdir}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"

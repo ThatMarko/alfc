@@ -77,6 +77,11 @@ The example uses simulated readings; it is not a hardware validation result.
   Firmware and driver hangs can prevent that handoff; automated tests cannot
   guarantee restoration on physical hardware.
 
+The web UI checks GitHub for a newer release when opened and every
+12 hours after a completed check. Each check has a ten-second deadline; failed
+checks leave local controls available and retain the last successful result.
+Hardware operation does not require Internet access.
+
 Review the configuration before starting ALFC: startup automatically applies
 stored power limits when a tuner is available. The shipped 37W/106W values are
 historical defaults, not recommendations for every CPU. The accepted 0–200W

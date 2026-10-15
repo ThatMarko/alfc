@@ -1,4 +1,5 @@
 import path from "node:path";
+import { realpath } from "node:fs/promises";
 
 const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -73,4 +74,54 @@ export function resolveFrontendPath(
   }
 
   return { filePath };
+}
+
+export async function serveFrontendAsset(
+  frontendDir: string,
+  pathname: string,
+): Promise<Response> {
+  const resolved = resolveFrontendPath(frontendDir, pathname);
+  if ("status" in resolved) {
+    return new Response(resolved.status === 400 ? "Bad Request" : "Forbidden", {
+      status: resolved.status,
+    });
+  }
+
+  let root: string;
+  let filePath: string;
+  try {
+    [root, filePath] = await Promise.all([
+      realpath(frontendDir),
+      realpath(resolved.filePath),
+    ]);
+  } catch (error) {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
+      return new Response("Not Found", { status: 404 });
+    }
+    throw error;
+  }
+
+  // The installed asset tree is trusted. Still check its real paths so a
+  // symlink or Windows junction cannot expose a file outside that tree.
+  // Resolve the root too, since a source build directory may itself be linked.
+  const relative = path.relative(root, filePath);
+  if (
+    relative === "" ||
+    relative === ".." ||
+    relative.startsWith(".." + path.sep) ||
+    path.isAbsolute(relative)
+  ) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  // A permitted link may change the target's extension. Keep MIME inference
+  // based on the requested asset name while opening the checked real path.
+  const file = Bun.file(filePath, { type: Bun.file(resolved.filePath).type });
+  if (await file.exists()) return new Response(file);
+  return new Response("Not Found", { status: 404 });
 }

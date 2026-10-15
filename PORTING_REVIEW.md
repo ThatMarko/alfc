@@ -99,13 +99,16 @@ change that target.
 TypeScript is pinned to 6.0.3. The latest 7.0.2 native compiler is deferred:
 typescript-eslint 8.71.2 declares support for `>=4.8.4 <6.1.0`, and the new native
 compiler does not expose the legacy compiler API used by current tooling.
-ESLint 10 uses `@eslint-react/eslint-plugin` 5.26.7 instead of the classic React
+ESLint 10 uses `@eslint-react/eslint-plugin` 5.27.0 instead of the classic React
 plugin whose peer range stops at ESLint 9. Duplicate direct parser/plugin and
 obsolete ESLint declaration packages are removed. Node declarations track the
 supported Node 24 line (24.19.2), not the unrelated latest Node major. The
 post-upgrade `bun outdated --recursive` check lists only the intentionally
 deferred TypeScript major and Node 26 declarations outside the supported runtime
 line. The advisory audit reports no vulnerabilities across 293 packages.
+The subsequent registry check found the compatible React lint-plugin 5.27.0
+release; its Node/peer requirements were checked before updating the manifest
+and lockfile.
 
 WebSocket binary commands now use fatal UTF-8 decoding: malformed bytes cannot
 be replacement-decoded into otherwise valid commands. Production and actual Bun
@@ -208,6 +211,21 @@ validation as `/ws`. The Windows temporary launcher and installer print the loca
 rather than opening a browser before initialization/listening finishes. Remote
 HTTPS/proxy examples no longer imply supported browser management.
 
+A further lifecycle review bounded optional GitHub release checks to ten seconds,
+including response-body parsing, and schedules each subsequent check after the
+previous one settles. HTTP error bodies are discarded before parsing; timed-out
+or unmounted checks cannot replace a newer result. Local hardware controls do
+not depend on this external request.
+
+Real Bun filesystem fixtures reproduced an asset symlink escaping the frontend
+directory. Static serving now checks resolved filesystem containment as well as
+decoded URL containment. Installation directories still need to be protected
+from modification; this check does not authenticate other local processes or
+eliminate concurrent filesystem replacement races. An isolated AUR build also
+reproduced a missing service template yielding an empty unit with a successful
+exit. Packaging now fails on a missing template and verifies its rendered unit
+against the shared service definition.
+
 The original PR description contained historical test counts and unmeasured
 nanosecond/CPU/memory comparisons. Those claims are not evidence for this
 implementation; the checks and physical release gates here supersede them.
@@ -237,7 +255,7 @@ loaded until process exit.
 ## Verification results
 
 - Frozen installation, ESLint, strict TypeScript, and both workspace builds pass.
-  Vitest executes 23 files: 322 tests pass on Linux and one Windows-only effective
+  Vitest executes 25 files: 335 tests pass on Linux and one Windows-only effective
   token test is explicitly skipped there. That test runs on Windows CI.
 - All 17 Chromium scenarios pass, covering authoritative state, independent
   drafts, correlated failures, reconnect/no replay, retired-socket callbacks, transport pressure, capability changes, invalid
@@ -251,7 +269,7 @@ loaded until process exit.
   actual source also compiles against the shipped legacy SDK. These are not XTU
   hardware or successful NativeAOT publishing results.
 - Real Bun source/compiled worker checks, cross-listener networking, runtime
-  source-production/compiled paths, startup/shutdown, and seven isolated
+  source-production/compiled paths, startup/shutdown, and eight isolated
   packaging/service regressions pass. The local Linux archive builds without
   containing itself and includes its linked documentation and screenshot.
 - Actual packaged and source-production backends serve the UI through

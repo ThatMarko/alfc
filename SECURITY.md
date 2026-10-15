@@ -32,6 +32,9 @@ artifacts may use different native helpers and do not establish current behavior
   authentication: other local processes and local users can send commands.
   Other services hosted on allowed loopback origins are inside that trust boundary.
 - HTTP serves local static frontend files and validates paths and methods.
+  Asset containment checks resolve symlinks and Windows junctions against the
+  real frontend root. The installed tree must still be protected against
+  unprivileged modification; these checks do not protect concurrent replacement.
   Hardware changes use WebSocket commands, with bounded message size, queue,
   and backpressure. Raw diagnostics are powerful despite signature validation;
   managed fan setters are blocked to preserve controller ownership.

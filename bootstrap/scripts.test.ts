@@ -307,7 +307,12 @@ exit 0
         await mkdir(path.dirname(path.join(directory, name)), {
           recursive: true,
         });
-        await writeFile(path.join(directory, name), "fixture");
+        await writeFile(
+          path.join(directory, name),
+          name === "bootstrap/scripts/linux/alfc.service"
+            ? await readFile(path.join(repositoryRoot, name), "utf8")
+            : "fixture",
+        );
       }
       await mkdir(commandDir, { recursive: true });
       await writeFile(path.join(commandDir, "bun"), "#!/bin/sh\nexit 0\n", {
@@ -361,6 +366,19 @@ exit 0
       expect(await readlink(path.join(packageDir, "usr/bin/alfc"))).toBe(
         "/usr/lib/alfc/alfc",
       );
+      expect(
+        await readFile(
+          path.join(packageDir, "usr/lib/systemd/system/alfc.service"),
+          "utf8",
+        ),
+      ).toBe(
+        (
+          await readFile(
+            path.join(repositoryRoot, "bootstrap/scripts/linux/alfc.service"),
+            "utf8",
+          )
+        ).replaceAll("@@INSTALL_DIR@@", "/usr/lib/alfc"),
+      );
       for (const name of [
         "common/PROTOCOL.md",
         "aur/README.md",
@@ -374,6 +392,27 @@ exit 0
           ),
         ).toBe("fixture");
       }
+      await rm(path.join(directory, "dist/alfc/alfc.service"));
+      const incompletePackageDir = path.join(directory, "incomplete-pkg");
+      await expect(
+        execute("bash", [
+          "-e",
+          "-c",
+          'source "$1"; pkgdir="$2"; cd "$3"; package',
+          "alfc-package-test",
+          path.join(repositoryRoot, "aur/PKGBUILD"),
+          incompletePackageDir,
+          directory,
+        ]),
+      ).rejects.toMatchObject({ code: 1 });
+      await expect(
+        stat(
+          path.join(
+            incompletePackageDir,
+            "usr/lib/systemd/system/alfc.service",
+          ),
+        ),
+      ).rejects.toThrow();
     });
   },
 );
