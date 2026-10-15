@@ -57,6 +57,12 @@ The Windows service XML uses WinSW's exact `stopparentprocessfirst` and
 release notes, platform results, and hardware limitations before publishing the
 draft. Generated checksums detect asset changes; they are not a detached signature.
 
+The Windows installer and uninstaller use `stopwait` before removing an existing
+service and abort if shutdown fails. The pinned wrapper's `stop` command only
+requests shutdown; [its v2.12.0 implementation](https://github.com/winsw/winsw/blob/v2.12.0/src/WinSW/Program.cs#L406)
+waits for `Stopped` only with `stopwait`. Waiting prevents removal/reinstallation
+from racing the backend's shutdown and pending service deletion.
+
 WinSW XML names are case-sensitive and deliberately mix naming conventions.
 For the pinned **v2.12.0** wrapper, use these exact spellings:
 

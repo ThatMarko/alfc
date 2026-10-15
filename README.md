@@ -100,7 +100,8 @@ initialization finishes. `run.bat` starts a temporary elevated instance; `uninst
 the service. Keep the executable, ABI-compatible WMI DLL, frontend directory,
 configuration, and WinSW files together. CPUOC is not part of the standard
 archive. Windows logs are `alfc-service.out.log` and `alfc-service.err.log` in
-that directory.
+that directory. Installation and removal wait for an existing service to stop;
+if shutdown fails, they abort before removing or replacing the service.
 
 Vendor WMI registration and drivers must already match the laptop. ALFC does
 not install or safely reconstruct them. Avoid applying another model's registry

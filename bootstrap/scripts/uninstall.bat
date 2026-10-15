@@ -11,7 +11,7 @@ if errorlevel 1 (
 pushd "%~dp0" || exit /b 1
 
 echo Stopping ALFC service...
-alfc-service.exe stop || exit /b 1
+alfc-service.exe stopwait || exit /b 1
 
 echo Uninstalling ALFC service...
 alfc-service.exe uninstall || (

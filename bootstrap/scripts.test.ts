@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import {
+  copyFile,
   mkdtemp,
   mkdir,
   readFile,
@@ -93,6 +94,184 @@ describe("Windows service wrapper configuration", () => {
     }
   });
 });
+
+describe.skipIf(process.platform !== "win32")(
+  "isolated Windows service management",
+  () => {
+    let wrapperDirectory: string;
+    let directory: string;
+    let release: string;
+    let log: string;
+    let stateFile: string;
+
+    beforeAll(async () => {
+      wrapperDirectory = await mkdtemp(
+        path.join(os.tmpdir(), "alfc-windows-wrapper-"),
+      );
+      const source = path.join(wrapperDirectory, "wrapper.ts");
+      await writeFile(
+        source,
+        `import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+const executable = path.basename(process.execPath).toLowerCase();
+// Replace administrator detection and SCM queries before they reach the host.
+if (executable === "powershell.exe" || executable === "sc.exe") process.exit(0);
+if (executable !== "alfc-service.exe") process.exit(90);
+const command = process.argv[2];
+const stateFile = process.env.ALFC_TEST_STATE;
+appendFileSync(process.env.ALFC_TEST_LOG, command + "\\n");
+const state = readFileSync(stateFile, "utf8");
+switch (command) {
+  case "stop":
+    // WinSW 2.12 stop returns with the service still stopping.
+    writeFileSync(stateFile, "stopping");
+    break;
+  case "stopwait":
+    if (process.env.ALFC_TEST_STOP_FAIL === "1") process.exit(7);
+    await Bun.sleep(25);
+    writeFileSync(stateFile, "stopped");
+    break;
+  case "uninstall":
+    // WinSW reports success even when deletion must await shutdown.
+    writeFileSync(stateFile, state === "stopped" ? "deleted" : "delete-pending");
+    break;
+  case "install":
+    if (state !== "deleted") process.exit(9);
+    writeFileSync(stateFile, "installed");
+    break;
+  case "start":
+    if (state !== "installed") process.exit(10);
+    writeFileSync(stateFile, "running");
+    break;
+  default:
+    process.exit(11);
+}
+`,
+      );
+      await execute(
+        "bun",
+        [
+          "build",
+          "--compile",
+          source,
+          "--outfile",
+          path.join(wrapperDirectory, "wrapper.exe"),
+        ],
+        { cwd: wrapperDirectory, timeout: 20_000, windowsHide: true },
+      );
+    }, 25_000);
+
+    afterAll(async () => {
+      if (wrapperDirectory)
+        await rm(wrapperDirectory, { recursive: true, force: true });
+    });
+
+    beforeEach(async () => {
+      directory = await mkdtemp(
+        path.join(os.tmpdir(), "alfc-windows-service-"),
+      );
+      release = path.join(directory, "release with space's");
+      log = path.join(directory, "commands.log");
+      stateFile = path.join(directory, "state");
+      await mkdir(release);
+      for (const name of ["powershell.exe", "sc.exe", "alfc-service.exe"])
+        await copyFile(
+          path.join(wrapperDirectory, "wrapper.exe"),
+          path.join(release, name),
+        );
+      for (const name of ["install.bat", "uninstall.bat"])
+        await copyFile(
+          path.join(import.meta.dirname, "scripts", name),
+          path.join(release, name),
+        );
+      await writeFile(path.join(release, "alfc.exe"), "fixture");
+      await writeFile(path.join(release, "alfc-service.xml"), "fixture");
+      await writeFile(stateFile, "running");
+    });
+
+    afterEach(async () => {
+      if (directory) await rm(directory, { recursive: true, force: true });
+    });
+
+    function run(name: string, failStop = false) {
+      const result = execute(
+        process.env.ComSpec ?? "cmd.exe",
+        ["/d", "/c", name],
+        {
+          cwd: release,
+          env: {
+            ...process.env,
+            PATH: release + path.delimiter + process.env.PATH,
+            ALFC_TEST_LOG: log,
+            ALFC_TEST_STATE: stateFile,
+            ALFC_TEST_STOP_FAIL: failStop ? "1" : "0",
+          },
+          timeout: 10_000,
+          windowsHide: true,
+        },
+      );
+      result.child.stdin?.end("\r\n");
+      return result;
+    }
+
+    async function runWithoutWaiting(name: string) {
+      const script = path.join(release, name);
+      const source = await readFile(script, "utf8");
+      await writeFile(script, source.replace(" stopwait ", " stop "));
+      try {
+        return await run(name);
+      } finally {
+        await writeFile(script, source);
+      }
+    }
+
+    async function resetService() {
+      await writeFile(stateFile, "running");
+      await rm(log);
+    }
+
+    it("waits for shutdown before replacing the existing service", async () => {
+      // The old non-waiting command leaves the service marked for deletion,
+      // so attempting to install its replacement fails.
+      await expect(runWithoutWaiting("install.bat")).rejects.toMatchObject({
+        code: 1,
+      });
+      expect(await readFile(stateFile, "utf8")).toBe("delete-pending");
+      await resetService();
+      await run("install.bat");
+      expect(await readFile(log, "utf8")).toBe(
+        "stopwait\nuninstall\ninstall\nstart\n",
+      );
+      expect(await readFile(stateFile, "utf8")).toBe("running");
+    }, 25_000);
+
+    it("waits for shutdown before reporting the installation safe to delete", async () => {
+      const premature = await runWithoutWaiting("uninstall.bat");
+      expect(premature.stdout).toContain("You can delete the alfc folder now.");
+      expect(await readFile(stateFile, "utf8")).toBe("delete-pending");
+      await resetService();
+      const { stdout } = await run("uninstall.bat");
+      expect(await readFile(log, "utf8")).toBe("stopwait\nuninstall\n");
+      expect(await readFile(stateFile, "utf8")).toBe("deleted");
+      expect(stdout).toContain("You can delete the alfc folder now.");
+    }, 25_000);
+
+    it.each(["install.bat", "uninstall.bat"])(
+      "aborts %s if shutdown cannot complete",
+      async (name) => {
+        await expect(run(name, true)).rejects.toMatchObject({
+          code: 1,
+          stdout: expect.not.stringContaining(
+            "You can delete the alfc folder now.",
+          ),
+        });
+        expect(await readFile(log, "utf8")).toBe("stopwait\n");
+        expect(await readFile(stateFile, "utf8")).toBe("running");
+      },
+      15_000,
+    );
+  },
+);
 
 describe.skipIf(process.platform === "win32")(
   "isolated Linux service management",

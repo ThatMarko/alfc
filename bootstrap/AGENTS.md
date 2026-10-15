@@ -21,6 +21,11 @@ PowerShell quoted literal breaks directories containing apostrophes. Wait for th
 elevated process and return its exit status. Do not use `net session`, which also
 depends on an unrelated Windows service.
 
+Use `alfc-service.exe stopwait` before uninstalling or reinstalling a Windows
+service, and abort on failure. In the pinned WinSW v2.12 wrapper, `stop` only
+requests shutdown and returns before the service reaches `Stopped`; immediate
+uninstallation can leave the service marked for deletion and race replacement.
+
 WinSW XML names are case-sensitive. The pinned
 [v2.12.0 parser](https://github.com/winsw/winsw/blob/v2.12.0/src/WinSW.Core/Configuration/XmlServiceConfig.cs)
 uses lowercase `workingdirectory`, `stopparentprocessfirst`, and `stoptimeout`,
@@ -49,6 +54,9 @@ Run `bunx vitest run bootstrap/scripts.test.ts` with the repository toolchain.
 Linux script tests rebase every privileged filesystem target into a temporary
 directory and replace service commands. They verify config preservation, obsolete
 asset removal, failed-stop aborts, conflicting installations, and tar layout.
-Windows runs the wrapper-configuration test; UAC, SCM, and WinSW integration still
-require Windows runtime validation. Shell syntax and unit-template verification
-are useful additional checks, and must not start host services.
+Windows also runs the real batch entrypoints against disposable compiled command
+substitutes for administrator detection, SCM queries, and WinSW. These verify
+shutdown ordering and failed-stop aborts without elevation or host service access;
+they skip on other platforms. Actual UAC, SCM, and WinSW integration still require
+Windows runtime validation. Shell syntax and unit-template verification are useful
+additional checks, and must not start host services.
