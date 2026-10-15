@@ -53,7 +53,7 @@ assembles these assets into a **draft** GitHub Release:
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `alfc-vX.Y.Z-linux-x64.tar.gz` | Executable, frontend, default config, systemd/OpenRC scripts, widget package/helpers, optional Omarchy module/install helpers, LICENSE, and root/common/widget/AUR Markdown docs |
 | `alfc-vX.Y.Z-windows-x64.zip`  | Executable, frontend, default config, WmiDll.dll, WinSW v2.12.0 x64, service scripts, LICENSE, and the same Markdown documentation paths                                         |
-| `org.kde.alfc.plasmoid`        | Zip of `plasmoid/package` for per-user KDE installation                                                                                                                          |
+| `org.kde.alfc.plasmoid`        | Zip of `plasmoid/package`, including its MIT copyright/permission notice, for per-user KDE installation                                                                          |
 | `SHA256SUMS`                   | SHA-256 digests of all three distributable artifacts                                                                                                                             |
 
 The Windows service XML uses WinSW's exact `stopparentprocessfirst` and
