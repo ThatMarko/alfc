@@ -243,6 +243,12 @@ successful process status. That branch now uses top-level commands with explicit
 failure guards. Fresh installation and service-removal failures are also covered
 by the isolated batch cases.
 
+The expanded [Windows run](https://github.com/ThatMarko/alfc/actions/runs/38666384147)
+confirmed that failed elevation was also reported as success by all three
+entrypoints. Their elevation branches now run outside conditional blocks and
+preserve the elevation command's actual exit status. The same run verified the
+existing missing-release preflight and the corrected service-failure paths.
+
 The original PR description contained historical test counts and unmeasured
 nanosecond/CPU/memory comparisons. Those claims are not evidence for this
 implementation; the checks and physical release gates here supersede them.

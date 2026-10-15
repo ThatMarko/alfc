@@ -20,6 +20,10 @@ Pass script paths through an environment variable; embedding a path inside a
 PowerShell quoted literal breaks directories containing apostrophes. Wait for the
 elevated process and return its exit status. Do not use `net session`, which also
 depends on an unrelated Windows service.
+Keep the elevation request and its final `exit /b` at top level; a successful
+administrator check jumps past them. Windows runtime fixtures confirmed that
+exiting from the old parenthesized elevation branch hid a failed child status
+behind a successful `cmd /c` process result.
 
 Use `alfc-service.exe stopwait` before uninstalling or reinstalling a Windows
 service, and abort on failure. In the pinned WinSW v2.12 wrapper, `stop` only
