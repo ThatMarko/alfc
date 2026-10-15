@@ -25,6 +25,10 @@ Use `alfc-service.exe stopwait` before uninstalling or reinstalling a Windows
 service, and abort on failure. In the pinned WinSW v2.12 wrapper, `stop` only
 requests shutdown and returns before the service reaches `Stopped`; immediate
 uninstallation can leave the service marked for deletion and race replacement.
+Keep the existing-service installer path outside a parenthesized `if` block so
+failure exits propagate through `cmd /c`; use the fresh-install label to skip it
+when SCM reports no existing service. Windows fixtures check the process exit
+status as well as the command order.
 
 WinSW XML names are case-sensitive. The pinned
 [v2.12.0 parser](https://github.com/winsw/winsw/blob/v2.12.0/src/WinSW.Core/Configuration/XmlServiceConfig.cs)
@@ -56,7 +60,7 @@ directory and replace service commands. They verify config preservation, obsolet
 asset removal, failed-stop aborts, conflicting installations, and tar layout.
 Windows also runs the real batch entrypoints against disposable compiled command
 substitutes for administrator detection, SCM queries, and WinSW. These verify
-shutdown ordering and failed-stop aborts without elevation or host service access;
+fresh installation, shutdown ordering, and failed-stop/removal aborts without elevation or host service access;
 they skip on other platforms. Actual UAC, SCM, and WinSW integration still require
 Windows runtime validation. Shell syntax and unit-template verification are useful
 additional checks, and must not start host services.

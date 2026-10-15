@@ -16,13 +16,14 @@ for %%F in (alfc.exe alfc-service.exe alfc-service.xml) do if not exist "%%F" (
 )
 
 sc.exe query alfc >nul 2>&1
-if not errorlevel 1 (
-    echo Stopping existing service...
-    alfc-service.exe stopwait || exit /b 1
-    echo Removing existing service...
-    alfc-service.exe uninstall || exit /b 1
-)
+if errorlevel 1 goto install_service
 
+echo Stopping existing service...
+alfc-service.exe stopwait || exit /b 1
+echo Removing existing service...
+alfc-service.exe uninstall || exit /b 1
+
+:install_service
 echo Installing ALFC service...
 alfc-service.exe install || (
     echo Failed to install service.

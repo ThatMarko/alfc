@@ -237,6 +237,12 @@ pending deletion and premature deletion advice, while the corrected scripts
 complete in order and abort after a failed stop. Actual UAC, SCM, and firmware
 handoff still need Windows runtime validation.
 
+The Windows regression then exposed a second failure: the installer's nested
+existing-service branch stopped execution after failed shutdown but returned a
+successful process status. That branch now uses top-level commands with explicit
+failure guards. Fresh installation and service-removal failures are also covered
+by the isolated batch cases.
+
 The original PR description contained historical test counts and unmeasured
 nanosecond/CPU/memory comparisons. Those claims are not evidence for this
 implementation; the checks and physical release gates here supersede them.
@@ -266,8 +272,8 @@ loaded until process exit.
 ## Verification results
 
 - Frozen installation, ESLint, strict TypeScript, and both workspace builds pass.
-  Vitest executes 25 files: 335 tests pass on Linux and five Windows-only cases
-  are explicitly skipped there (effective-token detection and four isolated
+  Vitest executes 25 files: 335 tests pass on Linux and twelve Windows-only cases
+  are explicitly skipped there (effective-token detection and eleven isolated
   batch service-lifecycle scenarios). Those cases run on Windows CI.
 - All 17 Chromium scenarios pass, covering authoritative state, independent
   drafts, correlated failures, reconnect/no replay, retired-socket callbacks, transport pressure, capability changes, invalid

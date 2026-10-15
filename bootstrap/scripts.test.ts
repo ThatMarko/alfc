@@ -115,7 +115,17 @@ describe.skipIf(process.platform !== "win32")(
 import path from "node:path";
 const executable = path.basename(process.execPath).toLowerCase();
 // Replace administrator detection and SCM queries before they reach the host.
-if (executable === "powershell.exe" || executable === "sc.exe") process.exit(0);
+if (executable === "powershell.exe") {
+  if (process.env.ALFC_TEST_ELEVATION_FAIL === "1") {
+    const probe = process.argv.includes("-NonInteractive");
+    appendFileSync(process.env.ALFC_TEST_LOG, probe ? "admin-check\\n" : "elevate\\n");
+    process.exit(probe ? 1 : 17);
+  }
+  process.exit(0);
+}
+if (executable === "sc.exe") {
+  process.exit(readFileSync(process.env.ALFC_TEST_STATE, "utf8") === "deleted" ? 1 : 0);
+}
 if (executable !== "alfc-service.exe") process.exit(90);
 const command = process.argv[2];
 const stateFile = process.env.ALFC_TEST_STATE;
@@ -132,6 +142,7 @@ switch (command) {
     writeFileSync(stateFile, "stopped");
     break;
   case "uninstall":
+    if (process.env.ALFC_TEST_UNINSTALL_FAIL === "1") process.exit(12);
     // WinSW reports success even when deletion must await shutdown.
     writeFileSync(stateFile, state === "stopped" ? "deleted" : "delete-pending");
     break;
@@ -179,7 +190,7 @@ switch (command) {
           path.join(wrapperDirectory, "wrapper.exe"),
           path.join(release, name),
         );
-      for (const name of ["install.bat", "uninstall.bat"])
+      for (const name of ["install.bat", "uninstall.bat", "run.bat"])
         await copyFile(
           path.join(import.meta.dirname, "scripts", name),
           path.join(release, name),
@@ -193,7 +204,14 @@ switch (command) {
       if (directory) await rm(directory, { recursive: true, force: true });
     });
 
-    function run(name: string, failStop = false) {
+    function run(
+      name: string,
+      failures: {
+        stop?: boolean;
+        uninstall?: boolean;
+        elevation?: boolean;
+      } = {},
+    ) {
       const result = execute(
         process.env.ComSpec ?? "cmd.exe",
         ["/d", "/c", name],
@@ -204,7 +222,9 @@ switch (command) {
             PATH: release + path.delimiter + process.env.PATH,
             ALFC_TEST_LOG: log,
             ALFC_TEST_STATE: stateFile,
-            ALFC_TEST_STOP_FAIL: failStop ? "1" : "0",
+            ALFC_TEST_STOP_FAIL: failures.stop ? "1" : "0",
+            ALFC_TEST_UNINSTALL_FAIL: failures.uninstall ? "1" : "0",
+            ALFC_TEST_ELEVATION_FAIL: failures.elevation ? "1" : "0",
           },
           timeout: 10_000,
           windowsHide: true,
@@ -256,10 +276,36 @@ switch (command) {
       expect(stdout).toContain("You can delete the alfc folder now.");
     }, 25_000);
 
+    it("installs a new service without attempting to stop a missing service", async () => {
+      await writeFile(stateFile, "deleted");
+      await run("install.bat");
+      expect(await readFile(log, "utf8")).toBe("install\nstart\n");
+      expect(await readFile(stateFile, "utf8")).toBe("running");
+    }, 15_000);
+
+    it("rejects an incomplete release before touching a service", async () => {
+      await rm(path.join(release, "alfc.exe"));
+      await expect(run("install.bat")).rejects.toMatchObject({ code: 1 });
+      await expect(readFile(log)).rejects.toThrow();
+      expect(await readFile(stateFile, "utf8")).toBe("running");
+    }, 15_000);
+
+    it.each(["install.bat", "uninstall.bat", "run.bat"])(
+      "propagates the elevation command failure from %s without service access",
+      async (name) => {
+        await expect(run(name, { elevation: true })).rejects.toMatchObject({
+          code: 17,
+        });
+        expect(await readFile(log, "utf8")).toBe("admin-check\nelevate\n");
+        expect(await readFile(stateFile, "utf8")).toBe("running");
+      },
+      15_000,
+    );
+
     it.each(["install.bat", "uninstall.bat"])(
       "aborts %s if shutdown cannot complete",
       async (name) => {
-        await expect(run(name, true)).rejects.toMatchObject({
+        await expect(run(name, { stop: true })).rejects.toMatchObject({
           code: 1,
           stdout: expect.not.stringContaining(
             "You can delete the alfc folder now.",
@@ -267,6 +313,21 @@ switch (command) {
         });
         expect(await readFile(log, "utf8")).toBe("stopwait\n");
         expect(await readFile(stateFile, "utf8")).toBe("running");
+      },
+      15_000,
+    );
+
+    it.each(["install.bat", "uninstall.bat"])(
+      "aborts %s if the stopped service cannot be removed",
+      async (name) => {
+        await expect(run(name, { uninstall: true })).rejects.toMatchObject({
+          code: 1,
+          stdout: expect.not.stringContaining(
+            "You can delete the alfc folder now.",
+          ),
+        });
+        expect(await readFile(log, "utf8")).toBe("stopwait\nuninstall\n");
+        expect(await readFile(stateFile, "utf8")).toBe("stopped");
       },
       15_000,
     );
