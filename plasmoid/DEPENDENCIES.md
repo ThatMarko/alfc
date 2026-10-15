@@ -59,7 +59,7 @@ sed -e '/^#/d' -e '/^$/d' plasmoid/tests/debian-component-packages.txt | \
 bash plasmoid/run_component_tests.sh
 ```
 
-The CI `Plasma components (Debian 13)` job uses `debootstrap --variant=minbase --include=ca-certificates trixie` on an Ubuntu 26.04 runner with its Debian archive keyring (signature verification remains enabled), copies `plasmoid/` into that disposable root, installs the same manifest, and runs the script inside it. This uses neither Docker nor Makefiles; CMake generates Ninja build files. `run_component_tests.sh` deletes its build directory and cache on exit. The native setup stages production QML in an owned temporary directory and cleans it when the runner exits.
+The CI `Plasma components (Debian 13)` job uses `debootstrap --variant=minbase --include=ca-certificates trixie` on an Ubuntu 26.04 runner with its Debian archive keyring (signature verification remains enabled), copies `plasmoid/` into that disposable root, mounts a private-root `/proc` with cleanup on exit, installs the same manifest, and runs the script inside it. This uses neither Docker nor Makefiles; CMake generates Ninja build files. `run_component_tests.sh` deletes its build directory and cache on exit. The native setup stages production QML in an owned temporary directory and cleans it when the runner exits.
 
 Missing Plasma/Kirigami dependencies, installed-plugin load errors, invalid components, and rendering/behavior failures fail this job. Optional component skips exist only in the explicitly named Qt-only tier. To select one native test, append its Qt Test name, for example `WidgetComponents_ShellBoundary::test_pendingOperationsAreIndependentAndCorrelated`.
 

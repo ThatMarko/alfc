@@ -64,7 +64,10 @@ draft. Validate extracted Markdown with `python3 tools/check_docs.py PATH_TO_STA
 from the source checkout. The Omarchy installer needs its QML files and the
 canonical `plasmoid/package/contents/ui/Protocol.js` guard, which both archives
 preserve; the optional installer uses Python 3 and the running module uses Qt,
-without adding a Node/Bun runtime requirement. Generated checksums detect asset changes; they are not a detached signature.
+without adding a Node/Bun runtime requirement. Also check an isolated AUR stage’s
+`usr/share/doc/alfc-bin` as its own documentation root: runtime resources are
+installed separately under `usr/lib/alfc`, so archive-relative source links do
+not automatically remain valid there. Generated checksums detect asset changes; they are not a detached signature.
 
 The Windows installer and uninstaller use `stopwait` before removing an existing
 service and abort if shutdown fails. The pinned wrapper's `stop` command only

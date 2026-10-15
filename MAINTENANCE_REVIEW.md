@@ -49,6 +49,8 @@ No engine/peer checks or advisories are suppressed.
 | Integration platform boundary        | The test entrypoint replaced Linux adapters only. It now rejects other platforms before any native initialization; a simulated Windows execution verifies the early failure.                                                                                                                           |
 | Qt integration teardown              | Final rerun exposed a child requiring forced termination. Replaced cross-thread stdin/quit with a GUI-thread notifier and explicit QML-engine destruction; retained natural-exit assertions and original error diagnostics. The two scenarios then passed ten consecutive repetitions (20 executions). |
 | Cloud runtime and preview setup      | The cloud checkout initially exposed Bun 1.4.0 and its setup lacked a version preflight. Tracked setup/run/check now validate exact tested pins; stale Bun/Node negative controls fail clearly. The preview serves Vite as a normal user, with the elevated backend started separately.                |
+| Installed AUR documentation          | Archive documentation passed, but the actual AUR staging function placed runtime sources elsewhere than the docs. Two new Omarchy source links were therefore missing in installed docs. They now link to merged-mainline source; the real staged AUR documentation is checked separately.             |
+| Required CI root setup               | The first real component CI run failed before installing Qt because its minimal chroot had no `/proc` backing `/dev/fd`. Setup now mounts and reliably unmounts that process filesystem, and reads the package manifest through a pipeline; component failures remain fatal.                           |
 | Missing required component tier      | Qt-only jobs legitimately omitted Plasma editor cases. Added a separate matching distro component tier; Qt-only optional skips remain distinct from installed-plugin failures.                                                                                                                         |
 
 The web review did not reproduce suspected loss of unrelated drafts or unsafe
@@ -126,7 +128,7 @@ pre-merge baseline:
   documentation root. The staged archive includes the optional Omarchy module,
   helpers and canonical protocol guard, outside its own archive input tree.
 
-Remote validation is visible in the follow-up pull request’s checks and the
+Remote validation is visible in [PR #15’s checks](https://github.com/ThatMarko/alfc/pull/15/checks) and the
 [CI workflow](https://github.com/ThatMarko/alfc/actions/workflows/ci.yml). The
 Windows job compiles WmiDll with MSVC and executes the real COM/integer-decoder
 harness plus Windows-only batch cases. Treat that job’s actual conclusion as

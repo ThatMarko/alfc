@@ -148,10 +148,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo chroot "$RUNNER_TEMP/alfc-debian13" /bin/bash -c '
+          component_root="$RUNNER_TEMP/alfc-debian13"
+          sudo mount -t proc proc "$component_root/proc"
+          trap 'sudo umount "$component_root/proc"' EXIT
+          sudo chroot "$component_root" /bin/bash -c '
             set -euo pipefail
             apt-get update
-            xargs -r apt-get install --no-install-recommends -y < <(sed -e "/^#/d" -e "/^$/d" /alfc/plasmoid/tests/debian-component-packages.txt)
+            sed -e "/^#/d" -e "/^$/d" /alfc/plasmoid/tests/debian-component-packages.txt | xargs -r apt-get install --no-install-recommends -y
             dpkg-query -W > /alfc/plasmoid/component-packages.log
             bash /alfc/plasmoid/run_component_tests.sh
             python3 /alfc/omarchy/run_tests.py --qml-runner /usr/lib/qt6/bin/qmltestrunner

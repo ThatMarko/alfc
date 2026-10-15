@@ -1,7 +1,7 @@
 # Omarchy integration
 
 ALFC runs its existing Linux backend and web dashboard on Omarchy. The optional
-bar module in [omarchy/](omarchy/) adds a read-only status and a browser launcher
+bar module in [omarchy/](https://github.com/ThatMarko/alfc/tree/master/omarchy) adds a read-only status and a browser launcher
 for Omarchy's Quickshell bar. It is a distinct integration from the Plasma applet;
 it does not install Plasma, access ACPI/RAPL, or control hardware itself.
 
@@ -133,7 +133,7 @@ connection. Destruction closes the socket, cancels reconnects, and hides its
 tooltip. No hardware commands are sent or replayed.
 
 The module validates snapshots and activity with the exact existing
-[QML protocol guards](plasmoid/package/contents/ui/Protocol.js), copied at install
+[QML protocol guards](https://github.com/ThatMarko/alfc/blob/master/plasmoid/package/contents/ui/Protocol.js), copied at install
 time; it imports no Plasma UI modules. It discards messages longer than 65,536
 UTF-16 code units before JSON parsing. Dynamic labels contain validated numbers, backend error
 strings are not inserted into labels/tooltips, and text is displayed as plain
