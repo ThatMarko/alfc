@@ -1,7 +1,7 @@
 export type FanTable = [number, number][];
 
 export type State = {
-  readonly protocolVersion: "1.1";
+  readonly protocolVersion: string;
   cpuFanTable: FanTable;
   gpuFanTable: FanTable;
 
@@ -15,11 +15,17 @@ export type State = {
   isCpuTuningAvailable?: boolean;
   isGpuBoostAvailable?: boolean;
   isFanControlAvailable?: boolean;
+  // A native channel failed permanently; unaffected features remain usable.
+  restartRequired?: boolean;
 };
 
 export type Args = {
   [key: string]: number;
 };
+
+// Packed firmware responses can exceed JavaScript's exact integer range.
+// Keep ordinary sensor values numeric and larger responses lossless in JSON.
+export type NativeResult = number | string;
 
 export enum MessageToClientKind {
   FanControlActivity = "fancontrolactivity",
@@ -43,6 +49,11 @@ export type FanControlActivity = {
   avgCPUTemp: number;
   avgGPUTemp: number;
   target: number;
+  // True when the last collection failed: the temperatures are the last
+  // successfully collected averages. Automatic mode commands the highest
+  // configured speed; fixed mode retains its requested speed. A null
+  // appliedSpeed means the writes are unconfirmed. Legacy servers may omit it.
+  sensorFailure?: boolean;
 };
 
 export type MessageToClient = Pick<
@@ -70,8 +81,8 @@ export type MessageToClient = Pick<
 
 export type MessageToServer = {
   kind: MessageToServerKind;
-  methodId: string;
-  methodName: string;
+  methodId?: string;
+  methodName?: string;
   requestId?: string;
-  data?: any;
+  data?: unknown;
 };

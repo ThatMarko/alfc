@@ -1,9 +1,14 @@
 import { readFileSync } from "node:fs";
-import { rename, writeFile } from "node:fs/promises";
+import { rename } from "node:fs/promises";
 import stringifyCompact from "json-stringify-pretty-compact";
 import path from "node:path";
-import { isDev } from "../utils/consts";
+import { isCompiledBinary, isDev } from "../utils/consts";
 import type { State } from "../../common/types";
+import {
+  validateFanTable,
+  validateFixedPercentage,
+  validatePowerLimit,
+} from "../../common/validation";
 
 type PersistedState = Omit<
   State,
@@ -11,11 +16,12 @@ type PersistedState = Omit<
   | "isCpuTuningAvailable"
   | "isGpuBoostAvailable"
   | "isFanControlAvailable"
+  | "restartRequired"
 >;
 
-const CONFIG_FILE = isDev
-  ? path.join(import.meta.dirname, "../../alfc.config.json")
-  : path.join(path.dirname(process.execPath), "alfc.config.json");
+const CONFIG_FILE = isCompiledBinary
+  ? path.join(path.dirname(process.execPath), "alfc.config.json")
+  : path.join(import.meta.dirname, "../../alfc.config.json");
 
 const TMP_CONFIG_FILE = `${CONFIG_FILE}.tmp`;
 
@@ -40,18 +46,7 @@ const DEFAULT_PERSISTED_STATE: PersistedState = {
 function isPersistedFanTable(
   value: unknown,
 ): value is PersistedState["cpuFanTable"] {
-  return (
-    Array.isArray(value) &&
-    value.every(
-      (entry) =>
-        Array.isArray(entry) &&
-        entry.length === 2 &&
-        typeof entry[0] === "number" &&
-        Number.isFinite(entry[0]) &&
-        typeof entry[1] === "number" &&
-        Number.isFinite(entry[1]),
-    )
-  );
+  return validateFanTable(value) === null;
 }
 
 function isPersistedState(value: unknown): value is PersistedState {
@@ -65,13 +60,10 @@ function isPersistedState(value: unknown): value is PersistedState {
     isPersistedFanTable(object.cpuFanTable) &&
     isPersistedFanTable(object.gpuFanTable) &&
     typeof object.gpuBoost === "boolean" &&
-    typeof object.pl1 === "number" &&
-    Number.isFinite(object.pl1) &&
-    typeof object.pl2 === "number" &&
-    Number.isFinite(object.pl2) &&
+    validatePowerLimit(object.pl1) === null &&
+    validatePowerLimit(object.pl2) === null &&
     typeof object.doFixedSpeed === "boolean" &&
-    typeof object.fixedPercentage === "number" &&
-    Number.isFinite(object.fixedPercentage)
+    validateFixedPercentage(object.fixedPercentage) === null
   );
 }
 
@@ -82,10 +74,20 @@ function loadPersistedState(): PersistedState {
     );
 
     if (isPersistedState(parsed)) {
-      return parsed;
+      // Capabilities describe this running machine, never a saved config.
+      // Whitelist settings so old or hand-edited files cannot inject them.
+      return {
+        cpuFanTable: parsed.cpuFanTable,
+        gpuFanTable: parsed.gpuFanTable,
+        gpuBoost: parsed.gpuBoost,
+        pl1: parsed.pl1,
+        pl2: parsed.pl2,
+        doFixedSpeed: parsed.doFixedSpeed,
+        fixedPercentage: parsed.fixedPercentage,
+      };
     }
 
-    console.warn("[State] Corrupt config detected, using defaults.");
+    console.warn("[State] Corrupt or invalid config detected, using defaults.");
   } catch (error) {
     console.warn("[State] Failed to load config, using defaults: " + error);
   }
@@ -100,9 +102,11 @@ export const state: State = {
   protocolVersion: "1.1",
 };
 
-export async function persistState() {
+let persistQueue: Promise<void> = Promise.resolve();
+
+export function persistState() {
   if (isDev) {
-    return;
+    return Promise.resolve();
   }
 
   const {
@@ -110,15 +114,18 @@ export async function persistState() {
     isCpuTuningAvailable: _isCpuTuningAvailable,
     isGpuBoostAvailable: _isGpuBoostAvailable,
     isFanControlAvailable: _isFanControlAvailable,
+    restartRequired: _restartRequired,
     ...persistable
   } = state;
-
-  try {
-    await writeFile(TMP_CONFIG_FILE, stringifyCompact(persistable), {
-      encoding: "utf8",
-    });
+  const serialized = stringifyCompact(persistable);
+  const writeSnapshot = async () => {
+    await Bun.write(TMP_CONFIG_FILE, serialized);
     await rename(TMP_CONFIG_FILE, CONFIG_FILE);
-  } catch (error) {
-    console.error("[State] Error trying to persist config: " + error);
-  }
+  };
+
+  const result = persistQueue.then(writeSnapshot);
+  persistQueue = result.catch((error: unknown) => {
+    console.error("[State] Error trying to persist config:", error);
+  });
+  return result;
 }

@@ -1,20 +1,31 @@
 @echo off
-net session >nul 2>&1 || (
-    echo Requesting administrator privileges...
-    powershell -Command "Start-Process '%~f0' -Verb RunAs"
-    exit /b
+setlocal DisableDelayedExpansion
+powershell -NoProfile -NonInteractive -Command "$principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()); if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 0 } else { exit 1 }"
+if not errorlevel 1 goto administrator_ready
+
+echo Requesting administrator privileges...
+set "ALFC_SCRIPT_PATH=%~f0"
+powershell -NoProfile -Command "try { $child = Start-Process -FilePath $env:ALFC_SCRIPT_PATH -Verb RunAs -Wait -PassThru; exit $child.ExitCode } catch { Write-Error $_; exit 1 }"
+set "ALFC_ELEVATION_STATUS=%errorlevel%"
+exit /b %ALFC_ELEVATION_STATUS%
+
+:administrator_ready
+pushd "%~dp0" || exit /b 1
+
+for %%F in (alfc.exe alfc-service.exe alfc-service.xml) do if not exist "%%F" (
+    echo Missing required release file: %%F
+    exit /b 1
 )
 
-pushd "%~dp0"
+sc.exe query alfc >nul 2>&1
+if errorlevel 1 goto install_service
 
-echo Stopping existing service (if any)...
-alfc-service.exe stop 2>nul
-timeout /t 2 /nobreak >nul
+echo Stopping existing service...
+alfc-service.exe stopwait || exit /b 1
+echo Removing existing service...
+alfc-service.exe uninstall || exit /b 1
 
-echo Removing existing service (if any)...
-alfc-service.exe uninstall 2>nul
-timeout /t 2 /nobreak >nul
-
+:install_service
 echo Installing ALFC service...
 alfc-service.exe install || (
     echo Failed to install service.
@@ -29,5 +40,6 @@ alfc-service.exe start || (
     exit /b 1
 )
 
-echo Done. UI available @ http://localhost:5522
-start http://localhost:5522
+echo Service started. ALFC may still be initializing.
+echo Open http://localhost:5522 once startup finishes.
+echo Check alfc-service.out.log if the UI is not available yet.

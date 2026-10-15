@@ -2,50 +2,62 @@
 
 ## Reporting a vulnerability
 
-Please do **not** open a public issue for security problems.
+Please avoid public issues for security reports. Use GitHub's Security tab →
+"Report a vulnerability" if private reporting is enabled, or email the
+maintainer at <markox123@icloud.com> (also recorded in `package.json`). Private
+GitHub reports are visible to maintainers and any collaborators they authorize;
+they are not limited to one person.
 
-Report them privately:
+Include the ALFC revision or release, installation method, OS, laptop model,
+reproduction steps, relevant redacted logs, and whether exploitation requires
+local access. Coordinate disclosure with the maintainer. Do not send device
+credentials or unrelated personal information. Community-conduct reports use
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-- **Preferred:** GitHub private vulnerability reporting — the repository's
-  Security tab → "Report a vulnerability" (only the maintainer can see it).
-- **Fallback:** email the maintainer (Marko Bogosavljevic) directly — see the
-  `contributors` entry in `package.json` or the `KPlugin.Authors` field in
-  `plasmoid/package/metadata.json`.
+## Version status
 
-Include, if possible:
+`feat/wmi-ffi` is under review in PR #1. Package metadata says `2.0.0`, but the
+published tags inspected during this audit were alpha tags; this document does
+not promise a stable release or a support SLA. Report current-branch issues
+with a commit hash and released issues with their exact tag. Older alpha
+artifacts may use different native helpers and do not establish current behavior.
 
-- ALFC version (release tag or commit) and how it was installed
-- OS/distro and laptop model
-- Steps to reproduce, and any relevant logs
-- Whether the issue requires local or remote access
+## Trust boundaries
 
-We will acknowledge reports as soon as possible, keep you informed of progress,
-and credit you when a fix is released (unless you prefer not to be named).
-Please give us a reasonable window to fix the issue before public disclosure.
+- The elevated backend binds explicitly to `127.0.0.1:5522` and, when available,
+  `[::1]:5522`. It does not bind wildcard or LAN addresses. An occupied IPv6
+  port fails startup instead of silently leaving clients on different services.
+- WebSocket upgrades validate browser origins against loopback HTTP(S) hosts.
+  Requests without Origin remain allowed for native clients. This check is not
+  authentication: other local processes and local users can send commands.
+  Other services hosted on allowed loopback origins are inside that trust boundary.
+- HTTP serves local static frontend files and validates paths and methods.
+  Asset containment checks resolve symlinks and Windows junctions against the
+  real frontend root. The installed tree must still be protected against
+  unprivileged modification; these checks do not protect concurrent replacement.
+  Hardware changes use WebSocket commands, with bounded message size, queue,
+  and backpressure. Raw diagnostics are powerful despite signature validation;
+  managed fan setters are blocked to preserve controller ownership.
+- Production configuration resides beside the executable. Protect its directory
+  and binaries against unprivileged modification. Invalid configurations fall
+  back to defaults; validation bounds are not proof that those settings are
+  appropriate for a particular laptop.
+- Windows WMI executes native COM/FFI in a dedicated worker. Optional CPU tuning
+  uses a separate worker. Workers isolate blocking calls and watchdog state;
+  they are not privilege or memory-security sandboxes. NativeAOT libraries
+  cannot safely be unloaded, and a timeout cannot cancel a hung driver call.
+- Linux hardware access writes to `/proc/acpi/call` and Intel RAPL sysfs files.
+  A hung firmware operation can outlive the JavaScript timeout. Shutdown makes
+  a bounded best-effort attempt to restore BIOS control.
 
-## Supported versions
+Remote exposure is unsupported. A proxy does not add protocol authentication;
+any future remote-control feature needs an explicit authorization design.
+See [the protocol security section](common/PROTOCOL.md#security-boundary) for wire-level
+constraints and [PORTING_REVIEW.md](PORTING_REVIEW.md) for native limitations.
 
-ALFC is a hardware control daemon that runs with elevated privileges; the
-supported surface is:
-
-- The latest stable release (none published yet prior to the first stable
-  `v2.0.0` release — treat `master` as the supported surface until then)
-- `master` on a best-effort basis
-
-Older alpha tags (`v2.0.0-alpha.*`) are pre-release builds and are not
-supported.
-
-## Threat model and scope
-
-- The server binds to `localhost:5522`. The WebSocket origin check only guards
-  against browser-based cross-site requests; it is **not** authentication — any
-  local process (or local malicious website, via WebSocket or HTTP probing) can
-  reach the endpoint. See `common/PROTOCOL.md` ("Security").
-- The server runs as root/admin and writes to platform ACPI/WMI interfaces.
-  Vulnerabilities in message parsing, config loading, or the WMI helper
-  subprocess are in scope; so is anything that could allow a non-privileged
-  local process to influence hardware state it should not control.
-
-Out of scope: hardware-side issues (EC firmware, BIOS behavior), and issues in
-upstream projects (Bun, WinSW, acpi_call, KDE Plasma) unless exposed through
-this codebase.
+Message parsing, native memory/ABI handling, path traversal, unsafe loading or
+persistence, and service installation permissions are in scope. Report upstream
+Bun, WinSW, Qt, or driver issues here when ALFC exposes them; otherwise report
+them upstream. Hardware/BIOS defects without an ALFC vulnerability need platform
+vendor support. Development dependencies are audited with `bun audit`; build
+and test tooling must not be exposed as a public service.

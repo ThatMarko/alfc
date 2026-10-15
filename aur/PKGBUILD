@@ -39,16 +39,22 @@ package() {
     cp -r "${_srcdir}/plasmoid" "${pkgdir}/usr/lib/alfc/plasmoid"
     find "${pkgdir}/usr/lib/alfc/plasmoid" -type f -exec chmod 644 {} +
     find "${pkgdir}/usr/lib/alfc/plasmoid" -type d -exec chmod 755 {} +
+    find "${pkgdir}/usr/lib/alfc/plasmoid" -type f -name '*.sh' -exec chmod 755 {} +
   fi
 
   # systemd service — generated from shared template
-  sed "s|@@INSTALL_DIR@@|/usr/lib/alfc|g" "${_srcdir}/alfc.service" \
-    | install -Dm644 /dev/stdin "${pkgdir}/usr/lib/systemd/system/alfc.service"
+  install -Dm644 "${_srcdir}/alfc.service" "${pkgdir}/usr/lib/systemd/system/alfc.service"
+  sed -i "s|@@INSTALL_DIR@@|/usr/lib/alfc|g" "${pkgdir}/usr/lib/systemd/system/alfc.service"
 
   # License
   install -Dm644 "${_srcdir}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 
   # Docs
-  install -Dm644 "${_srcdir}/README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
-  install -Dm644 "${_srcdir}/LINUX.md" "${pkgdir}/usr/share/doc/${pkgname}/LINUX.md"
+  install -dm755 "${pkgdir}/usr/share/doc/${pkgname}"
+  install -m644 "${_srcdir}/"*.md "${pkgdir}/usr/share/doc/${pkgname}/"
+  for _docdir in common aur plasmoid; do
+    install -dm755 "${pkgdir}/usr/share/doc/${pkgname}/${_docdir}"
+    install -m644 "${_srcdir}/${_docdir}/"*.md "${pkgdir}/usr/share/doc/${pkgname}/${_docdir}/"
+  done
+  install -Dm644 "${_srcdir}/assets/screenshot.png" "${pkgdir}/usr/share/doc/${pkgname}/assets/screenshot.png"
 }

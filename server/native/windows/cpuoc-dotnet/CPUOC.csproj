@@ -5,6 +5,7 @@
     <NativeLib>Shared</NativeLib>
     <RootNamespace>CPUOC</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <!-- Trimming configuration -->
@@ -14,17 +15,22 @@
 
   <ItemGroup>
     <Compile Include="CPUOC.cs" />
-    <!-- Intel Overclocking SDK - prebuilt .NET assembly.
-         NativeAOT will statically link this. If the SDK uses reflection
-         internally, AOT compilation may fail - in that case, fall back
-         to Approach B (helper process). -->
+    <!-- This is the legacy .NET Framework 4 Intel SDK, not a native DLL.
+         Its WCF, SQL Server CE and Intel companion assembly dependencies are
+         not supplied here. Managed compilation and the substitute-SDK export
+         tests do not establish that NativeAOT publishing or XTU execution work. -->
     <Reference Include="IntelOverclockingSDK">
       <HintPath>..\IntelOverclockingSDK.dll</HintPath>
     </Reference>
   </ItemGroup>
 
-  <!-- Preserve Intel SDK types in case they use reflection -->
+  <!-- Preservation alone cannot make the legacy SDK compatible with NativeAOT. -->
   <ItemGroup>
     <TrimmerRootAssembly Include="IntelOverclockingSDK" />
   </ItemGroup>
+
+  <Target Name="RequireExperimentalCpuocPublishOptIn" BeforeTargets="PrepareForPublish">
+    <Error Condition="'$(AllowExperimentalCpuocPublish)' != 'true'"
+           Text="CPUOC NativeAOT publishing is an unsupported prototype. The bundled .NET Framework Intel SDK requires unresolved legacy WCF, SQL Server CE and Intel companion dependencies; successful native publishing and hardware execution have not been established. ALFC releases omit CPUOC and disable CPU tuning. Only investigate on Windows with the .NET 8 SDK and MSVC, supplying -p:AllowExperimentalCpuocPublish=true to acknowledge this experimental build." />
+  </Target>
 </Project>

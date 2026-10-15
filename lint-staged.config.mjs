@@ -1,5 +1,5 @@
 export default {
-  "**/*.{js,jsx,ts,tsx}": "eslint --cache",
-  "**/*.{ts,tsx}": () => "bun run type-check",
+  "**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}": "eslint --cache",
+  "**/*.{ts,tsx,mts,cts}": () => "bun run type-check",
   "**/*.{json,css,md}": "prettier --write",
 };

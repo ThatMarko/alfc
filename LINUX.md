@@ -1,179 +1,131 @@
-# Aorus Laptop Fan Control (alfc) - Linux Guide
+# ALFC on Linux
 
-Linux pros - feel free to contribute either to the following guide or automating the
-workflow! :) (See notes in the Wishlist section though.)
+Use ALFC on a laptop whose firmware interface has been verified against the
+[compatibility information](README.md). ACPI writes change hardware state and can
+outlive the process. Cloud tests cannot establish that another laptop uses
+the same firmware methods.
 
-## IMPORTANT
+## Requirements
 
-**Only use this on Linux if your machine is listed in the compatibility table in the main readme or if you know what you're doing.**
+Published Linux archives target x86_64 with glibc. systemd and OpenRC service
+scripts are included; an OpenRC machine still needs a compatible binary.
+Musl-only distributions such as a default Alpine installation need a separately
+validated musl build or compatible runtime; the glibc archive is not universal.
 
-Because on Linux, this tool writes directly to hardware addresses where data persists after rebooting. If something goes wrong, you might need to do something [like this](https://github.com/hirschmann/nbfc/wiki/FAQ#is-there-a-way-to-reset-my-notebook-if-something-went-wrong).
+Install the `acpi_call` kernel module and headers matching your running kernel.
+On Arch-based systems:
 
-As for how to figure out whether the addresses are the same on your machine – not that simple, I might do a talk or write an article at some point. Let me know if you actually need this.
-
-## Prerequisites
-
-### Install `acpi_call`
-
-This enables issuing fan control commands.
-
-If you have secure boot enabled, you need to do [this](https://gist.github.com/s-h-a-d-o-w/53c2215e955c3326c6ec8f812a0d2f27) first.
-
-Download or clone https://github.com/nix-community/acpi_call (the `acpi_callback` version in your package manager might not be compatible or break [as it gets updates](https://github.com/s-h-a-d-o-w/alfc/issues/1)!) and run:
-
-```
-sudo make dkms-add
-sudo make dkms-build
-sudo make dkms-install
-sudo modprobe acpi_call
-```
-
-On Arch-based distros, you can install it from the repos instead:
-
-```bash
+```sh
 sudo pacman -S acpi_call-dkms
 sudo modprobe acpi_call
 ```
 
-#### Troubleshooting `acpi_call` installation
+For other distributions, use their matching kernel-module packages or follow
+[nix-community/acpi_call](https://github.com/nix-community/acpi_call). Secure Boot
+may require signing the module according to your distribution's instructions;
+do not disable signature enforcement as an installation shortcut.
 
-At least on Mint, I never needed the following but...
+Check that `/proc/acpi/call` exists. On systemd, enable loading on boot with:
 
-- `make` will tell you if you're missing compilers.
-
-- You might need to install the headers for your kernel version: https://github.com/s-h-a-d-o-w/alfc/issues/6#issue-1218677080.
-
-### Run `acpi_call` on startup
-
-**systemd** (Arch, Fedora, Ubuntu, openSUSE, etc.):
-
-Put `acpi_call` into `/etc/modules-load.d/acpi_call.conf`. See the [Arch wiki](https://wiki.archlinux.org/title/Kernel_module#Automatic_module_loading_with_systemd) for details.
-
-```bash
-echo 'acpi_call' | sudo tee /etc/modules-load.d/acpi_call.conf
+```sh
+echo acpi_call | sudo tee /etc/modules-load.d/acpi_call.conf
 ```
 
-**OpenRC** (Alpine, Artix, Gentoo, etc.):
+On OpenRC, configure your distribution's module loader (`/etc/modules` on some
+systems or `/etc/conf.d/modules` on Gentoo). Fan access and Intel RAPL CPU tuning
+are separate capabilities. RAPL may be unavailable even when fan control works.
+The selected Intel RAPL package zone must expose a readable enabled state of
+`1`; ALFC does not turn disabled zones on. It checks enablement before and after
+applying limits, because matching limit registers alone do not establish active
+long-term power limiting.
+The UI and widget display backend availability rather than assuming all hardware
+features exist.
 
-Add `acpi_call` to `/etc/modules` (one module name per line). On Gentoo, use `/etc/conf.d/modules` instead.
+## Install, upgrade, or run temporarily
 
-## Installation
+Download a published Linux archive and `SHA256SUMS` from the same release. Verify
+the archive's SHA-256 entry before extracting it. Keep the extracted release
+outside `/opt/alfc`, then run its installer:
 
-### Arch Linux (AUR)
-
-**Not published yet** — the `alfc-bin` package will be submitted to the AUR after
-the first stable release. Until then, use the manual install below.
-
-Once available:
-
-```bash
-yay -S alfc-bin
-sudo systemctl enable --now alfc
+```sh
+sudo ./install.sh
 ```
 
-### Manual (all distros)
+The installer validates required files and service-manager support before making
+changes, stops an existing service before replacing files, installs under
+`/opt/alfc`, and creates `/usr/bin/alfc`. It preserves existing
+`/opt/alfc/alfc.config.json` on upgrades and removes obsolete frontend assets.
+Run the installer again from a newly extracted release to upgrade. It refuses to
+overwrite `/usr/bin/alfc` if that command belongs to another installation.
 
-- Grab the latest alfc Linux release
-- Extract it anywhere (e.g. `~/Downloads`)
-- Run `sudo ./install.sh`
+For a temporary foreground run without installing a service:
 
-The installer:
-
-1. Copies files to `/opt/alfc`
-2. Creates a symlink at `/usr/bin/alfc`
-3. Auto-detects your init system (systemd or OpenRC) and creates the appropriate service
-4. Preserves your existing config on upgrades
-
-Go to `http://localhost:5522` to configure things.
-
-### Run without installing a service
-
-```bash
+```sh
 sudo ./run.sh
 ```
 
-Stop it with `Ctrl+C`.
+Stop it with Ctrl+C. Avoid running a service and a foreground instance together.
+The required IPv4 listener and optional IPv6 listener use port 5522, so a second
+instance fails instead of sharing control. Open `http://localhost:5522` or
+`http://127.0.0.1:5522`; `http://[::1]:5522` works when IPv6 is available. The
+privileged backend deliberately listens only on loopback.
 
-### Upgrade
+The unpublished AUR package is documented in [aur/README.md](aur/README.md).
+Once published, use its package manager for installation and upgrades rather
+than mixing it with the manual `/opt/alfc` installation.
 
-Run `sudo ./install.sh` again from a new release. Your fan curves and config are preserved automatically.
+## Stop and uninstall
 
-### Uninstall
+Normal shutdown stops admitted work and attempts both BIOS automatic-control
+commands within a bounded budget. systemd and OpenRC grant at least 15 seconds
+before forced termination. A hung native call or forced kill can still prevent a
+confirmed firmware handoff; check shutdown logs when diagnosing control problems.
 
-```bash
+```sh
 sudo /opt/alfc/uninstall.sh
 ```
 
-This removes the service, installed files, and the `/usr/bin/alfc` symlink. Your config is preserved at `/opt/alfc/alfc.config.json` unless you pass `--purge`:
+This stops the service before deleting files and preserves only the top-level
+configuration. To delete it too, run the same command with `--purge`. A failed
+service stop or unknown init system aborts removal, leaving files in place.
+Uninstall the per-user widget separately.
 
-```bash
-sudo /opt/alfc/uninstall.sh --purge
-```
+## Troubleshooting
 
-### Troubleshooting
+For systemd, inspect `systemctl status alfc` and `journalctl -u alfc -f`. For
+OpenRC, use `rc-service alfc status`; the generated background service does not
+capture stdout/stderr into a dedicated file. Stop it and use `run.sh` for foreground
+logs when needed.
 
-**Service won't start**: Check logs with `journalctl -u alfc -f`.
+An execution failure such as systemd `203/EXEC` can indicate an absent executable,
+missing execute permission, wrong architecture, or a missing glibc loader. Check
+`ls -l /opt/alfc/alfc` and that the archive matches the host. An unavailable fan
+backend requires checking module loading, `/proc/acpi/call`, and firmware support.
+An unavailable CPU tuner requires checking Intel RAPL sysfs support; it does not
+justify treating fan commands as failed. A port conflict must be resolved by
+stopping the other instance, not by opening the service on all network interfaces.
+If ALFC started before `acpi_call` was loaded, load the module and restart ALFC
+(`sudo systemctl restart alfc` or `sudo rc-service alfc restart`). Availability is
+cached for the process; loading the module alone does not refresh the capability.
 
-**203/EXEC error**: The binary can't be executed. Verify it exists and is executable:
+## KDE Plasma 6 widget
 
-```bash
-ls -la /opt/alfc/alfc
-```
+Install QtWebSockets QML support using the package names in
+[plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md). Then, as the desktop user:
 
-**acpi_call not found at runtime**: Make sure the kernel module is loaded:
-
-```bash
-lsmod | grep acpi_call
-```
-
-## KDE Plasma 6 Widget (Optional)
-
-If you're running KDE Plasma 6, you can install the native Plasma widget for panel, system tray, or desktop fan control (see [plasmoid/README.md](plasmoid/README.md) for full details).
-
-### Prerequisites
-
-- KDE Plasma 6 desktop environment
-- QtWebSockets QML module (see [plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md) for distro-specific package names)
-- The ALFC backend service must be running (`sudo ./install.sh` or `sudo ./run.sh`)
-
-### Install
-
-```bash
+```sh
 /opt/alfc/plasmoid/install.sh
 ```
 
-Or manually:
+The helper upgrades an existing installation. Alternatively use
+`kpackagetool6 --type Plasma/Applet --install /opt/alfc/plasmoid/package`, replacing
+`--install` with `--upgrade` for an existing widget. Add the widget through Plasma's
+Add Widgets interface. Remove it with `/opt/alfc/plasmoid/uninstall.sh` before
+removing the backend installation, or with
+`kpackagetool6 --type Plasma/Applet --remove org.kde.alfc` afterward.
 
-```bash
-kpackagetool6 --type Plasma/Applet --install /opt/alfc/plasmoid/package
-```
-
-After installing, right-click your panel -> Add Widgets -> search for "Aorus".
-
-### Upgrade
-
-```bash
-/opt/alfc/plasmoid/install.sh
-```
-
-The script detects an existing install and upgrades automatically.
-
-### Uninstall
-
-```bash
-/opt/alfc/plasmoid/uninstall.sh
-```
-
-### Testing / Development
-
-```bash
-plasmoidviewer -a plasmoid/package
-# or
-plasmawindowed org.kde.alfc
-```
-
-## Wishlist
-
-- Somehow include `acpi_call` in the installation process. But there are two problems:
-  1. People who have secure boot enabled need that whole separate step of signing the module.
-  2. How the module can be loaded on startup might vary from distro to distro.
+The widget depends on the running backend and mirrors its capabilities and
+confirmed state. See [plasmoid/README.md](plasmoid/README.md) for supported controls,
+connection settings, and runtime test instructions. For development,
+`plasmoidviewer -a plasmoid/package` requires the Plasma development tools;
+`plasmawindowed org.kde.alfc` opens an installed widget.

@@ -3,7 +3,7 @@ const { mockSuccess, mockError } = vi.hoisted(() => ({
   mockError: vi.fn(),
 }));
 
-vi.mock("react-toastify", () => ({
+vi.mock("react-toastify/unstyled", () => ({
   toast: {
     success: mockSuccess,
     error: mockError,
@@ -36,6 +36,7 @@ describe("toast utility wrappers", () => {
       position: "bottom-right",
       style: {
         background: theme.primary,
+        color: "#202027",
       },
     });
   });
@@ -112,13 +113,29 @@ describe("getFanTableRowError", () => {
     ).toEqual({ row: 1, reason: "temperature is missing" });
   });
 
-  it("flags a non-whole temperature", () => {
+  it("accepts fractional temperatures supported by the backend", () => {
     expect(
       getFanTableRowError([
         ["40", "15"],
         ["83.5", "50"],
       ]),
-    ).toEqual({ row: 1, reason: "temperature must be a whole number" });
+    ).toBeNull();
+  });
+
+  it("flags an out-of-range temperature", () => {
+    expect(
+      getFanTableRowError([
+        ["40", "15"],
+        ["120", "80"],
+      ]),
+    ).toEqual({
+      row: 1,
+      reason: "temperature must be between 0 and 110",
+    });
+    expect(getFanTableRowError([["-5", "15"]])).toEqual({
+      row: 0,
+      reason: "temperature must be between 0 and 110",
+    });
   });
 
   it("flags temperatures that do not ascend", () => {
@@ -142,20 +159,24 @@ describe("getFanTableRowError", () => {
       ]),
     ).toEqual({
       row: 1,
-      reason: "fan speed must be a whole number from 0 to 100",
+      reason: "fan speed must be a finite number from 0 to 100",
     });
   });
 
-  it("flags a non-whole fan speed", () => {
+  it("accepts fractional speeds supported by the backend", () => {
     expect(
       getFanTableRowError([
         ["40", "15"],
         ["83", "50.5"],
       ]),
-    ).toEqual({
-      row: 1,
-      reason: "fan speed must be a whole number from 0 to 100",
-    });
+    ).toBeNull();
+  });
+
+  it("rejects empty tables and nonfinite values", () => {
+    expect(getFanTableRowError([])).not.toBeNull();
+    expect(getFanTableRowError([["Infinity", "50"]])).not.toBeNull();
+    expect(getFanTableRowError([["50", "NaN"]])).not.toBeNull();
+    expect(getFanTableRowError([["50", ""]])).not.toBeNull();
   });
 });
 

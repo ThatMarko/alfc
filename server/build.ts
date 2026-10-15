@@ -1,43 +1,58 @@
+import { rm } from "node:fs/promises";
+import path from "node:path";
+
 const isWindows = process.platform === "win32";
 const arch = process.arch;
+if (process.platform !== "linux" && !isWindows) {
+  throw new Error(`Unsupported server platform: ${process.platform}`);
+}
+if (arch !== "x64" && arch !== "arm64") {
+  throw new Error(`Unsupported server architecture: ${arch}`);
+}
+if (isWindows && arch !== "x64") {
+  throw new Error("Windows native libraries currently require an x64 build.");
+}
+const serverDir = import.meta.dirname;
+const distDir = path.join(serverDir, "dist");
 
-let target: string;
+let target: "bun-windows-x64" | "bun-linux-arm64" | "bun-linux-x64";
 let outfile: string;
 
 if (isWindows) {
-  target = arch === "arm64" ? "bun-windows-arm64" : "bun-windows-x64";
+  target = "bun-windows-x64";
   outfile = "dist/alfc.exe";
 } else {
   target = arch === "arm64" ? "bun-linux-arm64" : "bun-linux-x64";
   outfile = "dist/alfc";
 }
 
-if (isWindows) {
-  Bun.spawnSync(
-    ["cmd", "/c", "if", "exist", "dist", "rmdir", "/s", "/q", "dist"],
-    { stdio: ["inherit", "inherit", "inherit"] },
-  );
-} else {
-  Bun.spawnSync(["rm", "-rf", "dist"], {
-    stdio: ["inherit", "inherit", "inherit"],
-  });
-}
+await rm(distDir, { recursive: true, force: true });
 
-const result = Bun.spawnSync(
-  [
-    "bun",
-    "build",
-    "index.ts",
-    "--compile",
-    "--target",
+const result = await Bun.build({
+  // Bundled workers must be explicit entrypoints so compiled executables can
+  // resolve their source URL in Bun's virtual filesystem.
+  entrypoints: isWindows
+    ? [
+        path.join(serverDir, "index.ts"),
+        path.join(serverDir, "native/windows/hardware.worker.ts"),
+      ]
+    : [path.join(serverDir, "index.ts")],
+  compile: {
     target,
-    "--outfile",
-    outfile,
-    "--minify",
-  ],
-  { stdio: ["inherit", "inherit", "inherit"] },
-);
+    outfile: path.join(serverDir, outfile),
+    // Packaged settings live beside the executable. Avoid reading unrelated
+    // .env or bunfig.toml files from the service's working directory.
+    autoloadDotenv: false,
+    autoloadBunfig: false,
+  },
+  format: "esm",
+  minify: true,
+  bytecode: true,
+});
 
-if (result.exitCode !== 0) {
-  process.exit(result.exitCode);
+if (!result.success) {
+  for (const log of result.logs) {
+    console.error(log);
+  }
+  process.exit(1);
 }

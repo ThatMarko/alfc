@@ -8,7 +8,14 @@ import { MessageToClientKind, MessageToServerKind } from "../../common/types";
 import { applyFixedFan, fanControl } from "../fan-control/index";
 import { getCall, setCall, tune } from "../native/index";
 import { persistState, state } from "../state/index";
-import { setServer, websocketHandlers } from "./index";
+import {
+  publishActivity,
+  publishState,
+  setServer,
+  setServers,
+  startWebSocketShutdown,
+  websocketHandlers,
+} from "./index";
 
 vi.mock("../native/index", () => ({
   getCall: vi.fn(),
@@ -72,11 +79,14 @@ const DEFAULT_STATE: State = {
 type MockSocket = {
   send: ReturnType<typeof vi.fn>;
   subscribe: ReturnType<typeof vi.fn>;
+  getBufferedAmount: ReturnType<typeof vi.fn>;
+  terminate: ReturnType<typeof vi.fn>;
+  readyState: number;
 };
 
-type MockServer = {
-  publish: ReturnType<typeof vi.fn>;
-};
+let createdSockets: MockSocket[] = [];
+
+type MockServer = ReturnType<typeof createServer>;
 
 function cloneFanTable(table: FanTable): FanTable {
   return table.map(
@@ -96,18 +106,26 @@ function resetStateToDefaults() {
   state.isCpuTuningAvailable = true;
   state.isGpuBoostAvailable = true;
   state.isFanControlAvailable = true;
+  delete state.restartRequired;
 }
 
 function createSocket(): MockSocket {
-  return {
-    send: vi.fn(),
+  const ws = {
+    send: vi.fn().mockReturnValue(1),
     subscribe: vi.fn(),
+    getBufferedAmount: vi.fn().mockReturnValue(0),
+    terminate: vi.fn(),
+    readyState: WebSocket.OPEN,
   };
+  createdSockets.push(ws);
+  return ws;
 }
 
-function createServer(): MockServer {
+function createServer() {
   return {
-    publish: vi.fn(),
+    publish: vi
+      .fn<import("bun").Server<unknown>["publish"]>()
+      .mockReturnValue(0),
   };
 }
 
@@ -115,7 +133,7 @@ function dispatchMessage(
   ws: MockSocket,
   payload: MessageToServer | string | Buffer,
 ) {
-  websocketHandlers.message(
+  return websocketHandlers.message(
     ws as unknown as import("bun").ServerWebSocket<unknown>,
     typeof payload === "string" || Buffer.isBuffer(payload)
       ? payload
@@ -139,6 +157,7 @@ describe("websocket contract", () => {
   let server: MockServer;
 
   beforeEach(() => {
+    createdSockets = [];
     vi.clearAllMocks();
     resetStateToDefaults();
     mockedGetCall.mockResolvedValue(0);
@@ -148,6 +167,142 @@ describe("websocket contract", () => {
     mockedApplyFixedFan.mockResolvedValue(undefined);
     server = createServer();
     setServer(server as unknown as import("bun").Server<unknown>);
+  });
+
+  afterEach(() => {
+    for (const ws of createdSockets)
+      websocketHandlers.close(
+        ws as unknown as import("bun").ServerWebSocket<unknown>,
+        1000,
+        "",
+      );
+  });
+
+  function openSocket(ws: MockSocket) {
+    websocketHandlers.open(
+      ws as unknown as import("bun").ServerWebSocket<unknown>,
+    );
+  }
+
+  it("retires only pressured peers while keeping native broadcasts on both listeners", () => {
+    const ipv6 = createServer();
+    setServers([server, ipv6]);
+    const slow = createSocket();
+    const healthy = createSocket();
+    const otherListener = createSocket();
+    for (const ws of [slow, healthy, otherListener]) openSocket(ws);
+    slow.getBufferedAmount.mockReturnValue(1024 * 1024);
+    publishState();
+    expect(slow.terminate).toHaveBeenCalledOnce();
+    expect(healthy.terminate).not.toHaveBeenCalled();
+    expect(otherListener.terminate).not.toHaveBeenCalled();
+    for (const listener of [server, ipv6])
+      expect(listener.publish).toHaveBeenCalledExactlyOnceWith(
+        "state",
+        JSON.stringify({ kind: "state", data: state }),
+      );
+    // The native close callback need not arrive before the next publication.
+    slow.getBufferedAmount.mockClear();
+    publishActivity({
+      appliedSpeed: 50,
+      avgCPUTemp: 50,
+      avgGPUTemp: 50,
+      target: 50,
+    });
+    expect(slow.getBufferedAmount).not.toHaveBeenCalled();
+    expect(slow.terminate).toHaveBeenCalledOnce();
+    for (const listener of [server, ipv6])
+      expect(listener.publish).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a backpressured direct send and terminates its slow peer", async () => {
+    const ws = createSocket();
+    openSocket(ws);
+    ws.send.mockClear();
+    ws.send.mockImplementationOnce(() => {
+      ws.getBufferedAmount.mockReturnValue(1024 * 1024);
+      return -1;
+    });
+    await dispatchMessage(ws, "ping");
+    expect(ws.send).toHaveBeenCalledExactlyOnceWith("pong");
+    expect(ws.terminate).toHaveBeenCalledOnce();
+  });
+
+  it("retires an open socket when a direct reply is dropped", async () => {
+    const ws = createSocket();
+    openSocket(ws);
+    ws.send.mockReturnValueOnce(0);
+    await dispatchMessage(ws, "ping");
+    expect(ws.terminate).toHaveBeenCalledOnce();
+    ws.getBufferedAmount.mockClear();
+    publishState();
+    expect(ws.getBufferedAmount).not.toHaveBeenCalled();
+  });
+
+  it("checks pressure after an asynchronous native pub/sub flush", () => {
+    vi.useFakeTimers();
+    try {
+      const ws = createSocket();
+      openSocket(ws);
+      server.publish.mockImplementation(() => {
+        setTimeout(() => ws.getBufferedAmount.mockReturnValue(1024 * 1024), 0);
+        return -1;
+      });
+      publishState();
+      expect(ws.terminate).not.toHaveBeenCalled();
+      vi.runOnlyPendingTimers();
+      expect(ws.terminate).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("checks a direct reply after its callback flushes without retrying it", async () => {
+    vi.useFakeTimers();
+    try {
+      const ws = createSocket();
+      openSocket(ws);
+      ws.send.mockClear();
+      ws.send.mockImplementationOnce(() => {
+        setTimeout(() => ws.getBufferedAmount.mockReturnValue(1024 * 1024), 0);
+        return -1;
+      });
+      await dispatchMessage(ws, "ping");
+      expect(ws.terminate).not.toHaveBeenCalled();
+      vi.runOnlyPendingTimers();
+      expect(ws.terminate).toHaveBeenCalledOnce();
+      expect(ws.send).toHaveBeenCalledExactlyOnceWith("pong");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("removes closed sockets and cancels their deferred pressure check", () => {
+    vi.useFakeTimers();
+    try {
+      const ws = createSocket();
+      openSocket(ws);
+      publishState();
+      publishActivity({
+        appliedSpeed: 50,
+        avgCPUTemp: 50,
+        avgGPUTemp: 50,
+        target: 50,
+      });
+      expect(vi.getTimerCount()).toBe(1);
+      websocketHandlers.close(
+        ws as unknown as import("bun").ServerWebSocket<unknown>,
+        1000,
+        "",
+      );
+      expect(vi.getTimerCount()).toBe(0);
+      ws.getBufferedAmount.mockClear();
+      publishState();
+      expect(ws.getBufferedAmount).not.toHaveBeenCalled();
+      expect(ws.terminate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sends a protocol versioned state snapshot on open", () => {
@@ -164,6 +319,134 @@ describe("websocket contract", () => {
       ...state,
       protocolVersion: "1.1",
     });
+  });
+
+  it("synchronizes state and telemetry across both loopback listeners", async () => {
+    const ipv6 = createServer();
+    setServers([server, ipv6]);
+    const ws = createSocket();
+    await dispatchMessage(ws, {
+      kind: MessageToServerKind.FixedPercentage,
+      data: 72,
+    });
+    const activity = {
+      appliedSpeed: 72,
+      avgCPUTemp: 65,
+      avgGPUTemp: 60,
+      target: 72,
+      sensorFailure: false,
+    };
+    publishActivity(activity);
+    for (const listener of [server, ipv6]) {
+      expect(listener.publish).toHaveBeenCalledTimes(2);
+      expect(listener.publish).toHaveBeenNthCalledWith(
+        1,
+        "state",
+        expect.any(String),
+      );
+      expect(
+        JSON.parse(String(listener.publish.mock.calls[0]?.[1])).data
+          .fixedPercentage,
+      ).toBe(72);
+      expect(listener.publish).toHaveBeenNthCalledWith(
+        2,
+        "activity",
+        JSON.stringify({
+          kind: MessageToClientKind.FanControlActivity,
+          data: activity,
+        }),
+      );
+    }
+    expect(server.publish.mock.calls).toEqual(ipv6.publish.mock.calls);
+  });
+
+  it("publishes once per listener and replaces the registry for a single server", () => {
+    const other = createServer();
+    setServers([server, server, other]);
+    publishState();
+    expect(server.publish).toHaveBeenCalledTimes(1);
+    expect(other.publish).toHaveBeenCalledTimes(1);
+    server.publish.mockClear();
+    other.publish.mockClear();
+    setServer(server as unknown as import("bun").Server<unknown>);
+    publishState();
+    expect(server.publish).toHaveBeenCalledTimes(1);
+    expect(other.publish).not.toHaveBeenCalled();
+    setServers([]);
+    publishState();
+    expect(server.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it("broadcasts runtime capability changes to every connected client", async () => {
+    state.isCpuTuningAvailable = false;
+    state.restartRequired = true;
+    publishState();
+    expect(getLastPublishedJson(server)).toEqual({
+      kind: MessageToClientKind.State,
+      data: { ...state, protocolVersion: "1.1" },
+    });
+    const ws = createSocket();
+    websocketHandlers.open(
+      ws as unknown as import("bun").ServerWebSocket<unknown>,
+    );
+    expect(getLastSentJson(ws).data).toMatchObject({
+      restartRequired: true,
+      isCpuTuningAvailable: false,
+      isFanControlAvailable: true,
+    });
+    await dispatchMessage(ws, {
+      kind: MessageToServerKind.Tune,
+      requestId: "after-native-failure",
+      data: { pl1: 40, pl2: 90 },
+    });
+    expect(mockedTune).not.toHaveBeenCalled();
+    expect(getLastSentJson(ws).data).toBe(
+      "UNSUPPORTED_FEATURE: CPU tuning is not available on this system",
+    );
+    expect(state.isFanControlAvailable).toBe(true);
+  });
+
+  it("preserves restart-required fatal errors through fan-write wrappers", async () => {
+    const ws = createSocket();
+    const fatal = Object.assign(
+      new Error("WMI worker timed out; restart ALFC to recover safely"),
+      { restartRequired: true },
+    );
+    mockedApplyFixedFan.mockRejectedValueOnce(
+      new Error("SetFixedFanSpeed failed", { cause: fatal }),
+    );
+    await dispatchMessage(ws, {
+      kind: MessageToServerKind.DoFixedSpeed,
+      requestId: "fatal-fan-write",
+      data: true,
+    });
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      requestId: "fatal-fan-write",
+      data: "RESTART_REQUIRED: WMI worker timed out; restart ALFC to recover safely",
+    });
+    expect(state.doFixedSpeed).toBe(false);
+    expect(mockedPersistState).not.toHaveBeenCalled();
+  });
+
+  it("emits one restart-required code when a native adapter already prefixes it", async () => {
+    const ws = createSocket();
+    mockedTune.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          "RESTART_REQUIRED: RESTART_REQUIRED: Windows cpuoc hardware failed",
+        ),
+        { restartRequired: true },
+      ),
+    );
+    await dispatchMessage(ws, {
+      kind: MessageToServerKind.Tune,
+      requestId: "cpu-fatal",
+      data: { pl1: 40, pl2: 90 },
+    });
+    expect(getLastSentJson(ws).data).toBe(
+      "RESTART_REQUIRED: Windows cpuoc hardware failed",
+    );
   });
 
   it("subscribes to activity channel for registeractivitysocket", async () => {
@@ -238,7 +521,7 @@ describe("websocket contract", () => {
     });
   });
 
-  it("handles dofixedspeed and re-enters auto fan control when disabled", async () => {
+  it("disables fixed mode without restarting the active monitoring loop", async () => {
     const ws = createSocket();
     state.doFixedSpeed = true;
 
@@ -254,7 +537,7 @@ describe("websocket contract", () => {
     });
 
     expect(state.doFixedSpeed).toBe(false);
-    expect(mockedAutoFanControl).toHaveBeenCalledTimes(1);
+    expect(mockedAutoFanControl).not.toHaveBeenCalled();
     expect(mockedPersistState).toHaveBeenCalledTimes(1);
     expect(server.publish).toHaveBeenCalledWith("state", expect.any(String));
     expect(getLastSentJson(ws)).toEqual({
@@ -398,22 +681,22 @@ describe("websocket contract", () => {
 
     dispatchMessage(ws, {
       kind: MessageToServerKind.Get,
-      methodId: "0x129",
-      methodName: "GetSomething",
-      data: { Data: 1 },
+      methodId: "0x59",
+      methodName: "GetLightBar",
+      data: { Index: 1 },
     });
 
     await vi.waitFor(() => {
       expect(ws.send).toHaveBeenCalledTimes(1);
     });
 
-    expect(mockedGetCall).toHaveBeenCalledWith("0x129", "GetSomething", {
-      Data: 1,
+    expect(mockedGetCall).toHaveBeenCalledWith("89", "GetLightBar", {
+      Index: 1,
     });
     expect(getLastSentJson(ws)).toEqual({
       kind: MessageToClientKind.Success,
-      methodId: "0x129",
-      methodName: "GetSomething",
+      methodId: "0x59",
+      methodName: "GetLightBar",
       data: 42,
     });
   });
@@ -447,16 +730,233 @@ describe("websocket contract", () => {
     });
   });
 
+  it("keeps tune settings authoritative until hardware accepts them and serializes clients", async () => {
+    const first = createSocket();
+    const second = createSocket();
+    let rejectFirst: ((reason: Error) => void) | undefined;
+    mockedTune.mockImplementationOnce(
+      () =>
+        new Promise<void>((_, reject) => {
+          rejectFirst = reject;
+        }),
+    );
+    dispatchMessage(first, {
+      kind: MessageToServerKind.Tune,
+      data: { pl1: 45, pl2: 95 },
+    });
+    dispatchMessage(second, {
+      kind: MessageToServerKind.Tune,
+      data: { pl1: 50, pl2: 100 },
+    });
+    await vi.waitFor(() => expect(mockedTune).toHaveBeenCalledTimes(1));
+    const newlyConnected = createSocket();
+    websocketHandlers.open(
+      newlyConnected as unknown as import("bun").ServerWebSocket<unknown>,
+    );
+    expect(getLastSentJson(newlyConnected).data).toMatchObject({
+      pl1: 37,
+      pl2: 106,
+    });
+    expect(server.publish).not.toHaveBeenCalled();
+    rejectFirst?.(new Error("hardware rejected limits"));
+    await vi.waitFor(() => expect(second.send).toHaveBeenCalledTimes(1));
+    expect(mockedTune).toHaveBeenNthCalledWith(1, 45, 95);
+    expect(mockedTune).toHaveBeenNthCalledWith(2, 50, 100);
+    expect(state.pl1).toBe(50);
+    expect(state.pl2).toBe(100);
+    expect(getLastSentJson(first).kind).toBe(MessageToClientKind.Error);
+    expect(getLastSentJson(second).kind).toBe(MessageToClientKind.Success);
+  });
+
+  it("acknowledges configuration only after it is saved", async () => {
+    const ws = createSocket();
+    let resolveSave: (() => void) | undefined;
+    mockedPersistState.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.FixedPercentage,
+      data: 60,
+    });
+    await vi.waitFor(() => expect(mockedPersistState).toHaveBeenCalledTimes(1));
+    expect(ws.send).not.toHaveBeenCalled();
+    resolveSave?.();
+    await vi.waitFor(() =>
+      expect(getLastSentJson(ws).kind).toBe(MessageToClientKind.Success),
+    );
+  });
+
+  it("publishes the real active configuration and reports a failed durable save", async () => {
+    const ws = createSocket();
+    mockedPersistState.mockRejectedValueOnce(new Error("disk full"));
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.FixedPercentage,
+      requestId: "save-1",
+      data: 65,
+    });
+    await vi.waitFor(() => expect(ws.send).toHaveBeenCalledTimes(1));
+    expect(state.fixedPercentage).toBe(65);
+    expect(getLastPublishedJson(server).data).toMatchObject({
+      fixedPercentage: 65,
+    });
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      requestId: "save-1",
+      data: "PERSISTENCE_ERROR: Configuration is active but could not be saved",
+    });
+  });
+
+  it.each([
+    { methodId: "129", methodName: "SetBrightness", data: { Data: 1 } },
+    { methodId: "129 0 0", methodName: "SetAIBoostStatus", data: { Data: 1 } },
+    { methodId: "129\n", methodName: "SetAIBoostStatus", data: { Data: 1 } },
+    { methodId: "129", methodName: "__proto__", data: {} },
+    { methodId: "129", methodName: "SetAIBoostStatus", data: { Data: 1.5 } },
+    { methodId: "129", methodName: "SetAIBoostStatus", data: { Data: -1 } },
+    { methodId: "129", methodName: "SetAIBoostStatus", data: { Data: 256 } },
+    { methodId: "129", methodName: "SetAIBoostStatus", data: { Wrong: 1 } },
+    {
+      methodId: "129",
+      methodName: "SetAIBoostStatus",
+      data: { Data: 1, Extra: 0 },
+    },
+  ])(
+    "rejects mismatched native methods or invalid arguments: %j",
+    async (call) => {
+      const ws = createSocket();
+      dispatchMessage(ws, { kind: MessageToServerKind.Set, ...call });
+      await vi.waitFor(() => expect(ws.send).toHaveBeenCalledTimes(1));
+      expect(mockedSetCall).not.toHaveBeenCalled();
+      expect(getLastSentJson(ws).kind).toBe(MessageToClientKind.Error);
+    },
+  );
+
+  it("orders arguments by the documented signature for Linux and Windows parity", async () => {
+    const ws = createSocket();
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.Set,
+      methodId: "131",
+      methodName: "SetRGBLed",
+      data: { Blue: 6, Red: 4, Mode: 2, Green: 5, Area: 1, Brightness: 3 },
+    });
+    await vi.waitFor(() => expect(ws.send).toHaveBeenCalledTimes(1));
+    const args = mockedSetCall.mock.calls[0]?.[2];
+    expect(Object.keys(args ?? {})).toEqual([
+      "Area",
+      "Mode",
+      "Brightness",
+      "Red",
+      "Green",
+      "Blue",
+    ]);
+  });
+
+  it("rejects raw fan writes that bypass authoritative managed control", async () => {
+    const ws = createSocket();
+    dispatchMessage(ws, {
+      kind: MessageToServerKind.Set,
+      methodId: "107",
+      methodName: "SetFixedFanSpeed",
+      data: { Data: 20 },
+    });
+    await vi.waitFor(() => expect(ws.send).toHaveBeenCalledTimes(1));
+    expect(mockedSetCall).not.toHaveBeenCalled();
+    expect(getLastSentJson(ws).data).toBe(
+      "MANAGED_FAN_CONTROL: Use the fan mode, percentage, and curve commands",
+    );
+  });
+
+  it("does not reflect arbitrary request properties or non-string metadata", async () => {
+    const ws = createSocket();
+    dispatchMessage(
+      ws,
+      JSON.stringify({
+        kind: MessageToServerKind.FixedPercentage,
+        methodName: 1,
+        requestId: "ours",
+        extra: "untrusted",
+        data: 70,
+      }),
+    );
+    await vi.waitFor(() => expect(ws.send).toHaveBeenCalledTimes(1));
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Success,
+      requestId: "ours",
+      data: 70,
+    });
+  });
+
+  it("preserves packed native results larger than the exact integer range", async () => {
+    const ws = createSocket();
+    mockedGetCall.mockResolvedValueOnce("1208925819614629174706175");
+    await dispatchMessage(ws, {
+      kind: MessageToServerKind.Get,
+      methodId: "96",
+      methodName: "GetDeepFan",
+    });
+    expect(getLastSentJson(ws).data).toBe("1208925819614629174706175");
+  });
+
+  it("bounds pending work while still answering keepalive pings", async () => {
+    const ws = createSocket();
+    let release: (() => void) | undefined;
+    mockedTune.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const requests = [
+      dispatchMessage(ws, {
+        kind: MessageToServerKind.Tune,
+        data: { pl1: 45, pl2: 95 },
+      }),
+    ];
+    await vi.waitFor(() => expect(mockedTune).toHaveBeenCalledTimes(1));
+    for (let index = 0; index < 63; index++) {
+      requests.push(
+        dispatchMessage(ws, {
+          kind: MessageToServerKind.FixedPercentage,
+          data: index,
+        }),
+      );
+    }
+    await dispatchMessage(ws, {
+      kind: MessageToServerKind.FixedPercentage,
+      requestId: "busy",
+      data: 90,
+    });
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      requestId: "busy",
+      data: "BUSY: Too many pending requests",
+    });
+    const subscriber = createSocket();
+    await dispatchMessage(subscriber, {
+      kind: MessageToServerKind.RegisterActivitySocket,
+    });
+    expect(subscriber.subscribe).toHaveBeenCalledWith("activity");
+    expect(subscriber.send).not.toHaveBeenCalled();
+    await dispatchMessage(ws, "ping");
+    expect(ws.send).toHaveBeenLastCalledWith("pong");
+    release?.();
+    await Promise.all(requests);
+    expect(state.fixedPercentage).toBe(62);
+  });
+
   it("echoes a client-supplied requestId in success responses", async () => {
     const ws = createSocket();
     mockedGetCall.mockResolvedValueOnce(42);
 
     dispatchMessage(ws, {
       kind: MessageToServerKind.Get,
-      methodId: "0x129",
-      methodName: "GetSomething",
+      methodId: "0x59",
+      methodName: "GetLightBar",
       requestId: "rawui-1",
-      data: { Data: 1 },
+      data: { Index: 1 },
     });
 
     await vi.waitFor(() => {
@@ -465,8 +965,8 @@ describe("websocket contract", () => {
 
     expect(getLastSentJson(ws)).toEqual({
       kind: MessageToClientKind.Success,
-      methodId: "0x129",
-      methodName: "GetSomething",
+      methodId: "0x59",
+      methodName: "GetLightBar",
       requestId: "rawui-1",
       data: 42,
     });
@@ -609,7 +1109,7 @@ describe("websocket contract", () => {
 
     dispatchMessage(ws, {
       kind: MessageToServerKind.Set,
-      methodId: "gpu-boost-unavailable",
+      methodId: "129",
       methodName: "SetAIBoostStatus",
       data: { Data: 0 },
     });
@@ -622,7 +1122,7 @@ describe("websocket contract", () => {
     expect(state.gpuBoost).toBe(DEFAULT_STATE.gpuBoost);
     expect(getLastSentJson(ws)).toEqual({
       kind: MessageToClientKind.Error,
-      methodId: "gpu-boost-unavailable",
+      methodId: "129",
       methodName: "SetAIBoostStatus",
       data: "UNSUPPORTED_FEATURE: GPU boost is not available on this system",
     });
@@ -641,6 +1141,72 @@ describe("websocket contract", () => {
       kind: MessageToClientKind.Error,
       data: "INVALID_JSON: Failed to parse message",
     });
+  });
+
+  it("accepts valid UTF-8 binary JSON and binary heartbeats", async () => {
+    const ws = createSocket();
+    await dispatchMessage(
+      ws,
+      Buffer.from(
+        JSON.stringify({
+          kind: MessageToServerKind.FixedPercentage,
+          requestId: "binary-温度-🌡",
+          data: 70,
+        }),
+      ),
+    );
+    expect(state.fixedPercentage).toBe(70);
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Success,
+      requestId: "binary-温度-🌡",
+      data: 70,
+    });
+    await dispatchMessage(ws, Buffer.from("ping"));
+    expect(ws.send).toHaveBeenLastCalledWith("pong");
+  });
+
+  it.each([[0xff], [0xc0, 0xaf], [0xf4, 0x90, 0x80, 0x80], [0xe2, 0x82]])(
+    "rejects corrupted UTF-8 binary JSON before admitting a mutation: %j",
+    async (...bytes) => {
+      const ws = createSocket();
+      await dispatchMessage(
+        ws,
+        Buffer.concat([
+          Buffer.from(
+            '{"kind":"fixedpercentage","data":70,"requestId":"binary-',
+          ),
+          Buffer.from(bytes),
+          Buffer.from('"}'),
+        ]),
+      );
+      expect(getLastSentJson(ws)).toEqual({
+        kind: MessageToClientKind.Error,
+        data: "INVALID_JSON: Failed to parse message",
+      });
+      expect(state.fixedPercentage).toBe(DEFAULT_STATE.fixedPercentage);
+      expect(mockedPersistState).not.toHaveBeenCalled();
+      expect(server.publish).not.toHaveBeenCalled();
+      // A failed decode must not leave the shared decoder in a streaming state.
+      await dispatchMessage(
+        ws,
+        Buffer.from(JSON.stringify({ kind: "fixedpercentage", data: 65 })),
+      );
+      expect(state.fixedPercentage).toBe(65);
+      expect(getLastSentJson(ws).kind).toBe(MessageToClientKind.Success);
+    },
+  );
+
+  it("rejects a binary BOM consistently with a text JSON message", async () => {
+    const ws = createSocket();
+    await dispatchMessage(
+      ws,
+      Buffer.from('\uFEFF{"kind":"fixedpercentage","data":70}'),
+    );
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      data: "INVALID_JSON: Failed to parse message",
+    });
+    expect(mockedPersistState).not.toHaveBeenCalled();
   });
 
   it("returns UNKNOWN_KIND while preserving method metadata", async () => {
@@ -664,6 +1230,24 @@ describe("websocket contract", () => {
       methodId: "unknown-kind",
       methodName: "UnknownKind",
       data: "UNKNOWN_KIND: unknown-kind",
+    });
+  });
+
+  it("returns a structured rejection for an object kind that cannot be coerced to a string", async () => {
+    const ws = createSocket();
+    await expect(
+      dispatchMessage(
+        ws,
+        JSON.stringify({
+          kind: { toString: null, valueOf: null },
+          requestId: "invalid-kind-object",
+        }),
+      ),
+    ).resolves.toBeUndefined();
+    expect(getLastSentJson(ws)).toEqual({
+      kind: MessageToClientKind.Error,
+      requestId: "invalid-kind-object",
+      data: "UNKNOWN_KIND: object",
     });
   });
 
@@ -694,6 +1278,69 @@ describe("websocket contract", () => {
       methodId: `${kind}-missing-data`,
       methodName: "MissingDataCase",
       data: `MISSING_DATA: ${kind}`,
+    });
+  });
+
+  it("drains admitted work and prevents queued mutations during shutdown", async () => {
+    const active = createSocket();
+    const queued = createSocket();
+    let release: (() => void) | undefined;
+    mockedTune.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const first = dispatchMessage(active, {
+      kind: MessageToServerKind.Tune,
+      data: { pl1: 45, pl2: 95 },
+    });
+    await vi.waitFor(() => expect(mockedTune).toHaveBeenCalledTimes(1));
+    const second = dispatchMessage(queued, {
+      kind: MessageToServerKind.FixedPercentage,
+      requestId: "queued",
+      data: 80,
+    });
+    const tracked = createSocket();
+    const drained = (() => {
+      vi.useFakeTimers();
+      try {
+        openSocket(tracked);
+        tracked.getBufferedAmount.mockClear();
+        expect(vi.getTimerCount()).toBe(1);
+        const pending = startWebSocketShutdown();
+        expect(vi.getTimerCount()).toBe(0);
+        return pending;
+      } finally {
+        vi.useRealTimers();
+      }
+    })();
+    const lateConnection = createSocket();
+    openSocket(lateConnection);
+    expect(lateConnection.terminate).toHaveBeenCalledOnce();
+    expect(lateConnection.send).not.toHaveBeenCalled();
+    const rejected = createSocket();
+    await dispatchMessage(rejected, {
+      kind: MessageToServerKind.FixedPercentage,
+      methodId: "fixed",
+      requestId: "after-shutdown",
+      data: 90,
+    });
+    expect(getLastSentJson(rejected)).toEqual({
+      kind: MessageToClientKind.Error,
+      methodId: "fixed",
+      requestId: "after-shutdown",
+      data: "SHUTTING_DOWN: The server is shutting down",
+    });
+    release?.();
+    await Promise.all([first, second, drained]);
+    expect(state.pl1).toBe(45);
+    expect(state.fixedPercentage).toBe(DEFAULT_STATE.fixedPercentage);
+    expect(tracked.getBufferedAmount).not.toHaveBeenCalled();
+    expect(getLastSentJson(queued)).toEqual({
+      kind: MessageToClientKind.Error,
+      requestId: "queued",
+      data: "SHUTTING_DOWN: The server is shutting down",
     });
   });
 });

@@ -1,29 +1,81 @@
-import useReactWebSocket, { ReadyState } from "react-use-websocket";
-import type { MessageToClient } from "../../../common/types";
+import {
+  createContext,
+  use,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import type {
+  FanControlActivity,
+  MessageToClient,
+  MessageToServer,
+  State,
+} from "../../../common/types";
 
-const emptyObject = {};
-const shouldReconnect = (_: CloseEvent) => true;
+export type Command = Omit<MessageToServer, "requestId">;
+export type BackendConnection = {
+  // The last validated snapshot can remain visible during a disconnect.
+  state: State | null;
+  activity: FanControlActivity | null;
+  isActivityStale: boolean;
+  // True only after the current socket supplies its own validated snapshot.
+  isConnected: boolean;
+  connectionError: string | null;
+  sendRequest: (message: Command, notify?: boolean) => Promise<MessageToClient>;
+};
+
+export const BackendContext = createContext<BackendConnection | null>(null);
 
 export function useWebSocket() {
-  const { lastJsonMessage, sendJsonMessage, readyState } =
-    useReactWebSocket<MessageToClient | null>("ws://localhost:5522/ws", {
-      share: true,
-      heartbeat: {
-        message: "ping",
-        returnMessage: "pong",
-        timeout: 60000,
-        interval: 25000,
-      },
-      retryOnError: true,
-      reconnectAttempts: Number.MAX_SAFE_INTEGER,
-      shouldReconnect,
-    });
+  const connection = use(BackendContext);
+  if (!connection)
+    throw new Error("The backend connection provider is missing.");
+  return connection;
+}
 
-  return {
-    lastJsonMessage:
-      // Empty object is forced like this in order to avoid having to check for null in each component that uses this.
-      lastJsonMessage || (emptyObject as unknown as MessageToClient),
-    sendJsonMessage,
-    isConnected: readyState === ReadyState.OPEN,
-  };
+export function useBackendCommand() {
+  const { sendRequest } = useWebSocket();
+  const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const runCommand = useCallback(
+    async (message: Command, notify = true) => {
+      if (pendingRef.current) return undefined;
+      pendingRef.current = true;
+      setIsPending(true);
+      try {
+        return await sendRequest(message, notify);
+      } catch {
+        return undefined;
+      } finally {
+        // The provider displays the backend error once.
+        pendingRef.current = false;
+        if (mountedRef.current) setIsPending(false);
+      }
+    },
+    [sendRequest],
+  );
+  return { isPending, runCommand };
+}
+
+// Resync only when this form's backend values change. Unrelated broadcasts
+// must not erase edits to another field or fan table.
+export function useBackendDraft<T>(backendValue: T) {
+  const [draft, setDraft] = useState(() => backendValue);
+  const serialized = JSON.stringify(backendValue);
+  const [previous, setPrevious] = useState(serialized);
+  // Adjust before commit when this field changes; an effect would first
+  // commit an outdated draft and then render the whole form a second time.
+  if (previous !== serialized) {
+    setPrevious(serialized);
+    setDraft(() => backendValue);
+  }
+  return [draft, setDraft] as const;
 }

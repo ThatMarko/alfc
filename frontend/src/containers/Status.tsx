@@ -1,78 +1,97 @@
-import { faInfoCircle } from "@fortawesome/free-solid-svg-icons";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { useEffect, useRef, useState } from "react";
-import { MessageToClientKind } from "../../../common/types";
-import { SimpleTooltip } from "../components/SimpleTooltip";
-import { StyledArea } from "../components/StyledArea";
+import { InfoTooltip } from "../components/InfoTooltip";
 import { useWebSocket } from "../utils/useWebSocket";
 
 export function Status({ disabled }: { disabled: boolean }) {
-  const tooltipRef = useRef<HTMLSpanElement>(null);
+  const { isConnected, activity, isActivityStale } = useWebSocket();
+  const readings = disabled ? null : activity;
+  const sensorFailure = readings?.sensorFailure === true;
+  const telemetryStale = !disabled && isConnected && isActivityStale;
+  const unconfirmed = readings !== null && readings.appliedSpeed === null;
+  const status = !isConnected
+    ? "Offline"
+    : disabled
+      ? "Unavailable"
+      : telemetryStale
+        ? "Stale"
+        : sensorFailure
+          ? "Sensor error"
+          : readings
+            ? "Live"
+            : "Waiting for readings";
 
-  const [appliedSpeed, setAppliedSpeed] = useState<string>("-");
-  const [avgCPUTemp, setAvgCPUTemp] = useState<string>("-");
-  const [avgGPUTemp, setAvgGPUTemp] = useState<string>("-");
-  const [target, setTarget] = useState<string>("-");
-
-  const { isConnected, sendJsonMessage, lastJsonMessage } = useWebSocket();
-
-  useEffect(() => {
-    const { kind, data } = lastJsonMessage;
-    if (kind === MessageToClientKind.FanControlActivity) {
-      setAppliedSpeed(data.appliedSpeed ? data.appliedSpeed.toString() : "-");
-      setAvgCPUTemp(Math.round(data.avgCPUTemp).toString());
-      setAvgGPUTemp(Math.round(data.avgGPUTemp).toString());
-      setTarget(data.target.toString());
-    } else if (kind === "error") {
-      console.error(data);
-    }
-  }, [lastJsonMessage]);
-
-  useEffect(() => {
-    if (disabled) {
-      // Blanking out values must be delayed since we'll
-      // still receive fancontrolactivity for a bit, until
-      // server has actually stopped the auto fan control.
-      setTimeout(() => {
-        setAppliedSpeed("-");
-        setAvgCPUTemp("-");
-        setAvgGPUTemp("-");
-        setTarget("-");
-      }, 500);
-    } else {
-      sendJsonMessage({ kind: "registeractivitysocket" });
-    }
-  }, [disabled, sendJsonMessage]);
-
-  if (!isConnected) {
-    return null;
-  }
-
-  const status = `CPU: ${avgCPUTemp}°C
-GPU: ${avgGPUTemp}°C
-Current target: ${target}%
-Last applied: ${appliedSpeed}%`;
   return (
-    <StyledArea>
-      <h2>
-        Status{" "}
-        <span ref={tooltipRef}>
-          <FontAwesomeIcon icon={faInfoCircle} />
-        </span>
-        <SimpleTooltip target={tooltipRef}>
-          There&apos;s only one target speed because both fans always operate at
-          the same speed. Whichever target speed for either CPU or GPU would be
-          higher &quot;wins&quot;.
-        </SimpleTooltip>
-      </h2>
-      <textarea
-        readOnly
-        aria-label="Fan control status"
-        value={status}
-        rows={4}
-        cols={25}
-        style={{ fontSize: 14, cursor: "default" }}
-      />
-    </StyledArea>
+    <section className="panel" aria-label="Fan control status">
+      <div className="panel-header status-heading">
+        <h2>
+          Live telemetry{" "}
+          <InfoTooltip label="About fan control status">
+            Both fans use the same target speed. The higher of the CPU and GPU
+            fan-curve targets wins. Fixed mode continues to report temperature
+            and applied speed. Applied speed confirms the last accepted command;
+            fan RPM is not measured here.
+          </InfoTooltip>
+        </h2>
+        <span className="status-pill">{status}</span>
+      </div>
+      <dl className="metrics" style={{ margin: 0 }}>
+        <div className="metric">
+          <dt>CPU temperature</dt>
+          <dd>
+            {readings ? Math.round(readings.avgCPUTemp) : "—"}
+            <small>°C</small>
+          </dd>
+        </div>
+        <div className="metric">
+          <dt>GPU temperature</dt>
+          <dd>
+            {readings ? Math.round(readings.avgGPUTemp) : "—"}
+            <small>°C</small>
+          </dd>
+        </div>
+        <div className="metric">
+          <dt>Current target</dt>
+          <dd>
+            {readings?.target ?? "—"}
+            <small>%</small>
+          </dd>
+        </div>
+        <div className="metric">
+          <dt>Last applied command</dt>
+          <dd data-unconfirmed={unconfirmed}>
+            {unconfirmed ? "Unconfirmed" : (readings?.appliedSpeed ?? "—")}
+            {!unconfirmed && <small>%</small>}
+          </dd>
+        </div>
+      </dl>
+      {telemetryStale && (
+        <p className="telemetry-notice" role="alert">
+          Telemetry is stale. The backend has not sent readings for 10 seconds.{" "}
+          {readings
+            ? "Showing last received readings."
+            : "No readings have been received on this connection."}
+        </p>
+      )}
+      {sensorFailure && (
+        <p className="telemetry-notice" role="alert">
+          Sensor error. Temperature readings are stale. The backend is applying
+          its sensor failure fan policy.
+        </p>
+      )}
+      {unconfirmed && (
+        <p className="telemetry-notice" role="alert">
+          The latest fan write could not be confirmed. The target is not a
+          confirmed applied speed.
+        </p>
+      )}
+      {!readings && !telemetryStale && (
+        <p className="metric-note">
+          {disabled
+            ? "Temperature and fan-control readings are unavailable on this system."
+            : !isConnected
+              ? "Live readings will resume after reconnection."
+              : "Waiting for the first temperature and fan-control readings."}
+        </p>
+      )}
+    </section>
   );
 }

@@ -1,4 +1,4 @@
-import { toast, type ToastContent } from "react-toastify";
+import { toast, type ToastContent } from "react-toastify/unstyled";
 import { theme } from "./consts";
 
 export function successToast(content: ToastContent) {
@@ -8,6 +8,7 @@ export function successToast(content: ToastContent) {
     position: "bottom-right",
     style: {
       background: theme.primary,
+      color: "#202027",
     },
   });
 }
@@ -51,6 +52,8 @@ export function parseIntegerInRange(
 export function getFanTableRowError(
   table: [temperature: string, speed: string][],
 ): { row: number; reason: string } | null {
+  if (table.length === 0)
+    return { row: 0, reason: "table must contain at least one row" };
   let previousTemperature = Number.NEGATIVE_INFINITY;
 
   for (let row = 0; row < table.length; row++) {
@@ -67,8 +70,15 @@ export function getFanTableRowError(
     }
 
     const temperature = Number(trimmedTemperature);
-    if (!Number.isInteger(temperature)) {
-      return { row, reason: "temperature must be a whole number" };
+    if (!Number.isFinite(temperature)) {
+      return { row, reason: "temperature must be a finite number" };
+    }
+
+    if (temperature < 0 || temperature > 110) {
+      return {
+        row,
+        reason: "temperature must be between 0 and 110",
+      };
     }
 
     if (temperature <= previousTemperature) {
@@ -78,10 +88,11 @@ export function getFanTableRowError(
       };
     }
 
-    if (parseIntegerInRange(speedRaw, 0, 100) === null) {
+    const speed = speedRaw.trim() === "" ? NaN : Number(speedRaw);
+    if (!Number.isFinite(speed) || speed < 0 || speed > 100) {
       return {
         row,
-        reason: "fan speed must be a whole number from 0 to 100",
+        reason: "fan speed must be a finite number from 0 to 100",
       };
     }
 

@@ -1,5 +1,10 @@
 # Contributor Covenant Code of Conduct
 
+This policy covers ALFC's issues, pull requests, reviews, and other project
+spaces. For development procedures see [CONTRIBUTING.md](CONTRIBUTING.md);
+report software vulnerabilities through [SECURITY.md](SECURITY.md). Conduct
+reports use the private contact in the Enforcement section below.
+
 ## Our Pledge
 
 We as members, contributors, and leaders pledge to make participation in our

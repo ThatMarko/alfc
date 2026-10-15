@@ -20,6 +20,8 @@ Item {
     readonly property bool hasActivity: backend != null && backend.hasFreshActivity
     readonly property bool hasTelemetrySnapshot: backend != null && backend.hasActivity
     readonly property bool staleActivity: hasTelemetrySnapshot && !hasActivity
+    readonly property bool telemetryUnavailable: backend != null
+        && backend.initialActivityTimedOut
     readonly property int staleActivitySeconds: staleActivity
         ? Math.ceil(backend.activityAgeMs / 1000)
         : 0
@@ -65,6 +67,10 @@ Item {
         && (Math.round(safeActivity.avgCPUTemp) >= warningTemp - 10
             || Math.round(safeActivity.avgGPUTemp) >= warningTemp - 10)
     readonly property bool isWarning: isCritical || isWarm
+    // sensorFailure is absent on protocol 1.0 servers — treated as false
+    readonly property bool sensorFailure: hasTelemetrySnapshot
+        && safeActivity.sensorFailure === true
+    readonly property bool restartRequired: hasState && safeState.restartRequired === true
     readonly property bool showHorizontalPanelDetails: !iconOnly
         && !verticalPanel
         && width >= horizontalPanelDetailsWidth
@@ -76,12 +82,23 @@ Item {
             return i18n("ALFC")
         }
 
-        if (hasState && !protocolCompatible) {
+        if (!protocolCompatible) {
             return i18n("Unsupported")
         }
 
+        if (restartRequired) {
+            return i18n("Restart ALFC")
+        }
+
         if (!hasTelemetrySnapshot) {
-            return i18n("Waiting")
+            if (!fanControlAvailable) {
+                return i18n("No fan control")
+            }
+            return telemetryUnavailable ? i18n("No telemetry") : i18n("Waiting")
+        }
+
+        if (sensorFailure) {
+            return i18n("Sensor error")
         }
 
         return i18n("%1°C / %2°C",
@@ -107,6 +124,10 @@ Item {
 
         if (staleActivity) {
             return i18n("Stale %1s", staleActivitySeconds)
+        }
+
+        if (telemetryUnavailable) {
+            return i18n("Telemetry unavailable")
         }
 
         if (fixedModeEnabled) {
@@ -242,12 +263,12 @@ Item {
             width: Kirigami.Units.smallSpacing * 2
             height: width
             radius: width / 2
-            color: compactRoot.isCritical
-                || (compactRoot.hasState && !compactRoot.protocolCompatible)
+            color: compactRoot.isCritical || compactRoot.restartRequired || compactRoot.sensorFailure
+                || !compactRoot.protocolCompatible
                 ? Kirigami.Theme.negativeTextColor
-                : (compactRoot.isWarm
+                : (compactRoot.isWarm || !compactRoot.fanControlAvailable
                     ? Kirigami.Theme.neutralTextColor
-                    : (compactRoot.staleActivity
+                    : (compactRoot.staleActivity || compactRoot.telemetryUnavailable
                         ? Kirigami.Theme.neutralTextColor
                         : (compactRoot.isDisconnected
                         ? Kirigami.Theme.disabledTextColor
@@ -382,7 +403,8 @@ Item {
                 }
 
                 PlasmaComponents.Label {
-                    text: compactRoot.hasActivity
+                    text: compactRoot.hasActivity && !compactRoot.sensorFailure
+                        && !compactRoot.restartRequired && compactRoot.protocolCompatible
                         ? i18n("%1°C", Math.round(compactRoot.safeActivity.avgCPUTemp))
                         : compactRoot.primaryText
                     font.bold: true

@@ -29,10 +29,12 @@ PlasmoidItem {
     readonly property string protocolVersion: backendConnection.protocolVersion
     readonly property bool hasActivity: backendConnection.hasFreshActivity
     readonly property bool hasTelemetrySnapshot: backendConnection.hasActivity
+    readonly property bool telemetryUnavailable: backendConnection.initialActivityTimedOut
     readonly property int telemetryAgeSeconds: hasTelemetrySnapshot
         ? Math.ceil(backendConnection.activityAgeMs / 1000)
         : 0
     readonly property var backendState: hasState ? backendConnection.latestState : null
+    readonly property bool restartRequired: backendState != null && backendState.restartRequired === true
     readonly property var activity: hasActivity ? backendConnection.latestActivity : null
     readonly property var telemetryActivity: hasTelemetrySnapshot
         ? backendConnection.latestActivity
@@ -44,6 +46,9 @@ PlasmoidItem {
     readonly property bool isOverheating: telemetryActivity != null
         && (Math.round(telemetryActivity.avgCPUTemp) >= warningTemp
             || Math.round(telemetryActivity.avgGPUTemp) >= warningTemp)
+    // sensorFailure is absent on protocol 1.0 servers — treated as false
+    readonly property bool sensorFailure: telemetryActivity != null
+        && telemetryActivity.sensorFailure === true
     readonly property bool isWarm: telemetryActivity != null && !root.isOverheating
         && (Math.round(telemetryActivity.avgCPUTemp) >= warningTemp - 10
             || Math.round(telemetryActivity.avgGPUTemp) >= warningTemp - 10)
@@ -67,11 +72,15 @@ PlasmoidItem {
     switchHeight: root.isPlanar ? -1 : Kirigami.Units.iconSizes.enormous
 
     Plasmoid.status: {
-        if (root.hasState && !root.protocolCompatible) {
+        if (!root.protocolCompatible) {
             return PlasmaCore.Types.RequiresAttentionStatus
         }
 
         if (root.isOverheating) {
+            return PlasmaCore.Types.RequiresAttentionStatus
+        }
+
+        if (root.sensorFailure || root.restartRequired || root.telemetryUnavailable) {
             return PlasmaCore.Types.RequiresAttentionStatus
         }
 
@@ -82,7 +91,7 @@ PlasmoidItem {
         return PlasmaCore.Types.PassiveStatus
     }
     Plasmoid.icon: {
-        if (root.hasState && !root.protocolCompatible) {
+        if (!root.protocolCompatible) {
             return "dialog-error-symbolic"
         }
 
@@ -91,6 +100,14 @@ PlasmoidItem {
         }
 
         if (root.isOverheating) {
+            return "dialog-warning-symbolic"
+        }
+
+        if (root.sensorFailure || root.restartRequired) {
+            return "dialog-error-symbolic"
+        }
+
+        if (root.telemetryUnavailable) {
             return "dialog-warning-symbolic"
         }
 
@@ -111,13 +128,39 @@ PlasmoidItem {
                 : i18n("Disconnected")
         }
 
-        if (!backendConnection.hasState) {
-            return i18n("Connected, waiting for state")
-        }
-
         if (!root.protocolCompatible) {
             return i18n("Unsupported backend protocol %1",
                 root.protocolVersion)
+        }
+
+        if (!backendConnection.hasState) {
+            return backendConnection.lastError.length > 0
+                ? backendConnection.lastError : i18n("Connected, waiting for state")
+        }
+
+        if (root.restartRequired) {
+            return i18n("A native service stopped responding. Restart ALFC to restore unavailable features.")
+        }
+
+        if (root.sensorFailure) {
+            if (root.telemetryActivity.appliedSpeed === null) {
+                return i18n("Sensor error — fan output unconfirmed")
+            }
+            return root.isFixedMode
+                ? i18n("Sensor error — fixed fan speed active")
+                : i18n("Sensor error — fans at fail-safe maximum")
+        }
+
+        if (backendConnection.lastRequestError.length > 0) {
+            return i18n("Last action failed: %1", backendConnection.lastRequestError)
+        }
+
+        if (!root.fanControlAvailable) {
+            return i18n("Fan control unavailable")
+        }
+
+        if (root.telemetryUnavailable) {
+            return i18n("Telemetry unavailable")
         }
 
         if (!backendConnection.hasFreshActivity) {
@@ -173,9 +216,10 @@ PlasmoidItem {
                     Layout.preferredWidth: Kirigami.Units.smallSpacing * 1.5
                     Layout.preferredHeight: Layout.preferredWidth
                     radius: Layout.preferredWidth / 2
-                    color: root.isOverheating
+                    color: (root.isOverheating || root.sensorFailure || root.restartRequired
+                            || !root.protocolCompatible)
                         ? Kirigami.Theme.negativeTextColor
-                        : (root.isWarm
+                        : (root.isWarm || root.telemetryUnavailable || !root.fanControlAvailable
                             ? Kirigami.Theme.neutralTextColor
                             : (backendConnection.isConnected
                                 ? Kirigami.Theme.positiveTextColor
@@ -184,7 +228,7 @@ PlasmoidItem {
             }
 
             RowLayout {
-                visible: root.hasActivity
+                visible: root.hasActivity && !root.sensorFailure
                 Layout.fillWidth: true
                 spacing: Kirigami.Units.mediumSpacing
 
@@ -219,19 +263,26 @@ PlasmoidItem {
             }
 
             PlasmaComponents.Label {
-                visible: !root.hasActivity
+                visible: !root.hasActivity || root.sensorFailure || root.restartRequired
+                    || backendConnection.lastRequestError.length > 0
                 text: root.toolTipSubText
-                color: Kirigami.Theme.disabledTextColor
+                color: root.sensorFailure || root.restartRequired
+                    ? Kirigami.Theme.negativeTextColor
+                    : Kirigami.Theme.disabledTextColor
                 font: Kirigami.Theme.smallFont
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
 
             PlasmaComponents.Label {
-                text: root.isFixedMode
-                    ? i18n("Fixed Mode (%1%) \u2022 Middle-click to switch to Auto",
-                        root.backendState ? root.backendState.fixedPercentage : 50)
-                    : i18n("Auto Mode (Curves) \u2022 Middle-click to switch to Fixed")
+                text: !root.hasState || !root.protocolCompatible
+                    ? i18n("Fan controls are waiting for a compatible backend.")
+                    : !root.fanControlAvailable
+                        ? i18n("Fan control is unavailable on this system.")
+                        : root.isFixedMode
+                            ? i18n("Fixed Mode (%1%) \u2022 Middle-click to switch to Auto",
+                                root.backendState.fixedPercentage)
+                            : i18n("Auto Mode (Curves) \u2022 Middle-click to switch to Fixed")
                 color: Kirigami.Theme.disabledTextColor
                 font: Kirigami.Theme.smallFont
                 wrapMode: Text.WordWrap
@@ -256,7 +307,7 @@ PlasmoidItem {
 
     function toggleFanMode() {
         if (!root.hasState || !root.protocolCompatible
-                || !root.fanControlAvailable) {
+                || !root.fanControlAvailable || backendConnection.modeRequestPending) {
             return
         }
 
@@ -299,6 +350,7 @@ PlasmoidItem {
             enabled: root.hasState
                 && root.protocolCompatible
                 && root.fanControlAvailable
+                && !backendConnection.modeRequestPending
             onTriggered: root.toggleFanMode()
         },
         PlasmaCore.Action {

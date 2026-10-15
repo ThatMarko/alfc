@@ -1,120 +1,291 @@
-# ALFC WebSocket Protocol
+# ALFC WebSocket protocol
 
-**Protocol version:** `1.1`
+The current server emits protocol **1.1**. This document describes the wire
+contract implemented by
+[types.ts](https://github.com/ThatMarko/alfc/blob/feat/wmi-ffi/common/types.ts),
+[protocol.ts](https://github.com/ThatMarko/alfc/blob/feat/wmi-ffi/common/protocol.ts),
+[validation.ts](https://github.com/ThatMarko/alfc/blob/feat/wmi-ffi/common/validation.ts),
+and the
+[server handlers](https://github.com/ThatMarko/alfc/blob/feat/wmi-ffi/server/websocket/index.ts).
+Client and platform support is
+listed in [COMPATIBILITY.md](COMPATIBILITY.md).
 
-## Versioning policy
+## Connection lifecycle
 
-- **Additive changes** (new message kinds, new optional fields, new fields in server-push state) → **minor bump** (e.g. `1.1`).
-- **Breaking changes** (removals/renames/shape changes) → **major bump** (e.g. `2.0`) with a **deprecation period** where the previous major is still accepted.
-- Clients should treat `protocolVersion` as the authoritative version of the server contract.
-- **Current version `1.1`**: added the optional `requestId` request-correlation field (additive; see Message envelope).
+The production HTTP UI and `/ws` endpoint share port **5522**. During development,
+Vite serves the web UI on port 3000 and connects to the backend on 5522. The backend binds
+`127.0.0.1` and `::1` explicitly; IPv6 is optional when the operating system does
+not support it. It never binds a wildcard address. Supported endpoint forms are:
 
-## Connection lifecycle & client expectations
+- `ws://localhost:5522/ws`
+- `ws://127.0.0.1:5522/ws`
+- `ws://[::1]:5522/ws`, when IPv6 is available
 
-- **Endpoint:** `ws://localhost:5522/ws`
-- **Initial state push:** on `open`, the server immediately sends a `state` message containing the full `State` object, including `protocolVersion: "1.1"`.
-- **State broadcast:** after any successful state mutation (`fixedpercentage`, `dofixedspeed`, `fantable`, `tune`, supported `set` calls), the server publishes a fresh `state` snapshot to all connected sockets.
-- **Keepalive:** server has a 30s idle timeout (`idleTimeout: 30`). Clients should send a plain-text `"ping"` well under 30s (shipped clients send one every 25s); server responds with `"pong"`.
-- **Reconnect:** clients should auto-reconnect and expect the initial state push on every new connection.
-- **Activity stream:** to receive `fancontrolactivity` updates, the client must send `registeractivitysocket` once per connection.
+`/ws/` is an equivalent trailing-slash alias on each listener. Both paths use
+the same GET and Origin checks. Other suffixes and prefixed paths are not endpoints.
+The shipped web UI connects by plain WebSocket to its page's hostname on port 5522. HTTPS, alternate ports, and proxy prefixes are not supported web deployments;
+remote exposure remains unsupported.
+
+Both listeners share one state and request queue. A mutation from either address
+broadcasts the same state to clients on both. Each connection immediately receives
+a full `state` snapshot and is subscribed to subsequent state updates.
+
+Send `{"kind":"registeractivitysocket"}` once per connection to subscribe to
+`fancontrolactivity`. Registration has no acknowledgement and bypasses the
+hardware queue, including when that queue is full. Reconnecting creates a new
+connection: subscribe again and use its new initial state.
+
+Bun sends WebSocket protocol pings automatically (`sendPings: true`); the idle
+timeout is 120 seconds. Browser WebSocket implementations answer those protocol
+pings. ALFC also accepts a plain text `ping` message and answers plain text `pong`.
+The Plasma client uses this application heartbeat every 25 seconds, with a
+60-second response watchdog. Heartbeats bypass the hardware queue.
+
+Incoming messages are limited to **64 KiB**. Connections reaching **1 MiB** of outbound
+backpressure are terminated. The application checks buffered bytes around direct
+replies and native broadcasts, and after Bun flushes corked output; Bun's own
+backpressure limit remains enabled. A direct reply dropped on an open connection
+also terminates that connection so its client reconnects for a fresh snapshot.
+Backpressured replies are already queued and are never resent. At most **64**
+queued or executing JSON hardware/config
+requests are admitted across all connections. An excess request receives `BUSY`;
+subscription and heartbeat traffic remain available.
+
+Requests may use text frames or UTF-8 binary frames. Invalid UTF-8 binary input
+receives `INVALID_JSON` before any work is admitted; it is never decoded using
+replacement characters. Responses and pushes use text frames.
+
+## Protocol versions and correlation
+
+Current shipped clients require **1.1 or a later minor version of major 1**.
+Protocol 1.0 lacks the `requestId` echo needed to safely match concurrent commands
+and is rejected by current client guards. Version strings must match the complete
+`1.<minor>` form; whitespace, trailing newlines, and extra version components are
+invalid. Future minor versions may add optional fields; clients ignore unknown
+fields. A major change requires an explicit compatibility plan and an updated
+version, implementation, tests, and both protocol documents.
+
+The 1.1 server still accepts requests without `requestId` for older/custom local
+clients. Such clients must obey the current payload and method validation rules.
+This does not make current clients compatible with a 1.0 server.
 
 ## Message envelope
 
-### Client → Server
-
-All JSON messages follow this envelope:
+A native GPU-boost request illustrates the complete envelope:
 
 ```json
 {
-  "kind": "<MessageToServerKind>",
-  "methodId": "<client-generated id>",
-  "methodName": "<method name>",
-  "requestId": "<optional correlation id>",
-  "data": "<kind-specific payload>"
+  "kind": "set",
+  "methodId": "129",
+  "methodName": "SetAIBoostStatus",
+  "requestId": "my-client-42",
+  "data": { "Data": 1 }
 }
 ```
 
-- In `common/types.ts`, `MessageToServer` declares `methodId` and `methodName` (and the KDE Plasmoid populates both on every request).
-- For `get`/`set`, `methodId` (Linux ACPI opcode) and `methodName` (Windows WMI method name; also checked by `set` for `SetAIBoostStatus`) are passed through to the platform layer.
-- For other kinds (`registeractivitysocket`, `fixedpercentage`, `dofixedspeed`, `fantable`, `tune`), the server does not require `methodId` or `methodName` at runtime; when provided as strings they are echoed back in responses. The React Web UI omits `methodName` on non-WMI config mutations so it can distinguish config-change `success` responses from WMI `get`/`set` responses.
-- `requestId` is optional. When a request carries it, the server echoes it back unchanged in that request's `success`/`error` response. Use it to attribute responses to your own requests — e.g. when two components issue the same WMI opcode concurrently. Server-initiated pushes never carry it.
+`kind` identifies the operation. For `get` and `set`, `methodId` is the firmware
+opcode, not a request identifier; it accepts decimal or `0x` hexadecimal notation.
+`methodName` must identify the same method in the shared
+[MOF catalog](https://github.com/ThatMarko/alfc/blob/feat/wmi-ffi/common/methods.ts).
+Both fields are required for these native operations.
+For configuration and subscription messages they are optional metadata.
 
-### Server → Client
+`requestId` is optional in the server envelope. Current clients generate a unique
+ID per request and match only that request's response. The server echoes string
+`methodId`, `methodName`, and `requestId` fields in `success` and `error` messages.
+Other request properties are not reflected. Server pushes contain no request
+metadata. Clients must reject pending operations on timeout/disconnect and must
+not replay a write after reconnecting: a lost acknowledgement does not prove that
+hardware rejected the original write.
 
-Response messages echo `methodId`, `methodName`, and `requestId` whenever the client supplied them on the request. Server-initiated push messages (`state`, `fancontrolactivity`) never include those fields.
+## Client messages
 
-## Client → Server message kinds
+| `kind`                   | Required `data`                        | Behavior                                                                                                                                                      |
+| ------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registeractivitysocket` | None                                   | Subscribe this connection to telemetry; no response.                                                                                                          |
+| `fixedpercentage`        | Integer `0..100`                       | Store the fixed percentage. In fixed mode, apply both fan writes before committing the value. In automatic mode, store it for the next fixed-mode activation. |
+| `dofixedspeed`           | Boolean                                | `true` applies the stored fixed percentage before committing the mode. `false` resumes the existing curve loop from the confirmed current speed.              |
+| `fantable`               | `{ "cpu": FanTable, "gpu": FanTable }` | Store both validated curves. The next automatic cycle uses their target at the measured temperature.                                                          |
+| `tune`                   | `{ "pl1": number, "pl2": number }`     | Apply integer watt limits `0..200` through the native backend, then commit both settings on success.                                                          |
+| `get`                    | Optional `Args`                        | Read a validated catalog method. Methods with inputs require their complete argument map.                                                                     |
+| `set`                    | `Args`                                 | Write a validated catalog method. GPU boost additionally updates `state.gpuBoost`; other diagnostic setters have no corresponding persisted State field.      |
 
-| Kind                     | Required fields                          | `data` shape                       | Response kind        | State mutation                                                                                                                                                                 | Notes                                                                                                                                                            |
-| ------------------------ | ---------------------------------------- | ---------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `registeractivitysocket` | `kind`                                   | _none_                             | _none_               | none                                                                                                                                                                           | Subscribes this socket to the activity pub/sub channel.                                                                                                          |
-| `fixedpercentage`        | `kind`, `data`                           | `number`                           | `success` or `error` | `state.fixedPercentage` set; persists; if fixed mode is already enabled, success is only sent after the stored speed is applied successfully; broadcasts updated `state`       | Requires an integer from `0` to `100`, and fan control availability.                                                                                             |
-| `dofixedspeed`           | `kind`, `data`                           | `boolean`                          | `success` or `error` | `state.doFixedSpeed` set; persists; if `true` then immediately applies the stored fixed speed before reporting success, if `false` then `autoFanControl()`; broadcasts `state` | Requires fan control availability.                                                                                                                               |
-| `fantable`               | `kind`, `data`                           | `{ cpu: FanTable, gpu: FanTable }` | `success` or `error` | `state.cpuFanTable`, `state.gpuFanTable` set; persists; broadcasts updated `state`                                                                                             | Both tables must be non-empty, strictly ascending by temperature, and use percentages from `0` to `100`.                                                         |
-| `tune`                   | `kind`, `data`                           | `{ pl1: number, pl2: number }`     | `success` or `error` | `state.pl1`, `state.pl2` set on success; persists; `tune()` invoked; broadcasts updated state                                                                                  | Requires integer `pl1`/`pl2` values from `0` to `200`, and CPU tuning availability.                                                                              |
-| `get`                    | `kind`, `methodId`, `methodName`         | `Args` (optional)                  | `success` or `error` | none                                                                                                                                                                           | Calls `getCall(methodId, methodName, data)`; `success.data` contains result. Returns `ACPI_ERROR` if `getCall` resolves to `NaN`, or `INTERNAL_ERROR` if thrown. |
-| `set`                    | `kind`, `methodId`, `methodName`, `data` | `Args`                             | `success` or `error` | If `methodName === "SetAIBoostStatus"`, sets `state.gpuBoost = data.Data === 1`, persists, and broadcasts updated `state`                                                      | `SetAIBoostStatus` requires `data.Data` to be `0` or `1`, and GPU boost availability.                                                                            |
+All configuration mutations require the relevant capability to be available.
+Current servers explicitly report the capability booleans after native
+initialization; an explicit `false` produces `UNSUPPORTED_FEATURE`.
 
-If an unknown `kind` is received, required `data` is missing, the payload is invalid, or a feature is unavailable, the server responds with a structured error code:
+The Windows CPUOC/Intel XTU adapter is an **unsupported prototype**. Standard
+release archives do not include `CPUOC.dll` or proprietary XTU SDK dependencies.
+An experimental build/publication requires a separately validated legacy SDK
+dependency closure and explicit opt-in; the existence of the `tune` message does
+not establish Windows CPU-tuning support. Linux RAPL tuning is a separate backend.
+See [PORTING_REVIEW.md](../PORTING_REVIEW.md) for the Windows gate and limitations.
+
+A `FanTable` is a non-empty array of `[temperature, percentage]` pairs. Both
+numbers must be finite; temperatures are `0..110` degrees Celsius and strictly
+ascending, and percentages are `0..100`. Fractions are valid. Percentages need not
+ascend. Selection is stepwise: choose the highest temperature threshold at or
+below the measured temperature, or the first row below the first threshold. The
+higher CPU/GPU target commands both fans because the heat pipes are shared.
+
+Native `Args` must contain exactly the documented input names, without missing or
+extra keys. Values must be integers fitting the declared unsigned type (`uint8`:
+`0..255`; `uint16`: `0..65535`). The server orders inputs by the catalog signature
+so Linux positional packing and Windows named arguments agree. Supplying an
+opcode/name mismatch, whitespace in an opcode, or an unknown method is invalid.
+`SetAIBoostStatus` additionally requires `Data` to be `0` or `1` and GPU-boost
+availability.
+
+Raw setters listed in `managedFanMethods` are rejected with
+`MANAGED_FAN_CONTROL`: they would bypass the authoritative fan controller. This
+includes direct fan duty/speed, automatic/fixed/step mode, deep-fan curves, fan
+indices, super-quiet mode, fan adjustment, and fan-off commands. Use the managed
+percentage, mode, and curve messages instead. Other catalog diagnostics remain
+available in the web Raw UI; the Plasma widget exposes the primary managed
+controls rather than the raw catalog.
+
+## Ordering, state, and persistence
+
+Admitted requests are serialized across both listeners and every client. For an
+immediate hardware operation, configuration state changes only after the native
+backend reports success. A mode change, stored inactive percentage, or curve
+change can be acknowledged before a later control cycle changes physical output;
+its acknowledgement confirms the configuration. Telemetry identifies the last
+successfully acknowledged paired fan command, not a measured physical output.
+
+For a successful configuration change the server saves, broadcasts `state`, and
+then acknowledges the request. Production saves serialize captured snapshots to
+`alfc.config.json.tmp` and rename that file over `alfc.config.json`. This avoids
+interleaved temporary-file writes and partial JSON replacement. It does not
+promise persistence across sudden power loss. Development mode intentionally
+keeps changes in memory and does not write the config file. Uncompiled source
+loads the repository-root config, including when `NODE_ENV=production` enables
+persistence. A compiled executable loads/saves the config beside that executable;
+production source mode never redirects config to the Bun installation directory.
+
+If a file save fails after the configuration becomes active, the active state is
+still broadcast and the caller receives `PERSISTENCE_ERROR`. The server does not
+claim to have reverted hardware. A failed native operation does not commit the
+new configuration; partial hardware writes may still require recovery, so clients
+must not infer physical rollback from an error response.
+
+The configuration loader uses the same curve, fixed-percentage, and power-limit
+constraints. An absent, malformed, or invalid file selects the complete defaults:
+CPU `[[40,15],[83,50],[88,100]]`, GPU `[[40,15],[78,50],[83,100]]`, automatic mode,
+50% stored fixed speed, GPU boost enabled, PL1 37 W, and PL2 106 W. Only these
+settings are loaded/saved. `protocolVersion`, capability flags, `restartRequired`,
+and unknown properties cannot be injected through a config file.
+
+## Server messages and errors
+
+| `kind`               | `data`                                                                | Meaning                                                                      |
+| -------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `state`              | Full `State`                                                          | Initial snapshot, active configuration update, or runtime capability change. |
+| `success`            | Native result for `get`; otherwise the request's `data`, when present | The correlated operation completed. Subscription has no success response.    |
+| `error`              | String `CODE: detail`                                                 | The correlated request failed or was rejected.                               |
+| `fancontrolactivity` | `FanControlActivity`                                                  | Telemetry for subscribed connections, including fixed mode.                  |
+
+| Error code            | Trigger                                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| `INVALID_JSON`        | The message is invalid UTF-8 binary input or cannot be parsed as JSON.                  |
+| `UNKNOWN_KIND`        | Missing or unsupported operation kind.                                                  |
+| `MISSING_DATA`        | A required `data` value is absent or `null`.                                            |
+| `INVALID_PAYLOAD`     | Wrong shape, invalid curve/signature, opcode/name mismatch, or invalid GPU-boost value. |
+| `INVALID_RANGE`       | Invalid fixed percentage or CPU watt limit.                                             |
+| `UNSUPPORTED_FEATURE` | The relevant capability is explicitly unavailable.                                      |
+| `ACPI_ERROR`          | A native `get` returns a non-finite numeric result, including Linux read failure.       |
+| `MANAGED_FAN_CONTROL` | A raw setter attempts to bypass managed fan control.                                    |
+| `BUSY`                | The shared 64-request capacity has been reached.                                        |
+| `SHUTTING_DOWN`       | New or queued work is rejected during shutdown.                                         |
+| `PERSISTENCE_ERROR`   | The configuration is active but its file save failed.                                   |
+| `RESTART_REQUIRED`    | A native channel failed permanently and cannot safely accept another call.              |
+| `INTERNAL_ERROR`      | Other thrown native/handler failures; new configuration was not committed.              |
+
+For example:
 
 ```json
-{ "kind": "error", "data": "INVALID_JSON: Failed to parse message" }
-{ "kind": "error", "methodId": "...", "methodName": "...", "data": "UNKNOWN_KIND: <received kind>" }
-{ "kind": "error", "methodId": "...", "methodName": "...", "data": "MISSING_DATA: <expected kind>" }
-{ "kind": "error", "methodId": "...", "methodName": "...", "data": "INVALID_PAYLOAD: <message>" }
-{ "kind": "error", "methodId": "...", "methodName": "...", "data": "INVALID_RANGE: <message>" }
-{ "kind": "error", "methodId": "...", "methodName": "...", "data": "UNSUPPORTED_FEATURE: <message>" }
-{ "kind": "error", "methodId": "...", "methodName": "...", "data": "ACPI_ERROR: <message>" }
-{ "kind": "error", "methodId": "...", "methodName": "...", "data": "INTERNAL_ERROR: An unexpected error occurred" }
+{
+  "kind": "error",
+  "requestId": "my-client-42",
+  "data": "PERSISTENCE_ERROR: Configuration is active but could not be saved"
+}
 ```
 
-`ACPI_ERROR` is emitted when a `get` call resolves to `NaN` at the platform
-layer (for example, when `/proc/acpi/call` is unavailable or fails on Linux).
-Thrown platform errors from `get` (Windows WMI) or `set` (both platforms) return `INTERNAL_ERROR`.
+Malformed UTF-8 or JSON cannot provide trusted correlation metadata. Valid JSON requests
+retain their string metadata in error responses, including shutdown rejection.
 
-When `methodId`, `methodName`, or `requestId` are present in the original request, they are echoed back in the error response.
+A `get` returns an ordinary JSON number within `Number.MAX_SAFE_INTEGER`, or an
+exact decimal string for larger packed results such as the ten-byte `GetDeepFan`
+response. Preserve that string; converting it to a JavaScript number loses
+precision. Both platforms pack output in declared parameter order and widths.
+The web Raw UI displays the exact value and hexadecimal form.
 
-## Server → Client message kinds
-
-| Kind                 | Required fields | `data` shape         | Trigger                                                         | State mutation | Notes                                                                                                                                                                                    |
-| -------------------- | --------------- | -------------------- | --------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `state`              | `kind`, `data`  | `State`              | Sent immediately on `open` and after successful state mutations | none           | Includes `protocolVersion: "1.1"`.                                                                                                                                                       |
-| `success`            | `kind`          | `unknown` (optional) | Successful completion of a client request                       | none           | Echoes `methodId`, `methodName`, and `requestId` when supplied on the request. For `get`, `data` is the native call result (`number`); for other requests, `data` echoes `payload.data`. |
-| `error`              | `kind`, `data`  | `string`             | Failed/invalid client request or thrown error                   | none           | `data` is a structured error code string (e.g. `INVALID_JSON: ...`). Echoes `methodId`, `methodName`, and `requestId` when present as strings on the request.                            |
-| `fancontrolactivity` | `kind`, `data`  | `FanControlActivity` | Published when telemetry updates                                | none           | Only delivered to sockets that subscribed with `registeractivitysocket`. Fixed mode still publishes telemetry.                                                                           |
-
-## Data shapes
+## Telemetry and runtime capability changes
 
 ```ts
-type FanTable = [number, number][];
-
-type Args = { [key: string]: number };
-
 type FanControlActivity = {
   appliedSpeed: number | null;
   avgCPUTemp: number;
   avgGPUTemp: number;
   target: number;
-};
-
-type State = {
-  protocolVersion: "1.1";
-  cpuFanTable: FanTable;
-  gpuFanTable: FanTable;
-  doFixedSpeed: boolean;
-  fixedPercentage: number;
-  gpuBoost: boolean;
-  pl1: number;
-  pl2: number;
-  isCpuTuningAvailable?: boolean;
-  isGpuBoostAvailable?: boolean;
-  isFanControlAvailable?: boolean;
+  sensorFailure?: boolean;
 };
 ```
 
-## Security
+The loop runs on a nominal two-second interval. Automatic mode averages three
+CPU/GPU sample sets with 500 ms spacing; fixed mode collects one set per cycle.
+Slow native calls can make ticks skip rather than overlap. Ramp-up uses each
+eligible cycle; ramp-down waits 30 consecutive eligible cooling cycles. Normal
+curve ramps move partway toward the target. Curve edits select the new target at
+the measured temperature without resetting to the minimum.
 
-- The websocket upgrade path enforces an Origin allowlist for browser clients: only `http://` or `https://` origins on `localhost`, `127.0.0.1`, or `[::1]` (with optional ports) are accepted.
-- Missing `Origin` is accepted to keep compatibility with non-browser local clients (for example, QML).
-- Disallowed origins are rejected with HTTP `403` before websocket upgrade.
-- This is a localhost browser guardrail, not authentication: any local process that can connect directly to `localhost:5522` can still use the protocol.
+Automatic startup commands the highest configured target before the first sensor
+collection. It retains that safe target through failed initial collections, then
+applies the measured curve target immediately when a valid collection arrives.
+The ordinary cooling delay starts after that first measured target. Fixed-mode
+startup applies the user's stored fixed percentage instead.
+
+`appliedSpeed` is the last requested percentage whose paired fan writes completed
+successfully at the native interface. It is not tachometer feedback, actual RPM,
+or proof that either fan is rotating at the requested duty. Raw `getRpm1` and
+`getRpm2` diagnostics are separate from this telemetry. The value is `null` after
+a failed/partial write; this is an unconfirmed command, not zero RPM.
+A sensor failure in automatic mode commands the highest percentage anywhere in
+either configured curve. Fixed mode retains its selected target and retries
+unconfirmed writes even while sensors fail.
+
+On a failed collection, `sensorFailure: true` marks the temperatures as the last
+successful averages, not fresh measurements. Until the first successful
+collection of a run, no activity with invented temperatures is published. Clients
+show waiting/stale telemetry instead. Absence of the optional `sensorFailure`
+field means no explicit failure flag; it does not replace stale detection. Both
+shipped clients mark telemetry older than ten seconds stale. When fan monitoring
+is available, a missing first activity packet also becomes stale after ten
+seconds. State broadcasts and pongs do not postpone that deadline; an explicit
+fan-unavailable state suppresses it, and restored availability starts a new grace
+period. Reconnection starts a new telemetry session.
+
+A fatal native channel failure sets the affected capability flags to `false`,
+latches runtime-only `restartRequired: true`, and broadcasts the snapshot. New
+connections receive the same warning. On Windows, CPU tuning and WMI fan/GPU
+operations use separate channels; one failed feature does not disable the other
+channel. A Linux CPU-tuning rollback that cannot be verified also disables tuning
+and requests a restart. Restart ALFC to retry a permanently failed channel.
+A timeout cannot guarantee cancellation of an operation already executing in a
+driver or firmware.
+
+## Security boundary
+
+Browser upgrades require an `http` or `https` Origin on `localhost`, `127.0.0.1`,
+or `[::1]`; ports may vary. Origins containing credentials, paths, queries, or
+fragments are rejected. Missing Origin is allowed for native clients such as QML.
+Rejected Origins receive HTTP 403 before upgrade. `/ws` and `/ws/` require GET.
+
+This is a privileged local control interface. Loopback binding and the Origin
+check restrict browser access; they are not authentication against another local
+process. The native catalog and managed-command validation remain mandatory on
+both operating systems.
+
+Bun's limits and ping behavior are documented in the official
+[WebSocket API](https://bun.sh/docs/runtime/http/websockets); implementation-facing
+API details also appear in the installed `bun-types/serve.d.ts` declarations.

@@ -1,5 +1,6 @@
-import type { Server, ServerWebSocket } from "bun";
+import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import {
+  type Args,
   type FanControlActivity,
   type FanTable,
   MessageToClientKind,
@@ -7,14 +8,103 @@ import {
   MessageToServerKind,
   type State,
 } from "../../common/types";
+import { validateFanTable } from "../../common/validation";
+import {
+  getMethods,
+  managedFanMethods,
+  setMethods,
+} from "../../common/methods";
 import { getCall, setCall, tune } from "../native/index";
 import { persistState, state } from "../state/index";
-import {
-  applyFixedFan,
-  fanControl as autoFanControl,
-} from "../fan-control/index";
+import { applyFixedFan } from "../fan-control/index";
 
-let server: Server<unknown> | null = null;
+type Publisher = Pick<Server<unknown>, "publish">;
+let servers: readonly Publisher[] = [];
+let messageQueue: Promise<void> = Promise.resolve();
+let queuedMessages = 0;
+let isShuttingDown = false;
+const MAX_QUEUED_MESSAGES = 64;
+const MAX_BACKPRESSURE_BYTES = 1024 * 1024;
+const openSockets = new Set<ServerWebSocket<unknown>>();
+let backpressureCheck: ReturnType<typeof setTimeout> | undefined;
+// Binary WebSocket messages are Buffers by default. Buffer.toString() would
+// replace invalid UTF-8 and could execute a corrupted request with a changed ID.
+// Keep a BOM in the decoded text so JSON.parse treats binary and text equally.
+const binaryMessageDecoder = new TextDecoder("utf-8", {
+  fatal: true,
+  ignoreBOM: true,
+});
+
+export function startWebSocketShutdown(): Promise<void> {
+  isShuttingDown = true;
+  openSockets.clear();
+  clearBackpressureCheck();
+  return messageQueue;
+}
+
+function clearBackpressureCheck() {
+  if (backpressureCheck !== undefined) clearTimeout(backpressureCheck);
+  backpressureCheck = undefined;
+}
+
+function forgetSocket(ws: ServerWebSocket<unknown>) {
+  openSockets.delete(ws);
+  if (openSockets.size === 0) clearBackpressureCheck();
+}
+
+function retireSocket(ws: ServerWebSocket<unknown>) {
+  // Remove before terminate: a close callback may run synchronously, or the
+  // platform may deliver it later. Neither case should retain the slow peer.
+  forgetSocket(ws);
+  if (ws.readyState === WebSocket.OPEN) ws.terminate();
+}
+
+function enforceBackpressure(ws: ServerWebSocket<unknown>): boolean {
+  if (ws.readyState !== WebSocket.OPEN) {
+    forgetSocket(ws);
+    return false;
+  }
+  if (ws.getBufferedAmount() < MAX_BACKPRESSURE_BYTES) return true;
+  retireSocket(ws);
+  return false;
+}
+
+function checkBackpressure() {
+  for (const ws of openSockets) enforceBackpressure(ws);
+}
+
+function scheduleBackpressureCheck() {
+  if (isShuttingDown || openSockets.size === 0) return;
+  // Bun corks callbacks and may flush pub/sub after publish() returns. One
+  // coalesced check follows the latest output, including a later native flush
+  // queued after an earlier check. Keep at most one outstanding timer.
+  clearBackpressureCheck();
+  backpressureCheck = setTimeout(() => {
+    backpressureCheck = undefined;
+    checkBackpressure();
+  }, 0);
+  backpressureCheck.unref();
+}
+
+function sendText(ws: ServerWebSocket<unknown>, message: string) {
+  if (!enforceBackpressure(ws)) return;
+  const status = ws.send(message);
+  // -1 already enqueued this reply: retrying would duplicate it. A dropped
+  // reply on an open transport instead needs a reconnect and fresh snapshot.
+  if (status === 0) {
+    retireSocket(ws);
+    return;
+  }
+  enforceBackpressure(ws);
+  scheduleBackpressureCheck();
+}
+
+function publish(topic: string, message: string) {
+  checkBackpressure();
+  for (const server of servers) server.publish(topic, message);
+  checkBackpressure();
+  scheduleBackpressureCheck();
+}
 
 type MessageMetadata = Partial<
   Pick<MessageToServer, "methodId" | "methodName" | "requestId">
@@ -40,7 +130,11 @@ function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
 }
 
-function isIntegerInRange(value: unknown, minimum: number, maximum: number) {
+function isIntegerInRange(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+): value is number {
   return (
     isFiniteNumber(value) &&
     Number.isInteger(value) &&
@@ -50,38 +144,71 @@ function isIntegerInRange(value: unknown, minimum: number, maximum: number) {
 }
 
 function isValidFanTable(value: unknown): value is FanTable {
-  if (!Array.isArray(value) || value.length === 0) {
+  return validateFanTable(value) === null;
+}
+
+function isArgsRecord(value: unknown): value is Args {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
 
-  let previousTemperature = Number.NEGATIVE_INFINITY;
+  return Object.values(value).every(
+    (entry) => typeof entry === "number" && Number.isFinite(entry),
+  );
+}
 
-  for (const entry of value) {
-    if (!Array.isArray(entry) || entry.length !== 2) {
-      return false;
-    }
-
-    const [temperature, percentage] = entry;
-    if (!isFiniteNumber(temperature) || !isFiniteNumber(percentage)) {
-      return false;
-    }
-
-    if (temperature <= previousTemperature) {
-      return false;
-    }
-
-    if (percentage < 0 || percentage > 100) {
-      return false;
-    }
-
-    previousTemperature = temperature;
+function validateNativeCall(
+  payload: MessageToServer,
+): { methodId: string; methodName: string; args: Args } | string {
+  if (
+    typeof payload.methodId !== "string" ||
+    !/^(?:0x[\da-f]+|\d+)$/i.test(payload.methodId) ||
+    typeof payload.methodName !== "string"
+  ) {
+    return "get/set require a numeric methodId and a known methodName";
   }
-
-  return true;
+  const methods =
+    payload.kind === MessageToServerKind.Get ? getMethods : setMethods;
+  const method = Object.hasOwn(methods, payload.methodName)
+    ? methods[payload.methodName]
+    : undefined;
+  if (!method || Number(payload.methodId) !== Number(method.methodId)) {
+    return "methodId and methodName must identify the same documented method";
+  }
+  const args = payload.data === undefined ? {} : payload.data;
+  if (!isArgsRecord(args)) {
+    return "get/set data must be an argument map";
+  }
+  if (Object.keys(args).length !== method.inArgs.length) {
+    return "arguments must match the documented method signature";
+  }
+  const orderedArgs: Args = {};
+  for (const argument of method.inArgs) {
+    const maximum = argument.type === "uint16" ? 65535 : 255;
+    if (
+      !Object.hasOwn(args, argument.name) ||
+      !isIntegerInRange(args[argument.name], 0, maximum)
+    ) {
+      return `${argument.name} must be a ${argument.type} integer`;
+    }
+    // Linux transports arguments by position, Windows by name. Preserve the
+    // canonical signature order independently of JSON property order.
+    orderedArgs[argument.name] = args[argument.name] as number;
+  }
+  return {
+    methodId: method.methodId,
+    methodName: method.methodName,
+    args: orderedArgs,
+  };
 }
 
 export function setServer(s: Server<unknown>) {
-  server = s;
+  setServers([s]);
+}
+
+export function setServers(listeners: readonly Publisher[]) {
+  // One publisher per listener, even if the caller repeats a reference.
+  servers = [...new Set(listeners)];
 }
 
 function buildStateSnapshot(): State {
@@ -91,28 +218,27 @@ function buildStateSnapshot(): State {
   };
 }
 
-function publishState() {
-  if (!server) return;
-
-  server.publish(
-    "state",
-    JSON.stringify({
-      kind: MessageToClientKind.State,
-      data: buildStateSnapshot(),
-    }),
-  );
+export function publishState() {
+  if (servers.length === 0) return;
+  const message = JSON.stringify({
+    kind: MessageToClientKind.State,
+    data: buildStateSnapshot(),
+  });
+  publish("state", message);
 }
 
 export function publishActivity(data: FanControlActivity) {
-  if (!server) return;
-  server.publish(
-    "activity",
-    JSON.stringify({ kind: MessageToClientKind.FanControlActivity, data }),
-  );
+  if (servers.length === 0) return;
+  const message = JSON.stringify({
+    kind: MessageToClientKind.FanControlActivity,
+    data,
+  });
+  publish("activity", message);
 }
 
 function sendState(ws: ServerWebSocket<unknown>) {
-  ws.send(
+  sendText(
+    ws,
     JSON.stringify({
       kind: MessageToClientKind.State,
       data: buildStateSnapshot(),
@@ -125,13 +251,35 @@ function sendSuccess(
   payload: MessageToServer,
   data?: unknown,
 ) {
-  ws.send(
+  sendText(
+    ws,
     JSON.stringify({
-      ...payload,
+      ...getMessageMetadata(payload),
       kind: MessageToClientKind.Success,
-      ...(data !== undefined && { data }),
+      data: data !== undefined ? data : payload.data,
     }),
   );
+}
+
+async function persistAndPublishState(
+  ws: ServerWebSocket<unknown>,
+  payload: MessageToServer,
+): Promise<void> {
+  try {
+    await persistState();
+  } catch (_) {
+    // Hardware has already accepted this configuration. Publish the real
+    // active state even when its durable save failed, then tell the caller.
+    publishState();
+    sendError(
+      ws,
+      payload,
+      "PERSISTENCE_ERROR: Configuration is active but could not be saved",
+    );
+    return;
+  }
+  publishState();
+  sendSuccess(ws, payload);
 }
 
 function getMessageMetadata(payload: unknown): MessageMetadata {
@@ -162,7 +310,8 @@ function sendError(
   payload: unknown,
   errorMessage: string,
 ) {
-  ws.send(
+  sendText(
+    ws,
     JSON.stringify({
       ...getMessageMetadata(payload),
       kind: MessageToClientKind.Error,
@@ -195,28 +344,22 @@ function rejectInvalidRange(
   sendError(ws, payload, `INVALID_RANGE: ${message}`);
 }
 
+function restartRequiredCause(error: unknown): Error | undefined {
+  const seen = new Set<Error>();
+  let cause = error;
+  while (cause instanceof Error && !seen.has(cause)) {
+    if ("restartRequired" in cause && cause.restartRequired === true)
+      return cause;
+    seen.add(cause);
+    cause = cause.cause;
+  }
+  return undefined;
+}
+
 async function handleMessage(
   ws: ServerWebSocket<unknown>,
-  message: string | Buffer,
+  parsedPayload: unknown,
 ) {
-  const messageString =
-    typeof message === "string" ? message : message.toString();
-
-  if (messageString === "ping") {
-    ws.send("pong");
-    return;
-  }
-
-  let parsedPayload: unknown;
-
-  try {
-    parsedPayload = JSON.parse(messageString);
-  } catch (_error) {
-    console.warn("[WebSocket] Invalid message: malformed JSON");
-    sendError(ws, null, "INVALID_JSON: Failed to parse message");
-    return;
-  }
-
   const maybePayload =
     parsedPayload && typeof parsedPayload === "object"
       ? (parsedPayload as Partial<MessageToServer>)
@@ -228,10 +371,12 @@ async function handleMessage(
     typeof payloadKind !== "string" ||
     !validMessageToServerKinds.has(payloadKind)
   ) {
-    console.warn(
-      `[WebSocket] Invalid message: unknown kind "${String(payloadKind)}"`,
-    );
-    sendError(ws, parsedPayload, `UNKNOWN_KIND: ${String(payloadKind)}`);
+    // A JSON object can shadow toString/valueOf, so coercing an arbitrary
+    // kind before validation can itself throw and bypass a structured reply.
+    const description =
+      typeof payloadKind === "string" ? payloadKind : typeof payloadKind;
+    console.warn(`[WebSocket] Invalid message: unknown kind "${description}"`);
+    sendError(ws, parsedPayload, `UNKNOWN_KIND: ${description}`);
     return;
   }
 
@@ -269,19 +414,11 @@ async function handleMessage(
           );
         }
 
-        const previousFixedPercentage = state.fixedPercentage;
-        state.fixedPercentage = payload.data;
-        try {
-          if (state.doFixedSpeed) {
-            await applyFixedFan(state.fixedPercentage);
-          }
-        } catch (error) {
-          state.fixedPercentage = previousFixedPercentage;
-          throw error;
+        if (state.doFixedSpeed) {
+          await applyFixedFan(payload.data);
         }
-        persistState();
-        publishState();
-        return sendSuccess(ws, payload);
+        state.fixedPercentage = payload.data;
+        return persistAndPublishState(ws, payload);
       }
       case MessageToServerKind.DoFixedSpeed: {
         if (state.isFanControlAvailable === false) {
@@ -299,23 +436,15 @@ async function handleMessage(
           );
         }
 
-        const previousDoFixedSpeed = state.doFixedSpeed;
-        state.doFixedSpeed = payload.data;
-        try {
-          if (state.doFixedSpeed) {
-            await applyFixedFan(state.fixedPercentage);
-          } else {
-            autoFanControl();
-          }
-        } catch (error) {
-          state.doFixedSpeed = previousDoFixedSpeed;
-          throw error;
+        if (payload.data) {
+          await applyFixedFan(state.fixedPercentage);
         }
-        persistState();
-        publishState();
-        return sendSuccess(ws, payload);
+        state.doFixedSpeed = payload.data;
+        // Monitoring runs in both modes. Keep its current applied speed when
+        // returning to a curve instead of resetting hot fans to the minimum.
+        return persistAndPublishState(ws, payload);
       }
-      case MessageToServerKind.FanTable:
+      case MessageToServerKind.FanTable: {
         if (state.isFanControlAvailable === false) {
           return rejectUnsupportedFeature(
             ws,
@@ -323,11 +452,14 @@ async function handleMessage(
             "Fan control is not available on this system",
           );
         }
+        const fanTableData =
+          payload.data && typeof payload.data === "object"
+            ? (payload.data as { cpu?: unknown; gpu?: unknown })
+            : null;
         if (
-          !payload.data ||
-          typeof payload.data !== "object" ||
-          !isValidFanTable(payload.data.cpu) ||
-          !isValidFanTable(payload.data.gpu)
+          !fanTableData ||
+          !isValidFanTable(fanTableData.cpu) ||
+          !isValidFanTable(fanTableData.gpu)
         ) {
           return rejectInvalidPayload(
             ws,
@@ -336,11 +468,10 @@ async function handleMessage(
           );
         }
 
-        state.cpuFanTable = payload.data.cpu;
-        state.gpuFanTable = payload.data.gpu;
-        persistState();
-        publishState();
-        return sendSuccess(ws, payload);
+        state.cpuFanTable = fanTableData.cpu;
+        state.gpuFanTable = fanTableData.gpu;
+        return persistAndPublishState(ws, payload);
+      }
       case MessageToServerKind.Tune: {
         if (state.isCpuTuningAvailable === false) {
           return rejectUnsupportedFeature(
@@ -349,11 +480,14 @@ async function handleMessage(
             "CPU tuning is not available on this system",
           );
         }
+        const tuneData =
+          payload.data && typeof payload.data === "object"
+            ? (payload.data as { pl1?: unknown; pl2?: unknown })
+            : null;
         if (
-          !payload.data ||
-          typeof payload.data !== "object" ||
-          !isIntegerInRange(payload.data.pl1, 0, 200) ||
-          !isIntegerInRange(payload.data.pl2, 0, 200)
+          !tuneData ||
+          !isIntegerInRange(tuneData.pl1, 0, 200) ||
+          !isIntegerInRange(tuneData.pl2, 0, 200)
         ) {
           return rejectInvalidRange(
             ws,
@@ -362,35 +496,32 @@ async function handleMessage(
           );
         }
 
-        const previousPl1 = state.pl1;
-        const previousPl2 = state.pl2;
-
-        state.pl1 = payload.data.pl1;
-        state.pl2 = payload.data.pl2;
-        try {
-          await tune();
-        } catch (error) {
-          state.pl1 = previousPl1;
-          state.pl2 = previousPl2;
-          throw error;
-        }
-
-        persistState();
-        publishState();
-        return sendSuccess(ws, payload);
+        await tune(tuneData.pl1, tuneData.pl2);
+        state.pl1 = tuneData.pl1;
+        state.pl2 = tuneData.pl2;
+        return persistAndPublishState(ws, payload);
       }
       case MessageToServerKind.Get: {
-        const result = await getCall(
-          payload.methodId,
-          payload.methodName,
-          payload.data,
-        );
-        if (Number.isNaN(result)) {
+        const call = validateNativeCall(payload);
+        if (typeof call === "string")
+          return rejectInvalidPayload(ws, payload, call);
+        const result = await getCall(call.methodId, call.methodName, call.args);
+        if (typeof result === "number" && !Number.isFinite(result)) {
           return sendError(ws, payload, "ACPI_ERROR: Get call failed");
         }
         return sendSuccess(ws, payload, result);
       }
-      case MessageToServerKind.Set:
+      case MessageToServerKind.Set: {
+        const call = validateNativeCall(payload);
+        if (typeof call === "string")
+          return rejectInvalidPayload(ws, payload, call);
+        if (managedFanMethods.has(call.methodName)) {
+          return sendError(
+            ws,
+            payload,
+            "MANAGED_FAN_CONTROL: Use the fan mode, percentage, and curve commands",
+          );
+        }
         if (payload.methodName === "SetAIBoostStatus") {
           if (state.isGpuBoostAvailable === false) {
             return rejectUnsupportedFeature(
@@ -400,8 +531,8 @@ async function handleMessage(
             );
           }
           if (
-            !payload.data ||
-            typeof payload.data !== "object" ||
+            !isArgsRecord(payload.data) ||
+            typeof payload.data.Data !== "number" ||
             ![0, 1].includes(payload.data.Data)
           ) {
             return rejectInvalidPayload(
@@ -412,33 +543,123 @@ async function handleMessage(
           }
         }
 
-        await setCall(payload.methodId, payload.methodName, payload.data);
+        if (!isArgsRecord(payload.data)) {
+          return rejectInvalidPayload(
+            ws,
+            payload,
+            "set requires an argument map of finite numbers",
+          );
+        }
+
+        await setCall(call.methodId, call.methodName, call.args);
         if (payload.methodName === "SetAIBoostStatus") {
           state.gpuBoost = payload.data.Data === 1;
-          persistState();
-          publishState();
+          return persistAndPublishState(ws, payload);
         }
         return sendSuccess(ws, payload);
+      }
     }
 
     sendError(ws, payload, `MISSING_DATA: ${payload.kind}`);
-  } catch (_error) {
+  } catch (error) {
+    const restartError = restartRequiredCause(error);
+    if (restartError) {
+      // Native adapters may already include the wire code in their message.
+      // Expose one code even when multiple failure wrappers preserved it.
+      const detail = restartError.message.replace(
+        /^(?:RESTART_REQUIRED:\s*)+/,
+        "",
+      );
+      sendError(ws, payload, `RESTART_REQUIRED: ${detail}`);
+      return;
+    }
     sendError(ws, payload, "INTERNAL_ERROR: An unexpected error occurred");
   }
 }
 
 export const websocketHandlers = {
+  sendPings: true,
+  idleTimeout: 120,
+  maxPayloadLength: 64 * 1024,
+  backpressureLimit: MAX_BACKPRESSURE_BYTES,
+  closeOnBackpressureLimit: true,
+
   open(ws: ServerWebSocket<unknown>) {
     console.log("[WebSocket] Client connected");
+    if (isShuttingDown) {
+      ws.terminate();
+      return;
+    }
+    openSockets.add(ws);
     ws.subscribe("state");
     sendState(ws);
   },
 
   message(ws: ServerWebSocket<unknown>, message: string | Buffer) {
-    handleMessage(ws, message);
+    let messageString: string;
+    try {
+      messageString =
+        typeof message === "string"
+          ? message
+          : binaryMessageDecoder.decode(message);
+    } catch (_) {
+      sendError(ws, null, "INVALID_JSON: Failed to parse message");
+      return Promise.resolve();
+    }
+    if (messageString === "ping") {
+      sendText(ws, "pong");
+      return Promise.resolve();
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(messageString);
+    } catch (_) {
+      sendError(ws, null, "INVALID_JSON: Failed to parse message");
+      return Promise.resolve();
+    }
+    if (isShuttingDown) {
+      sendError(ws, payload, "SHUTTING_DOWN: The server is shutting down");
+      return Promise.resolve();
+    }
+    // Activity subscription is connection setup, independent of hardware
+    // commands. A busy queue must not permanently silence a new client.
+    if (
+      payload !== null &&
+      typeof payload === "object" &&
+      "kind" in payload &&
+      payload.kind === MessageToServerKind.RegisterActivitySocket
+    ) {
+      ws.subscribe("activity");
+      return Promise.resolve();
+    }
+    if (queuedMessages >= MAX_QUEUED_MESSAGES) {
+      sendError(ws, payload, "BUSY: Too many pending requests");
+      return Promise.resolve();
+    }
+    queuedMessages++;
+    // One queue across all sockets: an older failed mutation must never
+    // roll back or publish over a newer successful mutation from another UI.
+    const result = messageQueue
+      .then(async () => {
+        if (isShuttingDown) {
+          sendError(ws, payload, "SHUTTING_DOWN: The server is shutting down");
+          return;
+        }
+        await handleMessage(ws, payload);
+      })
+      .finally(() => {
+        queuedMessages--;
+      });
+    messageQueue = result.catch((error: unknown) => {
+      console.warn("[WebSocket] Failed to handle message:", error);
+    });
+    return result;
   },
 
-  close(_ws: ServerWebSocket<unknown>) {
-    console.log("[WebSocket] Client disconnected");
+  close(ws: ServerWebSocket<unknown>, code: number, reason: string) {
+    forgetSocket(ws);
+    console.log(
+      `[WebSocket] Client disconnected (code: ${code}${reason ? `, reason: ${reason}` : ""})`,
+    );
   },
-};
+} satisfies WebSocketHandler<unknown>;

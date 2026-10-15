@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtWebSockets
+import "Protocol.js" as Protocol
 
 Item {
     id: root
@@ -12,32 +13,48 @@ Item {
     readonly property bool isConnected: socket.status === WebSocket.Open
     readonly property bool isConnecting: socket.status === WebSocket.Connecting
     readonly property bool hasState: latestState != null
-        && latestState.protocolVersion !== undefined
     readonly property bool hasActivity: latestActivity != null
-        && latestActivity.avgCPUTemp !== undefined
-    readonly property string protocolVersion: hasState
-        && typeof latestState.protocolVersion === "string"
-        ? latestState.protocolVersion
-        : ""
-    readonly property bool protocolCompatible: !hasState
+    readonly property string protocolVersion: receivedProtocolVersion
+    readonly property bool protocolCompatible: protocolVersion.length === 0
         || root.supportsProtocolVersion(protocolVersion)
+    readonly property bool ready: isConnected && hasState && protocolCompatible
+    readonly property bool modeRequestPending: Object.keys(pendingRequests).some(
+        function (key) { return root.pendingRequests[key].kind === "dofixedspeed" })
     readonly property int activityAgeMs: {
         root.freshnessTick
         return root.lastActivityAt > 0
-            ? Math.max(0, Date.now() - root.lastActivityAt)
-            : Number.MAX_SAFE_INTEGER
+            ? Math.min(2147483647, Math.max(0, Date.now() - root.lastActivityAt))
+            : 2147483647
     }
-    readonly property bool hasFreshActivity: hasActivity
+    readonly property bool hasFreshActivity: ready
+        && latestState.isFanControlAvailable !== false && hasActivity
+        && receivedActivityInCurrentPeriod
         && activityAgeMs < activityStaleTimeout
+    readonly property bool initialActivityTimedOut: {
+        root.freshnessTick
+        const activityExpectedAt = Math.max(root.activityExpectedSince, root.lastActivityAt)
+        return root.ready && root.latestState.isFanControlAvailable !== false
+            && !root.receivedActivityInCurrentPeriod && root.activityExpectedSince > 0
+            && Date.now() - activityExpectedAt >= root.activityStaleTimeout
+    }
 
     property string lastError: ""
+    property string lastRequestError: ""
+    property string receivedProtocolVersion: ""
+    property var pendingRequests: ({})
+    readonly property int maximumPendingRequests: 64
+    property int requestSequence: 0
+    property int requestTimeout: 30000
     property var latestState: null
     property var latestActivity: null
     property real lastPongTime: 0
     property real lastActivityAt: 0
     property real lastStateAt: 0
+    property real activityExpectedSince: 0
+    property bool receivedActivityInCurrentPeriod: false
     property int reconnectDelay: 1000
-    property int activityStaleTimeout: 5000
+    property bool quickReconnect: false
+    property int activityStaleTimeout: 10000
     property int heartbeatInterval: 25000
     property int heartbeatTimeout: 60000
     property int freshnessTick: 0
@@ -53,8 +70,7 @@ Item {
     onUrlChanged: reconnect()
 
     function supportsProtocolVersion(version) {
-        const major = parseInt(String(version).split(".")[0], 10)
-        return !Number.isNaN(major) && major === 1
+        return Protocol.supportsProtocolVersion(version)
     }
 
     function clearCachedData() {
@@ -62,6 +78,9 @@ Item {
         root.latestActivity = null
         root.lastActivityAt = 0
         root.lastStateAt = 0
+        root.activityExpectedSince = 0
+        root.receivedActivityInCurrentPeriod = false
+        root.receivedProtocolVersion = ""
     }
 
     function reconnect() {
@@ -69,22 +88,19 @@ Item {
         reconnectDelay = 1000
         lastError = ""
         lastPongTime = 0
+        failPendingRequests(i18n("Backend connection was reset before the request completed."))
         clearCachedData()
         keepaliveTimer.stop()
         freshnessTimer.stop()
         socket.active = false
-        reconnectTimer.interval = 100
+        root.quickReconnect = true
         reconnectTimer.start()
     }
 
-    function restartSocket() {
-        socket.active = false
-        reconnectTimer.interval = root.reconnectDelay
-        reconnectTimer.restart()
-    }
-
     function nextRequestId(prefix) {
-        return prefix + "-" + Date.now() + "-" + Math.floor(Math.random() * 100000)
+        root.requestSequence += 1
+        return prefix + "-" + Date.now() + "-" + root.requestSequence
+            + "-" + Math.floor(Math.random() * 100000)
     }
 
     function send(payload) {
@@ -93,42 +109,157 @@ Item {
             return false
         }
 
-        socket.sendTextMessage(JSON.stringify(payload))
-        return true
+        return socket.sendTextMessage(JSON.stringify(payload)) > 0
     }
 
-    function sendRequest(kind, data, methodName, methodId) {
-        const requestId = methodId || nextRequestId(kind)
-        const payload = {
-            kind: kind,
-            methodId: requestId,
-            methodName: methodName || requestId
+    function finishRequest(requestId, ok, errorMessage, message) {
+        if (!Object.prototype.hasOwnProperty.call(root.pendingRequests, requestId)) {
+            return
         }
+        const remaining = Object.assign({}, root.pendingRequests)
+        delete remaining[requestId]
+        root.pendingRequests = remaining
+        root.lastRequestError = ok ? "" : errorMessage
+        root.requestFinished(requestId, ok, errorMessage, message)
+    }
 
-        if (data !== undefined) {
-            payload.data = data
+    function failPendingRequests(message) {
+        const requestIds = Object.keys(root.pendingRequests)
+        for (let index = 0; index < requestIds.length; index += 1) {
+            root.finishRequest(requestIds[index], false, message, null)
         }
+    }
 
-        if (!send(payload)) {
-            Qt.callLater(() => {
-                root.requestFinished(requestId, false,
-                    "Backend connection is not ready.", null)
-            })
-        }
-
+    function rejectRequest(kind, message) {
+        const requestId = root.nextRequestId(kind)
+        root.lastRequestError = message
+        Qt.callLater(function () {
+            root.requestFinished(requestId, false, message, null)
+        })
         return requestId
     }
 
+    function sendRequest(kind, data, methodName, methodId) {
+        if (!root.ready) {
+            return root.rejectRequest(kind, i18n("Backend connection is not ready."))
+        }
+        if (Object.keys(root.pendingRequests).length >= root.maximumPendingRequests) {
+            return root.rejectRequest(kind,
+                i18n("Too many pending requests. Wait for the backend before applying more changes."))
+        }
+        const requestId = nextRequestId(kind)
+        const payload = {
+            kind: kind,
+            methodId: methodId || requestId,
+            methodName: methodName || requestId,
+            requestId: requestId
+        }
+        if (data !== undefined) {
+            payload.data = data
+        }
+        root.pendingRequests = Object.assign({}, root.pendingRequests, {
+            [requestId]: { kind: kind, sentAt: Date.now() }
+        })
+        root.lastRequestError = ""
+        if (!send(payload)) {
+            Qt.callLater(function () {
+                root.finishRequest(requestId, false,
+                    i18n("Backend connection is not ready."), null)
+            })
+        }
+        return requestId
+    }
+
+    function responseRequestId(message) {
+        // Protocol 1.1 guarantees requestId echo. An opcode alone cannot
+        // distinguish simultaneous requests or a late reply after a timeout.
+        return typeof message.requestId === "string" ? message.requestId : ""
+    }
+
+    function handleMessage(message) {
+        if (message === "pong") {
+            root.lastPongTime = Date.now()
+            return
+        }
+        let data
+        try {
+            data = JSON.parse(message)
+        } catch (_error) {
+            console.warn("BackendConnection: Ignoring invalid JSON")
+            return
+        }
+        if (!Protocol.isRecord(data)) {
+            return
+        }
+        if (data.kind === "state") {
+            root.receivedProtocolVersion = Protocol.isRecord(data.data)
+                && typeof data.data.protocolVersion === "string"
+                ? data.data.protocolVersion : ""
+            if (!Protocol.isState(data.data)) {
+                root.latestState = null
+                root.latestActivity = null
+                root.receivedActivityInCurrentPeriod = false
+                root.lastError = root.protocolCompatible
+                    ? i18n("The backend sent an invalid state snapshot.")
+                    : i18n("Unsupported backend protocol %1. This widget requires ALFC 1.1 or a newer 1.x version.",
+                        root.protocolVersion)
+                root.failPendingRequests(root.lastError)
+                return
+            }
+            root.lastError = ""
+            root.latestState = data.data
+            root.lastStateAt = Date.now()
+            // Monitoring stops when fan control is unavailable. Start a grace
+            // period when it becomes available, without extending it for state
+            // updates or pongs on a connection that already expects telemetry.
+            if (data.data.isFanControlAvailable === false) {
+                root.activityExpectedSince = 0
+                root.receivedActivityInCurrentPeriod = false
+            } else if (root.activityExpectedSince === 0) {
+                root.activityExpectedSince = root.lastStateAt
+            }
+        } else if (data.kind === "fancontrolactivity") {
+            if (!root.ready || root.latestState.isFanControlAvailable === false
+                    || !Protocol.isActivity(data.data)) {
+                return
+            }
+            root.latestActivity = data.data
+            root.lastActivityAt = Date.now()
+            root.receivedActivityInCurrentPeriod = true
+        } else if (data.kind === "success" || data.kind === "error") {
+            if (data.kind === "error" && typeof data.data !== "string") {
+                return
+            }
+            root.finishRequest(root.responseRequestId(data), data.kind === "success",
+                data.kind === "error" ? data.data : "", data)
+        } else {
+            return
+        }
+        root.messageReceived(data)
+    }
+
     function setFixedMode(enabled) {
+        if (!root.ready || root.latestState.isFanControlAvailable === false
+                || typeof enabled !== "boolean" || root.modeRequestPending) {
+            return root.rejectRequest("dofixedspeed", i18n("Fan mode control is not ready."))
+        }
         return sendRequest("dofixedspeed", enabled, "setMode")
     }
 
     function setFixedPercentage(percent) {
-        return sendRequest("fixedpercentage", Math.round(percent),
+        if (!root.ready || root.latestState.isFanControlAvailable === false
+                || !Protocol.isIntegerInRange(percent, 0, 100)) {
+            return root.rejectRequest("fixedpercentage", i18n("Enter a whole fan speed from 0 to 100%."))
+        }
+        return sendRequest("fixedpercentage", percent,
             "setFixedPercentage")
     }
 
     function setFanTables(cpuTable, gpuTable) {
+        if (!root.ready || root.latestState.isFanControlAvailable === false
+                || !Protocol.isFanTable(cpuTable) || !Protocol.isFanTable(gpuTable)) {
+            return root.rejectRequest("fantable", i18n("Fan curves are invalid or fan control is unavailable."))
+        }
         return sendRequest("fantable", {
             cpu: cpuTable,
             gpu: gpuTable
@@ -136,15 +267,24 @@ Item {
     }
 
     function setGpuBoost(enabled) {
+        if (!root.ready || root.latestState.isGpuBoostAvailable !== true
+                || typeof enabled !== "boolean") {
+            return root.rejectRequest("set", i18n("GPU boost is not available on this system."))
+        }
         return sendRequest("set", {
             Data: enabled ? 1 : 0
         }, "SetAIBoostStatus", "129")
     }
 
     function applyTune(pl1, pl2) {
+        if (!root.ready || root.latestState.isCpuTuningAvailable !== true
+                || !Protocol.isIntegerInRange(pl1, 0, 200)
+                || !Protocol.isIntegerInRange(pl2, 0, 200)) {
+            return root.rejectRequest("tune", i18n("Enter whole CPU power limits from 0 to 200 watts."))
+        }
         return sendRequest("tune", {
-            pl1: Math.round(pl1),
-            pl2: Math.round(pl2)
+            pl1: pl1,
+            pl2: pl2
         }, "setCpuTune")
     }
 
@@ -155,8 +295,10 @@ Item {
         active: true
 
         onStatusChanged: {
-            if (socket.status === WebSocket.Open) {
-                console.info("BackendConnection: Connected to " + root.url)
+            if (socket.status === WebSocket.Connecting) {
+                reconnectTimer.stop()
+            } else if (socket.status === WebSocket.Open) {
+                console.info("BackendConnection: Connected")
                 root.lastError = ""
                 root.lastPongTime = Date.now()
                 root.reconnectDelay = 1000
@@ -172,6 +314,7 @@ Item {
             } else if (socket.status === WebSocket.Closed) {
                 console.info("BackendConnection: Closed")
                 root.lastPongTime = 0
+                root.failPendingRequests(i18n("Connection lost before the request completed."))
                 root.clearCachedData()
                 keepaliveTimer.stop()
                 freshnessTimer.stop()
@@ -180,6 +323,7 @@ Item {
                 console.error("BackendConnection: Error: " + socket.errorString)
                 root.lastError = socket.errorString
                 root.lastPongTime = 0
+                root.failPendingRequests(i18n("Connection lost before the request completed."))
                 root.clearCachedData()
                 keepaliveTimer.stop()
                 freshnessTimer.stop()
@@ -188,55 +332,24 @@ Item {
         }
 
         onTextMessageReceived: function(message) {
-            if (message === "pong") {
-                root.lastPongTime = Date.now()
-                return
-            }
-
-            try {
-                const data = JSON.parse(message)
-                if (!data || typeof data !== "object") {
-                    return
-                }
-                root.messageReceived(data)
-
-                if (data.kind === "state") {
-                    root.latestState = data.data
-                    root.lastStateAt = Date.now()
-                    return
-                }
-
-                if (data.kind === "fancontrolactivity") {
-                    root.latestActivity = data.data
-                    root.lastActivityAt = Date.now()
-                    return
-                }
-
-                if (data.kind === "success") {
-                    root.requestFinished(data.methodId || "", true, "", data)
-                    return
-                }
-
-                if (data.kind === "error") {
-                    root.requestFinished(data.methodId || "", false,
-                        typeof data.data === "string" ? data.data : "", data)
-                }
-            } catch (error) {
-                console.error("BackendConnection: Parse error: " + error)
-            }
+            root.handleMessage(message)
         }
     }
 
     Timer {
         id: reconnectTimer
 
-        interval: root.reconnectDelay
+        interval: root.quickReconnect ? 100 : root.reconnectDelay
         repeat: false
 
         onTriggered: {
             console.info("BackendConnection: Connecting...")
+            root.quickReconnect = false
             root.reconnectDelay = Math.min(root.reconnectDelay * 2, 30000)
             root.lastPongTime = 0
+            // active remains true after a remote close/error; changing it is
+            // required for QtWebSockets to open a new connection.
+            socket.active = false
             socket.active = true
         }
     }
@@ -260,7 +373,18 @@ Item {
         interval: 1000
         repeat: true
 
-        onTriggered: root.freshnessTick += 1
+        onTriggered: {
+            root.freshnessTick = (root.freshnessTick + 1) % 2147483647
+            const now = Date.now()
+            const requestIds = Object.keys(root.pendingRequests)
+            for (let index = 0; index < requestIds.length; index += 1) {
+                const requestId = requestIds[index]
+                if (now - root.pendingRequests[requestId].sentAt >= root.requestTimeout) {
+                    root.finishRequest(requestId, false,
+                        i18n("Request timed out. The backend may still apply the change."), null)
+                }
+            }
+        }
     }
 
     Timer {

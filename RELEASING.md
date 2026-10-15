@@ -1,75 +1,119 @@
 # Releasing ALFC
 
-## How to create a release
+## Validate the source revision
 
-1. Update the version in `package.json` (used at build time by the frontend's
-   update check), the package manifests (`frontend/package.json`,
-   `server/package.json`, `bootstrap/package.json`), `plasmoid/package/metadata.json`, and `aur/PKGBUILD` (`pkgver`)
-2. Commit: `git commit -am "chore: release vX.Y.Z"`
-3. Tag: `git tag vX.Y.Z`
-4. Push: `git push origin master --tags`
+Use Bun 1.4.3 or newer and Node 24.11 or newer within major 24. Run `bun install --frozen-lockfile`,
+`bun run all-checks`, and the documented browser and Qt runtime checks before
+creating a tag. CI runs the shared checks on Linux and Windows, browser/Qt checks
+on Linux, and builds the Windows WMI DLL with MSVC. Native SDK substitute tests
+verify export behavior; they do not establish production Intel SDK compatibility.
+Windows CI also runs the actual COM completion and integer decoder regression
+without a firmware provider or elevation.
+Record physical laptop models and OS versions tested, or explicitly say when
+hardware validation was unavailable.
 
-The GitHub Actions release workflow will:
+### Why Bun and Node are both in the build environment
 
-- Build Linux (x64) and Windows (x64) on their respective runners
-- Run `bun run all-checks` (lint, typecheck, test, build) on Linux
-- Build `WmiAPI.exe` (.NET Framework 4.8) on Windows
-- Download WinSW service wrapper
-- Assemble release archives
-- Create a **draft** GitHub Release with all artifacts
+Bun installs dependencies, runs the backend/FFI workers, and compiles the server.
+Node runs the current Vite, Vitest, and other Node-shebang development CLIs:
+`bun run` preserves their shebangs. The current test fixtures also prevent a
+simple switch to `--bun`. See [the toolchain explanation](CONTRIBUTING.md#toolchain-and-development)
+for the runtime roles and versioned API reference.
 
-Review the draft release, edit the notes if needed, then publish it.
+Use one Node.js 24.11 or newer within major 24 installation, matching both platform workflows. Node 26 was
+an upstream-compatible alternative, not a second required installation; ALFC's
+declared engine now matches the checked Node 24 workflow. Release users install
+neither development runtime: the compiled executable embeds Bun.
 
-5. After publishing, update the AUR package (`alfc-bin`):
-   - **First release only:** this is the initial AUR submission — follow the
-     "Publishing to AUR" steps in [`aur/README.md`](aur/README.md). Before
-     submitting, replace the `SKIP` placeholder in `sha256sums` with the real
-     checksum of the release tarball (`updpkgsums`); `SKIP` is only acceptable
-     while developing the package.
-   - **Later releases:** update the existing AUR repository:
-     ```bash
-     cd /path/to/aur/alfc-bin
-     # Update pkgver in PKGBUILD, then:
-     updpkgsums
-     makepkg --printsrcinfo > .SRCINFO
-     git add -u && git commit -m "Update to vX.Y.Z" && git push
-     ```
+Update the version in root `package.json`, `frontend/package.json`,
+`server/package.json`, `bootstrap/package.json`, `plasmoid/package/metadata.json`,
+and `aur/PKGBUILD` (`pkgver`). Stage the intended files, commit the release change,
+then create and push the specific tag from the reviewed revision:
 
-## Release artifacts
+```sh
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
 
-| Artifact                       | Contents                                                                                 |
-| ------------------------------ | ---------------------------------------------------------------------------------------- |
-| `alfc-vX.Y.Z-linux-x64.tar.gz` | Server binary, frontend, service scripts, plasmoid, config, LICENSE, README.md, LINUX.md |
-| `alfc-vX.Y.Z-windows-x64.zip`  | Server binary, frontend, WmiAPI.exe, service scripts, WinSW, config, LICENSE, README.md  |
-| `org.kde.alfc.plasmoid`        | Standalone plasmoid package (`plasmoid/package/` zip for KDE Store)                      |
+Avoid publishing every local tag with `--tags`. The workflow validates that the
+release tag is a version-shaped `v...` value matching root `package.json`.
 
-## Windows: CPU tuning (PL1/PL2)
+## Automated artifacts
 
-The Windows release does **not** include `CPUOC.dll` or `IntelOverclockingSDK.dll`.
-CPU power limit tuning requires the Intel Overclocking SDK, which is proprietary
-and cannot be redistributed in binary releases (and is only supported on Windows 10;
-Windows 11 blocks Intel XTU power-limit tuning).
+`.github/workflows/release.yml` builds Linux x64 and Windows x64 independently,
+runs lint/type/tests/build checks on both, builds `WmiDll.dll` on Windows, and
+assembles these assets into a **draft** GitHub Release:
 
-Fan control, GPU boost, and all other features work without it.
+| Asset                          | Contents                                                                                                                                 |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `alfc-vX.Y.Z-linux-x64.tar.gz` | Executable, frontend, default config, systemd/OpenRC scripts, widget package/helpers, LICENSE, and root/common/widget/AUR Markdown docs  |
+| `alfc-vX.Y.Z-windows-x64.zip`  | Executable, frontend, default config, WmiDll.dll, WinSW v2.12.0 x64, service scripts, LICENSE, and the same Markdown documentation paths |
+| `org.kde.alfc.plasmoid`        | Zip of `plasmoid/package` for per-user KDE installation                                                                                  |
+| `SHA256SUMS`                   | SHA-256 digests of all three distributable artifacts                                                                                     |
 
-To enable CPU tuning on Windows 10:
+The Windows service XML uses WinSW's exact `stopparentprocessfirst` and
+`stoptimeout` element names. The 15-second wrapper allowance covers the backend's
+12-second bounded shutdown attempt. Review archive contents and checksum entries,
+release notes, platform results, and hardware limitations before publishing the
+draft. Generated checksums detect asset changes; they are not a detached signature.
 
-1. Install [Intel XTU](https://www.intel.com/content/www/us/en/download/17881/intel-extreme-tuning-utility-intel-xtu.html)
-2. Ensure `IntelOverclockingSDK.dll` is present in `server/native/windows/` (already in the source checkout, or copy it from the Intel XTU installation directory)
-3. Build the NativeAOT CPUOC wrapper (requires the .NET 8 SDK): `bun run --cwd server build:cpuoc` (or `cd server && dotnet publish native/windows/cpuoc-dotnet -c Release -o native/windows`)
-4. Copy `CPUOC.dll` and `IntelOverclockingSDK.dll` from `server/native/windows/` next to `alfc.exe`
+The Windows installer and uninstaller use `stopwait` before removing an existing
+service and abort if shutdown fails. The pinned wrapper's `stop` command only
+requests shutdown; [its v2.12.0 implementation](https://github.com/winsw/winsw/blob/v2.12.0/src/WinSW/Program.cs#L406)
+waits for `Stopped` only with `stopwait`. Waiting prevents removal/reinstallation
+from racing the backend's shutdown and pending service deletion.
 
-## Distribution channels
+WinSW XML names are case-sensitive and deliberately mix naming conventions.
+For the pinned **v2.12.0** wrapper, use these exact spellings:
 
-### Current
+| Setting                         | XML element                  |
+| ------------------------------- | ---------------------------- |
+| Working directory               | `workingdirectory`           |
+| Delayed automatic start         | `delayedAutoStart`           |
+| Stop parent before children     | `stopparentprocessfirst`     |
+| Stop allowance                  | `stoptimeout`                |
+| Log rotation size and retention | `sizeThreshold`, `keepFiles` |
 
-- **GitHub Releases** — Primary distribution for all platforms
+`workingDirectory` is ignored by this parser; `directiory` is a misspelling.
+Do not lowercase the valid camelCase names. The current XML matches the
+[versioned WinSW parser](https://github.com/winsw/winsw/blob/v2.12.0/src/WinSW.Core/Configuration/XmlServiceConfig.cs).
+The regression checks element and attribute names at every nesting depth,
+independently of indentation.
 
-### Ready (pending first submission)
+Local `./build.sh` assembles `dist/alfc/` and `dist/alfc.tar.gz` without including the
+archive inside itself. Run it from any working directory. Local `build.bat`
+assembles `dist\alfc\` and `dist\alfc.zip`; it requires an x64 MSVC developer
+shell and a separately obtained WinSW v2.12.0 x64 wrapper saved as
+`bootstrap/scripts/alfc-service.exe`. Neither script installs a host service.
 
-- **AUR** (Arch User Repository) — PKGBUILD is in `aur/`. Package name: `alfc-bin`. Submit after the first tagged release.
-- **KDE Store** (store.kde.org) — The `org.kde.alfc.plasmoid` file can be uploaded to the KDE Store so Plasma users can discover and install the widget directly from KDE Discover. The backend still needs to be installed separately from GitHub Releases.
+## Windows CPU tuning is experimental
 
-### Not viable
+The published Windows archive and default local archive omit `CPUOC.dll` and the
+proprietary `IntelOverclockingSDK.dll`. Fan control and GPU boost do not depend on
+that optional CPU tuning channel. The current wrapper remains an unsupported
+prototype against a legacy SDK; its dependency closure, NativeAOT compatibility,
+and real-hardware behavior have not been established by the substitute test suite.
+Do not claim universal Windows 10/11 compatibility or copy SDK binaries into
+redistributable release archives.
 
-- **Flatpak** — ALFC requires root access to `/proc/acpi/call` and runs as a system service (systemd/OpenRC). Flatpak's sandbox fundamentally blocks both. All comparable hardware control tools (CoreCtrl, nbfc-linux, TLP) avoid Flatpak for the same reasons.
+For explicit local investigation only, the .NET 8 SDK and compatible MSVC/native
+build tools are required. `build.bat --experimental-cpuoc` opts into the guarded
+publish using `-p:AllowExperimentalCpuocPublish=true`, then includes locally
+available CPUOC/SDK binaries in the local archive. The flag acknowledges the
+prototype status; it does not establish correctness or redistribution rights.
+Keep resulting archives private unless licensing and compatibility are verified.
+The NativeAOT library must remain loaded until process exit.
+
+## Distribution follow-up
+
+GitHub Releases are the primary delivery channel. For AUR publication, first verify
+the released Linux archive and replace the development `SKIP` checksum in
+`aur/PKGBUILD` with the pinned digest. Generate `.SRCINFO`, test on an isolated Arch
+system, and follow [aur/README.md](aur/README.md). The AUR package remains unpublished
+until that submission is complete.
+
+Upload `org.kde.alfc.plasmoid` to KDE Store only after testing it on the supported
+Plasma runtime. The widget does not bundle the privileged backend; describe that
+separate requirement clearly. Flatpak packaging would need a separately designed
+privileged service interface because the current implementation accesses ACPI and
+sysfs directly; it is not an existing distribution target.

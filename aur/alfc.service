@@ -9,6 +9,7 @@ ExecStart=/usr/lib/alfc/alfc
 Environment=NODE_ENV=production
 Restart=always
 RestartSec=5
+TimeoutStopSec=15s
 StandardOutput=journal
 StandardError=journal
 

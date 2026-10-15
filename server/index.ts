@@ -1,57 +1,29 @@
-import path from "node:path";
-import { initNativeServices } from "./native/index";
-import { isDev } from "./utils/consts";
-import { websocketHandlers, setServer } from "./websocket/index";
 import {
+  cleanupNativeServices,
+  drainNativeCalls,
+  initNativeServices,
+} from "./native/index";
+import { state } from "./state/index";
+import { frontendDir, isDev } from "./utils/consts";
+import {
+  websocketHandlers,
+  setServers,
+  startWebSocketShutdown,
+} from "./websocket/index";
+import {
+  awaitFanControlIdle,
+  isFanControlRestoreRequired,
   restoreAutoFanControl,
   startFanControlShutdown,
 } from "./fan-control/index";
+import { handleWebSocketRequest, serveFrontendAsset } from "./http";
+import { isElevated } from "./permissions";
+import { listenOnLoopback } from "./listeners";
 
 const PORT = 5522;
-
-const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
-
-function isAllowedWebSocketOrigin(origin: string | null): boolean {
-  if (origin === null) {
-    return true;
-  }
-
-  let parsedOrigin: URL;
-  try {
-    parsedOrigin = new URL(origin);
-  } catch (_) {
-    return false;
-  }
-
-  const isHttp =
-    parsedOrigin.protocol === "http:" || parsedOrigin.protocol === "https:";
-
-  if (!isHttp) {
-    return false;
-  }
-
-  const hasUnexpectedSuffix =
-    parsedOrigin.pathname !== "/" ||
-    parsedOrigin.search !== "" ||
-    parsedOrigin.hash !== "";
-
-  if (hasUnexpectedSuffix) {
-    return false;
-  }
-
-  return LOCALHOST_HOSTNAMES.has(parsedOrigin.hostname);
-}
-
-function isElevated(): boolean {
-  if (process.platform === "win32") {
-    const result = Bun.spawnSync(["net", "session"], {
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-    return result.exitCode === 0;
-  }
-  return process.getuid?.() === 0;
-}
+const DRAIN_TIMEOUT_MS = 5_000;
+const RESTORE_FAN_TIMEOUT_MS = 5_000;
+const CLEANUP_TIMEOUT_MS = 2_000;
 
 const exitWithError = () => {
   try {
@@ -72,133 +44,204 @@ const exitWithError = () => {
   }
 };
 
-(async () => {
-  console.log("[Server] Checking permissions...");
+const servers: Bun.Server<undefined>[] = [];
+let nativeInitialization: Promise<void> | undefined;
+let isShuttingDown = false;
+let shutdownPromise: Promise<void> | undefined;
+let shutdownExitCode = 0;
 
-  if (!isElevated()) {
-    exitWithError();
-  }
+function withShutdownTimeout<T>(
+  operation: Promise<T>,
+  timeout: number,
+  stage: string,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${stage} timed out after ${timeout}ms`)),
+      timeout,
+    );
+    operation.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
-  console.log("[Server] Initializing fan control...");
-  await initNativeServices();
+function shutdown(code: number): Promise<void> {
+  shutdownExitCode = Math.max(shutdownExitCode, code);
+  if (shutdownPromise) return shutdownPromise;
 
-  let isShuttingDown = false;
-  let hasRestoredAutoFanControl = false;
-  const originalProcessExit = process.exit;
-  process.exit = ((code?: number) => {
-    if (isShuttingDown) {
-      console.log(
-        "[Server] Shutdown already in progress, ignoring duplicate exit.",
+  isShuttingDown = true;
+  startFanControlShutdown();
+  const mutationsDrained = startWebSocketShutdown();
+  setServers([]);
+
+  shutdownPromise = Promise.resolve().then(async () => {
+    // Register a hard deadline before awaiting anything: hardware calls can
+    // stall, and WinSW only grants 15 seconds for graceful service shutdown.
+    const deadline = setTimeout(
+      () => {
+        console.error(
+          "[Server] Shutdown timed out while restoring fan control.",
+        );
+        process.exit(1);
+      },
+      DRAIN_TIMEOUT_MS + RESTORE_FAN_TIMEOUT_MS + CLEANUP_TIMEOUT_MS,
+    );
+    // Each callback turns even a synchronous stop error into a rejection. One
+    // failed listener must not prevent closing the others or restoring BIOS.
+    const connectionsClosed = servers.map(
+      async (server) => await server.stop(true),
+    );
+
+    try {
+      // Stop accepting work first, then finish admitted mutations and fan
+      // writes so none can switch the fans back to fixed mode after restore.
+      await withShutdownTimeout(
+        (async () => {
+          const drained = await Promise.allSettled([
+            ...connectionsClosed,
+            mutationsDrained,
+            nativeInitialization,
+          ]);
+          for (const result of drained) {
+            if (result.status === "rejected") {
+              console.error(
+                "[Server] Pending operation failed:",
+                result.reason,
+              );
+              shutdownExitCode = 1;
+            }
+          }
+          await awaitFanControlIdle();
+          await drainNativeCalls();
+        })(),
+        DRAIN_TIMEOUT_MS,
+        "Draining pending work",
       );
-      return;
+    } catch (error) {
+      console.error("[Server] Failed to drain pending work on exit:", error);
+      shutdownExitCode = 1;
     }
 
-    isShuttingDown = true;
-    startFanControlShutdown();
-
-    (async () => {
-      try {
-        if (!hasRestoredAutoFanControl) {
-          hasRestoredAutoFanControl = true;
-          await restoreAutoFanControl();
-        }
-
-        if (code !== 0) {
-          console.error("[Server] Exiting with code " + code);
-          console.error(new Error().stack);
-        } else {
-          console.log("[Server] Exiting normally.");
-        }
-      } catch (err) {
-        console.error("[Server] Failed to restore fan control on exit:", err);
-      } finally {
-        originalProcessExit(code ?? 1);
+    // Even a failed drain must attempt the BIOS handoff. The native queue
+    // preserves write ordering, and the restore has its own bounded budget.
+    try {
+      if (
+        nativeInitialization &&
+        (state.isFanControlAvailable !== false || isFanControlRestoreRequired())
+      ) {
+        await withShutdownTimeout(
+          restoreAutoFanControl(),
+          RESTORE_FAN_TIMEOUT_MS,
+          "Restoring fan control",
+        );
       }
-    })();
-  }) as (code?: number) => never;
+    } catch (error) {
+      console.error("[Server] Failed to restore fan control on exit:", error);
+      shutdownExitCode = 1;
+    } finally {
+      try {
+        await withShutdownTimeout(
+          cleanupNativeServices(),
+          CLEANUP_TIMEOUT_MS,
+          "Cleaning up native services",
+        );
+      } catch (error) {
+        console.error("[Server] Failed to clean up native services:", error);
+        shutdownExitCode = 1;
+      }
+      clearTimeout(deadline);
+      process.exit(shutdownExitCode);
+    }
+  });
 
-  const runtimeRoot = isDev
-    ? import.meta.dirname
-    : path.dirname(process.execPath);
+  return shutdownPromise;
+}
 
-  const frontendDir = path.join(runtimeRoot, "frontend");
+// Register safety handlers before initialization can start changing hardware.
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+  process.on(signal, () => {
+    console.log(`[Server] Received ${signal}, shutting down...`);
+    void shutdown(0);
+  });
+}
+process.on("uncaughtException", (error) => {
+  console.error("[Server] Uncaught exception:", error);
+  void shutdown(1);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[Server] Unhandled rejection:", reason);
+  void shutdown(1);
+});
+
+async function runServer() {
+  console.log("[Server] Checking permissions...");
+
+  if (!(await isElevated())) {
+    return exitWithError();
+  }
+  if (isShuttingDown) return;
+
+  console.log("[Server] Initializing fan control...");
+  nativeInitialization = initNativeServices(() => isShuttingDown);
+  await nativeInitialization;
+  if (isShuttingDown) return;
 
   console.log("[Server] Starting server...");
 
-  const server = Bun.serve({
+  const options = {
     port: PORT,
-    hostname: "localhost",
 
-    async fetch(req, server) {
+    fetch(req: Request, server: Bun.Server<undefined>) {
+      if (isShuttingDown) {
+        return new Response("Service Unavailable", { status: 503 });
+      }
       const url = new URL(req.url);
 
-      if (url.pathname === "/ws") {
-        const origin = req.headers.get("origin");
-        if (!isAllowedWebSocketOrigin(origin)) {
-          console.warn(`[WebSocket] Origin rejected: ${origin}`);
-          return new Response("Forbidden", { status: 403 });
-        }
+      const webSocketResponse = handleWebSocketRequest(req, server);
+      if (webSocketResponse !== null) return webSocketResponse;
 
-        const upgraded = server.upgrade(req, { data: undefined });
-        if (upgraded) return undefined;
-        return new Response("WebSocket upgrade failed", { status: 400 });
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "GET, HEAD" },
+        });
       }
 
       if (!isDev) {
-        let pathname = url.pathname;
-        if (pathname === "/") {
-          pathname = "/index.html";
-        }
-
-        const filePath = path.join(frontendDir, pathname);
-
-        if (!filePath.startsWith(frontendDir)) {
-          return new Response("Forbidden", { status: 403 });
-        }
-
-        const file = Bun.file(filePath);
-        if (await file.exists()) {
-          return new Response(file);
-        }
-
-        return new Response("Not Found", { status: 404 });
+        return serveFrontendAsset(frontendDir, url.pathname);
       }
 
       return new Response("Nothing to see here.");
     },
 
-    websocket: {
-      ...websocketHandlers,
-      idleTimeout: 30,
-      backpressureLimit: 1024 * 1024,
-    },
-  });
+    websocket: websocketHandlers,
+  } satisfies Bun.Serve.Options<undefined>;
 
-  setServer(server);
+  const listeners = await listenOnLoopback(options);
+  servers.push(...listeners);
+  if (isShuttingDown) {
+    await Promise.allSettled(
+      listeners.map(async (server) => await server.stop(true)),
+    );
+    return;
+  }
 
-  const shutdown = (signal: string) => {
-    console.log(`[Server] Received ${signal}, shutting down...`);
-    server.stop();
-    process.exit(0);
-  };
-
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGHUP", () => shutdown("SIGHUP"));
-
-  process.on("uncaughtException", (err) => {
-    console.error("[Server] Uncaught exception:", err);
-    server.stop();
-    process.exit(1);
-  });
-
-  process.on("unhandledRejection", (reason) => {
-    console.error("[Server] Unhandled rejection:", reason);
-    server.stop();
-    process.exit(1);
-  });
+  setServers(servers);
 
   console.log(
     `[Server] Start finished - UI available @ http://localhost:${PORT}`,
   );
-})();
+}
+
+void runServer().catch((error: unknown) => {
+  console.error("[Server] Startup failed:", error);
+  void shutdown(1);
+});

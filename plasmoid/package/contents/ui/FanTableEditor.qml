@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import "Protocol.js" as Protocol
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 
@@ -12,6 +13,9 @@ ColumnLayout {
 
     required property var backend
 
+    readonly property bool canEdit: root.backend != null && root.backend.ready
+        && root.backend.latestState.isFanControlAvailable !== false
+    property int curveRevision: 0
     property bool loaded: false
     property bool dirty: false
     property bool saving: false
@@ -19,6 +23,9 @@ ColumnLayout {
     property string statusMessage: ""
     property string statusTone: ""
     property int currentTab: 0
+    property string draftSourceUrl: ""
+
+    enabled: root.canEdit && !root.saving
 
     ListModel {
         id: cpuModel
@@ -55,8 +62,8 @@ ColumnLayout {
             const entry = table[index]
             if (Array.isArray(entry) && entry.length >= 2) {
                 model.append({
-                    temp: Math.round(entry[0]),
-                    speed: Math.round(entry[1])
+                    temp: String(entry[0]),
+                    speed: String(entry[1])
                 })
             }
         }
@@ -67,7 +74,8 @@ ColumnLayout {
             return
         }
 
-        if (root.dirty && !force) {
+        const sourceUrl = String(root.backend.url ?? "")
+        if (root.dirty && !force && root.draftSourceUrl === sourceUrl) {
             return
         }
 
@@ -76,10 +84,14 @@ ColumnLayout {
 
         root.loaded = true
         root.dirty = false
+        root.draftSourceUrl = sourceUrl
+        root.curveRevision += 1
+        clearStatus()
+    }
 
-        if (!force) {
-            clearStatus()
-        }
+    function numberFromText(value) {
+        const text = String(value).trim()
+        return text.length > 0 ? Number(text) : NaN
     }
 
     function modelToArray(model) {
@@ -88,8 +100,8 @@ ColumnLayout {
         for (let index = 0; index < model.count; index += 1) {
             const row = model.get(index)
             table.push([
-                parseInt(row.temp, 10),
-                parseInt(row.speed, 10)
+                numberFromText(row.temp),
+                numberFromText(row.speed)
             ])
         }
 
@@ -124,6 +136,7 @@ ColumnLayout {
 
     function markDirty() {
         root.dirty = true
+        root.curveRevision += 1
 
         if (!root.saving) {
             setStatus(i18n("Unsaved changes"), "neutral")
@@ -135,24 +148,54 @@ ColumnLayout {
             return
         }
 
-        model.setProperty(index, key, Math.round(value))
+        if (model.get(index)[key] === String(value)) {
+            return
+        }
+        model.setProperty(index, key, String(value))
         markDirty()
     }
 
     function addRow() {
         const model = activeModel()
+        const currentTable = modelToArray(model)
+        const error = validateTable(currentTable, activeCurveLabel())
+        if (error.length > 0) {
+            setStatus(error, "error")
+            return
+        }
         let newTemp = 40
         let newSpeed = 30
 
         if (model.count > 0) {
             const lastItem = model.get(model.count - 1)
-            newTemp = Math.min(110, parseInt(lastItem.temp, 10) + 5)
-            newSpeed = Math.min(100, parseInt(lastItem.speed, 10) + 10)
+            const lastTemp = numberFromText(lastItem.temp)
+            const lastSpeed = numberFromText(lastItem.speed)
+            if (lastTemp === 110) {
+                // Append cannot create an ascending point above the limit.
+                // Insert into an existing gap without changing its old target.
+                for (let index = model.count - 1; index >= 0; index -= 1) {
+                    const lower = index > 0 ? currentTable[index - 1][0] : 0
+                    const upper = currentTable[index][0]
+                    const middle = lower + (upper - lower) / 2
+                    if (middle > lower && middle < upper) {
+                        model.insert(index, {
+                            temp: String(middle),
+                            speed: String(index > 0 ? currentTable[index - 1][1] : lastSpeed)
+                        })
+                        markDirty()
+                        return
+                    }
+                }
+                setStatus(i18n("There is no room for another temperature threshold."), "error")
+                return
+            }
+            newTemp = Number.isFinite(lastTemp) ? Math.min(110, lastTemp + 5) : 40
+            newSpeed = Number.isFinite(lastSpeed) ? Math.min(100, lastSpeed + 10) : 30
         }
 
         model.append({
-            temp: newTemp,
-            speed: newSpeed
+            temp: String(newTemp),
+            speed: String(newSpeed)
         })
         markDirty()
     }
@@ -202,6 +245,9 @@ ColumnLayout {
     }
 
     function validateAndSave() {
+        if (!root.canEdit || root.saving) {
+            return
+        }
         const cpuTable = modelToArray(cpuModel)
         const gpuTable = modelToArray(gpuModel)
 
@@ -332,11 +378,13 @@ ColumnLayout {
         clip: true
 
         readonly property real liveTemp: root.backend != null && root.backend.hasFreshActivity && root.backend.latestActivity != null
-            ? Math.round(root.currentTab === 0 ? root.backend.latestActivity.avgCPUTemp : root.backend.latestActivity.avgGPUTemp)
+            && root.backend.latestActivity.sensorFailure !== true
+            ? (root.currentTab === 0 ? root.backend.latestActivity.avgCPUTemp : root.backend.latestActivity.avgGPUTemp)
             : -1
 
         Canvas {
             id: curveCanvas
+            objectName: "fanCurveCanvas"
 
             anchors.fill: parent
             anchors.margins: Kirigami.Units.smallSpacing
@@ -346,11 +394,14 @@ ColumnLayout {
 
             onModelChanged: requestPaint()
             onLiveTemperatureChanged: requestPaint()
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            onAvailableChanged: if (available) requestPaint()
 
             Connections {
                 target: root
                 function onCurrentTabChanged() { curveCanvas.requestPaint() }
-                function onDirtyChanged() { curveCanvas.requestPaint() }
+                function onCurveRevisionChanged() { curveCanvas.requestPaint() }
                 function onLoadedChanged() { curveCanvas.requestPaint() }
             }
 
@@ -372,8 +423,8 @@ ColumnLayout {
                 const plotWidth = Math.max(10, width - paddingLeft - paddingRight)
                 const plotHeight = Math.max(10, height - paddingTop - paddingBottom)
 
-                const minTemp = 20
-                const maxTemp = 105
+                const minTemp = 0
+                const maxTemp = 110
                 const minSpeed = 0
                 const maxSpeed = 100
 
@@ -410,7 +461,7 @@ ColumnLayout {
 
                 ctx.textAlign = "center"
                 ctx.textBaseline = "top"
-                const tempMarks = [30, 50, 70, 90]
+                const tempMarks = [0, 25, 50, 75, 110]
                 for (let i = 0; i < tempMarks.length; i++) {
                     const tmp = tempMarks[i]
                     const x = xForTemp(tmp)
@@ -429,8 +480,8 @@ ColumnLayout {
                 for (let i = 0; i < count; i++) {
                     const row = curveCanvas.model.get(i)
                     if (!row) continue
-                    const tempVal = parseInt(row.temp, 10)
-                    const speedVal = parseInt(row.speed, 10)
+                    const tempVal = root.numberFromText(row.temp)
+                    const speedVal = root.numberFromText(row.speed)
                     if (!Number.isNaN(tempVal) && !Number.isNaN(speedVal)) {
                         points.push({
                             temp: tempVal,
@@ -438,20 +489,27 @@ ColumnLayout {
                         })
                     }
                 }
-                if (points.length === 0) return
-                points.sort((a, b) => a.temp - b.temp)
+                // The backend selects the last threshold at or below the
+                // temperature; it does not interpolate between curve points.
+                if (!Protocol.isFanTable(root.modelToArray(curveCanvas.model))) return
+                const steps = [{ temp: minTemp, speed: points[0].speed }]
+                for (let i = 1; i < points.length; i++) {
+                    steps.push({ temp: points[i].temp, speed: points[i - 1].speed })
+                    steps.push(points[i])
+                }
+                steps.push({ temp: maxTemp, speed: points[points.length - 1].speed })
 
                 ctx.beginPath()
-                const startX = xForTemp(points[0].temp)
-                const startY = yForSpeed(points[0].speed)
+                const startX = xForTemp(steps[0].temp)
+                const startY = yForSpeed(steps[0].speed)
                 const baselineY = yForSpeed(0)
 
                 ctx.moveTo(startX, baselineY)
                 ctx.lineTo(startX, startY)
-                for (let i = 1; i < points.length; i++) {
-                    ctx.lineTo(xForTemp(points[i].temp), yForSpeed(points[i].speed))
+                for (let i = 1; i < steps.length; i++) {
+                    ctx.lineTo(xForTemp(steps[i].temp), yForSpeed(steps[i].speed))
                 }
-                const lastX = xForTemp(points[points.length - 1].temp)
+                const lastX = xForTemp(maxTemp)
                 ctx.lineTo(lastX, baselineY)
                 ctx.closePath()
 
@@ -463,8 +521,8 @@ ColumnLayout {
 
                 ctx.beginPath()
                 ctx.moveTo(startX, startY)
-                for (let i = 1; i < points.length; i++) {
-                    ctx.lineTo(xForTemp(points[i].temp), yForSpeed(points[i].speed))
+                for (let i = 1; i < steps.length; i++) {
+                    ctx.lineTo(xForTemp(steps[i].temp), yForSpeed(steps[i].speed))
                 }
                 ctx.strokeStyle = Kirigami.Theme.highlightColor
                 ctx.lineWidth = 2.5
@@ -547,8 +605,8 @@ ColumnLayout {
                     id: row
 
                     required property int index
-                    required property int temp
-                    required property int speed
+                    required property string temp
+                    required property string speed
 
                     Layout.fillWidth: true
                     spacing: Kirigami.Units.smallSpacing
@@ -559,57 +617,33 @@ ColumnLayout {
                         horizontalAlignment: Text.AlignHCenter
                         Accessible.name: root.pointTemperatureAccessibleName(
                             row.index)
-                        Accessible.description: i18n("Enter a temperature from 0 to 110 degrees Celsius.")
-                        validator: IntValidator {
+                        Accessible.description: i18n("Enter a temperature from 0 to 110 degrees Celsius. Fractional values are supported.")
+                        validator: DoubleValidator {
                             bottom: 0
                             top: 110
+                            locale: "C"
+                            notation: DoubleValidator.StandardNotation
                         }
-                        inputMethodHints: Qt.ImhDigitsOnly
-                        onTextEdited: {
-                            const value = parseInt(text, 10)
-                            if (!Number.isNaN(value)) {
-                                root.updateValue(root.activeModel(),
-                                    row.index, "temp", value)
-                            }
-                        }
-
-                        onEditingFinished: {
-                            const value = parseInt(text, 10)
-                            if (!Number.isNaN(value)) {
-                                root.updateValue(root.activeModel(),
-                                    row.index, "temp", value)
-                            }
-                        }
+                        inputMethodHints: Qt.ImhFormattedNumbersOnly
+                        onTextEdited: root.updateValue(root.activeModel(),
+                            row.index, "temp", text)
                     }
 
                     PlasmaComponents.TextField {
-                        text: row.speed.toString()
+                        text: row.speed
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 5
                         horizontalAlignment: Text.AlignHCenter
-                        Accessible.name: root.pointSpeedAccessibleName(
-                            row.index)
-                        Accessible.description: i18n("Enter a fan speed from 0 to 100 percent.")
-                        validator: IntValidator {
+                        Accessible.name: root.pointSpeedAccessibleName(row.index)
+                        Accessible.description: i18n("Enter a fan speed from 0 to 100 percent. Fractional values are supported.")
+                        validator: DoubleValidator {
                             bottom: 0
                             top: 100
+                            locale: "C"
+                            notation: DoubleValidator.StandardNotation
                         }
-                        inputMethodHints: Qt.ImhDigitsOnly
-
-                        onTextEdited: {
-                            const value = parseInt(text, 10)
-                            if (!Number.isNaN(value)) {
-                                root.updateValue(root.activeModel(),
-                                    row.index, "speed", value)
-                            }
-                        }
-
-                        onEditingFinished: {
-                            const value = parseInt(text, 10)
-                            if (!Number.isNaN(value)) {
-                                root.updateValue(root.activeModel(),
-                                    row.index, "speed", value)
-                            }
-                        }
+                        inputMethodHints: Qt.ImhFormattedNumbersOnly
+                        onTextEdited: root.updateValue(root.activeModel(),
+                            row.index, "speed", text)
                     }
 
                     PlasmaComponents.Button {
@@ -640,13 +674,17 @@ ColumnLayout {
         horizontalAlignment: Text.AlignHCenter
     }
 
-    RowLayout {
+    GridLayout {
+        id: commandGrid
+        objectName: "fanCurveCommands"
+        columns: root.width >= Kirigami.Units.gridUnit * 22 ? 3 : 2
         Layout.fillWidth: true
 
         PlasmaComponents.Button {
             text: i18n("Add Point")
             icon.name: "list-add"
             enabled: root.loaded
+            Layout.fillWidth: true
             Accessible.description: i18n("Add a new point to the active fan curve.")
             onClicked: root.addRow()
         }
@@ -655,18 +693,17 @@ ColumnLayout {
             text: i18n("Reload")
             icon.name: "view-refresh"
             enabled: root.backend != null && root.backend.hasState
+            Layout.fillWidth: true
             Accessible.description: i18n("Discard unsaved changes and reload the stored fan curves.")
             onClicked: root.syncFromBackend(true)
-        }
-
-        Item {
-            Layout.fillWidth: true
         }
 
         PlasmaComponents.Button {
             text: root.saving ? i18n("Saving…") : i18n("Apply Curves")
             icon.name: "dialog-ok"
             enabled: root.loaded && !root.saving
+            Layout.fillWidth: true
+            Layout.columnSpan: commandGrid.columns === 2 ? 2 : 1
             Accessible.description: i18n("Validate the CPU and GPU fan curves and save them.")
             onClicked: root.validateAndSave()
         }
