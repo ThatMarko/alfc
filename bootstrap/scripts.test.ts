@@ -293,11 +293,20 @@ switch (command) {
     it.each(["install.bat", "uninstall.bat", "run.bat"])(
       "propagates the elevation command failure from %s without service access",
       async (name) => {
-        await expect(run(name, { elevation: true })).rejects.toMatchObject({
-          code: 17,
-        });
+        let failure: unknown;
+        try {
+          await run(name, { elevation: true });
+        } catch (error) {
+          failure = error;
+        }
         expect(await readFile(log, "utf8")).toBe("admin-check\nelevate\n");
         expect(await readFile(stateFile, "utf8")).toBe("running");
+        expect(
+          failure,
+          "the delegated failure must reach cmd /c",
+        ).toMatchObject({
+          code: 17,
+        });
       },
       15_000,
     );

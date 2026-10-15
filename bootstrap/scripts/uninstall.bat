@@ -6,7 +6,8 @@ if not errorlevel 1 goto administrator_ready
 echo Requesting administrator privileges...
 set "ALFC_SCRIPT_PATH=%~f0"
 powershell -NoProfile -Command "try { $child = Start-Process -FilePath $env:ALFC_SCRIPT_PATH -Verb RunAs -Wait -PassThru; exit $child.ExitCode } catch { Write-Error $_; exit 1 }"
-exit /b
+set "ALFC_ELEVATION_STATUS=%errorlevel%"
+exit /b %ALFC_ELEVATION_STATUS%
 
 :administrator_ready
 pushd "%~dp0" || exit /b 1

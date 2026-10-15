@@ -245,9 +245,11 @@ by the isolated batch cases.
 
 The expanded [Windows run](https://github.com/ThatMarko/alfc/actions/runs/38666384147)
 confirmed that failed elevation was also reported as success by all three
-entrypoints. Their elevation branches now run outside conditional blocks and
-preserve the elevation command's actual exit status. The same run verified the
-existing missing-release preflight and the corrected service-failure paths.
+entrypoints. Their elevation branches now capture the command's actual status
+and explicitly return that numeric value with `exit /b`, outside conditional
+blocks, following [Microsoft's EXIT contract](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/exit).
+The same run verified the existing missing-release preflight and the corrected
+service-failure paths.
 
 The original PR description contained historical test counts and unmeasured
 nanosecond/CPU/memory comparisons. Those claims are not evidence for this
