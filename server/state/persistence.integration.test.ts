@@ -1,25 +1,32 @@
 import { execFile } from "node:child_process";
 import {
   copyFile,
+  cp,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
-  symlink,
   writeFile,
 } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 const execute = promisify(execFile);
 const repository = path.resolve(import.meta.dirname, "../..");
+const dependencyName = "json-stringify-pretty-compact";
 
 // Run the unchanged production store in a disposable source layout. Importing
 // only state/validation does not initialize hardware or own a network listener.
 const fixture = `
 import assert from 'node:assert/strict';
-import { readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+const stagedPackage = path.join(import.meta.dirname, 'server/node_modules/json-stringify-pretty-compact');
+const dependency = Bun.resolveSync('json-stringify-pretty-compact', path.join(import.meta.dirname, 'server/state'));
+assert.equal(path.relative(await realpath(stagedPackage), await realpath(dependency)), 'index.js',
+  'The production store must resolve the copied package inside the sandbox, without checkout junctions');
 const config = path.join(import.meta.dirname, 'alfc.config.json');
 const initial = {
   cpuFanTable: [[40,15],[88,100]], gpuFanTable: [[40,15],[83,100]],
@@ -63,10 +70,36 @@ describe("real configuration persistence", () => {
         "common/validation.ts",
       ])
         await copyFile(path.join(repository, name), path.join(directory, name));
-      await symlink(
-        path.join(repository, "server/node_modules"),
-        path.join(directory, "server/node_modules"),
-        "junction",
+      // Resolve from the real workspace once, then copy the complete installed
+      // package. A junction to node_modules can retain another relative link
+      // layer in Bun's platform-specific install layout; the disposable tree
+      // must own its dependency closure independently of that layout.
+      const require = createRequire(
+        path.join(repository, "server/package.json"),
+      );
+      const dependencyDirectory = path.dirname(require.resolve(dependencyName));
+      const manifest = JSON.parse(
+        await readFile(path.join(dependencyDirectory, "package.json"), "utf8"),
+      ) as {
+        name: string;
+        dependencies?: Record<string, string>;
+        optionalDependencies?: Record<string, string>;
+      };
+      expect(manifest.name).toBe(dependencyName);
+      expect(
+        Object.keys({
+          ...manifest.dependencies,
+          ...manifest.optionalDependencies,
+        }),
+        "Extend the fixture's copied dependency closure if this package gains runtime dependencies",
+      ).toEqual([]);
+      await cp(
+        dependencyDirectory,
+        path.join(directory, "server/node_modules", dependencyName),
+        {
+          recursive: true,
+          dereference: true,
+        },
       );
       const entrypoint = path.join(directory, "fixture.ts");
       await writeFile(entrypoint, fixture);

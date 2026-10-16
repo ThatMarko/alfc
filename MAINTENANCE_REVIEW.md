@@ -226,3 +226,10 @@ The Qt and final-commit CI evidence remains available in
 [PR #15's checks](https://github.com/ThatMarko/alfc/pull/15/checks); the required
 component tier must execute without optional skips, and Windows MSVC/COM/batch
 evidence comes from its actual Windows job.
+
+The first Windows CI run of the new filesystem fixture failed before executing
+the store: Bun could not resolve `json-stringify-pretty-compact` through the
+staged parent `node_modules` junction. The fixture now stages the actual resolved
+package and verifies that the child resolves its copied entry inside the
+disposable layout. Production code and filesystem assertions are unchanged;
+Windows content/recovery coverage is retained rather than skipped.
