@@ -278,6 +278,28 @@ Item {
             verify(fixture.full.implicitWidth >= 0)
         }
 
+        function textEditorIn(item) {
+            if (typeof item.getText === "function") return item
+            for (const child of item.children || []) {
+                const found = textEditorIn(child)
+                if (found !== null) return found
+            }
+            return null
+        }
+
+        function test_backendErrorMarkupRemainsLiteralText() {
+            const diagnostic = "PERSISTENCE_ERROR: <b>Disk full</b> & <path>\nA  B"
+            const notice = component("InlineStatusMessage", {
+                width: 600, messageText: diagnostic, tone: "error"
+            })
+            waitForRendering(notice)
+            const textEditor = textEditorIn(notice)
+            verify(textEditor !== null)
+            // Qt's rich-text document represents rendered line breaks with
+            // Unicode line/paragraph separators; compare their text semantics.
+            compare(textEditor.getText(0, textEditor.length).replace(/[\u2028\u2029]/g, "\n"), diagnostic)
+        }
+
         function test_configAliasesValidationAndSettingsUpdates() {
             const config = component("ConfigGeneral", {width: 500})
             config.cfg_serverUrl = "ws://[::1]:5522/ws/"

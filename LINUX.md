@@ -73,7 +73,11 @@ sudo ./install.sh
 The installer validates required files and service-manager support before making
 changes, stops an existing service before replacing files, installs under
 `/opt/alfc`, and creates `/usr/bin/alfc`. It preserves existing
-`/opt/alfc/alfc.config.json` on upgrades and removes obsolete frontend assets.
+`/opt/alfc/alfc.config.json` on upgrades and removes obsolete frontend assets
+and optional desktop resources omitted from the new release. Required source
+paths must have the expected file or directory type. Installation also rejects
+symlinked destination roots, executables, helpers, configuration and service
+definitions before stopping services or replacing files.
 Run the installer again from a newly extracted release to upgrade. It refuses to
 overwrite `/usr/bin/alfc` if that command belongs to another installation.
 
@@ -109,7 +113,8 @@ configuration. To delete it too, run the same command with `--purge`. A failed
 service stop or unknown init system aborts removal, leaving files in place.
 Removal also refuses a foreign `/usr/bin/alfc` command before touching the
 shared `alfc` service name; remove a package installation with its package
-manager instead.
+manager instead. Symlinked installation roots and service definitions also
+cause removal to stop before service mutations.
 Uninstall the per-user widget separately.
 
 ## Troubleshooting

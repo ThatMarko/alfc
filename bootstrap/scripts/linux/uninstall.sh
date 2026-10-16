@@ -65,6 +65,22 @@ uninstall_openrc() {
 # Remove service
 INIT_SYSTEM="$(detect_init)"
 
+# A symlinked installation root or service definition can refer to another
+# installation even when /usr/bin/alfc still has the expected literal target.
+if [[ -L "${INSTALL_DIR}" ]]; then
+  echo "Refusing symlinked installation directory ${INSTALL_DIR}; no files were removed."
+  exit 1
+fi
+case "${INIT_SYSTEM}" in
+  systemd) service_path="/etc/systemd/system/${SERVICE_NAME}.service" ;;
+  openrc) service_path="/etc/init.d/${SERVICE_NAME}" ;;
+  *) service_path="" ;;
+esac
+if [[ -n "${service_path}" && -L "${service_path}" ]]; then
+  echo "Refusing symlinked service definition ${service_path}; no files were removed."
+  exit 1
+fi
+
 case "${INIT_SYSTEM}" in
   systemd) uninstall_systemd ;;
   openrc)  uninstall_openrc ;;

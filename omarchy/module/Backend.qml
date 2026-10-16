@@ -39,6 +39,7 @@ Item {
     property bool protocolError: false
     property real activityAt: 0
     property real expectedSince: 0
+    property real connectingAt: 0
     property real openedAt: 0
     property real pongAt: 0
     property real pingAt: 0
@@ -67,6 +68,7 @@ Item {
         root.protocolError = false
         root.activityAt = 0
         root.expectedSince = 0
+        root.connectingAt = 0
         root.openedAt = 0
         root.pongAt = 0
         root.pingAt = 0
@@ -132,6 +134,14 @@ Item {
             return
         }
         root.previousTick = now
+        // TCP can connect without the peer ever finishing its WebSocket
+        // handshake. Bound that phase too; Open-only watchdogs never run then.
+        if (socket.status === WebSocket.Connecting) {
+            if (root.connectingAt > 0 && now - root.connectingAt >= root.snapshotTimeout)
+                root.reconnect()
+            return
+        }
+        if (!root.connected) return
         if (now - root.pongAt >= root.heartbeatTimeout
                 || (!root.ready && now - root.openedAt >= root.snapshotTimeout)) {
             root.reconnect()
@@ -150,9 +160,13 @@ Item {
         url: root.endpointAllowed(root.serverUrl) ? root.serverUrl : ""
         active: root.validEndpoint
         onStatusChanged: {
-            if (socket.status === WebSocket.Open) {
+            if (socket.status === WebSocket.Connecting) {
+                root.connectingAt = Date.now()
+                root.previousTick = root.connectingAt
+            } else if (socket.status === WebSocket.Open) {
                 retry.stop()
                 root.reconnectDelay = 1000
+                root.connectingAt = 0
                 root.openedAt = Date.now()
                 root.pongAt = root.openedAt
                 root.pingAt = root.openedAt
@@ -180,7 +194,7 @@ Item {
     Timer {
         interval: 1000
         repeat: true
-        running: root.connected
+        running: root.connected || socket.status === WebSocket.Connecting
         onTriggered: root.tick()
     }
 

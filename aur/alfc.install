@@ -32,7 +32,9 @@ post_upgrade() {
 
 pre_remove() {
   if systemctl is-active --quiet alfc 2>/dev/null; then
-    systemctl stop alfc
+    # Scriptlets do not inherit errexit. Preserve a failed BIOS handoff instead
+    # of replacing it with the later successful is-enabled/disable status.
+    systemctl stop alfc || return $?
   fi
   if systemctl is-enabled --quiet alfc 2>/dev/null; then
     systemctl disable alfc

@@ -56,6 +56,11 @@ not establish ownership of the service.
 The installer fixes the owned installation directory and optional desktop
 resource permissions so a restrictive root umask cannot block unprivileged
 Plasma/Omarchy installation. Retain existing configuration bytes and mode.
+Preflight expected file/directory types as well as existence. Reject symlinked
+installation roots, managed file destinations, and service definitions before
+service access: a literal command-link match does not establish ownership of
+their targets. Optional desktop directories are owned release resources; retire
+their previous installed tree even when the new release omits that integration.
 
 systemd uses `TimeoutStopSec=15s` and journal logging. OpenRC uses
 `retry="TERM/15/KILL/5"`, requires local mounts, and orders after module loading;

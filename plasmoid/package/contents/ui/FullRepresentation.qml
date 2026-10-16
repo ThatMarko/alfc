@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import "Protocol.js" as Protocol
+import "TextFormatting.js" as TextFormatting
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 
@@ -915,7 +916,7 @@ PlasmaExtras.Representation {
             : (!fullRoot.protocolCompatible ? "dialog-error-symbolic" : !fullRoot.hasState
                 ? "view-refresh-symbolic"
                 : "dialog-error-symbolic")
-        text: fullRoot.backend != null && fullRoot.backend.lastError.length > 0
+        text: TextFormatting.literalText(fullRoot.backend != null && fullRoot.backend.lastError.length > 0
             ? (fullRoot.connected
                 ? fullRoot.backend.lastError
                 : i18n("Disconnected: %1", fullRoot.backend.lastError))
@@ -926,7 +927,7 @@ PlasmaExtras.Representation {
                 : (!fullRoot.hasState
                     ? i18n("Connected to the ALFC backend, waiting for the initial state snapshot")
                     : i18n("Unsupported backend protocol %1. This widget requires ALFC 1.1 or a newer 1.x version.",
-                        fullRoot.protocolVersion)))
+                        fullRoot.protocolVersion))))
         helpfulAction: Kirigami.Action {
             icon.name: !fullRoot.connected || (fullRoot.protocolCompatible && !fullRoot.hasState)
                 ? "view-refresh"

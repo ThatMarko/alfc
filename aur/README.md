@@ -76,3 +76,6 @@ kpackagetool6 --type Plasma/Applet --install /usr/lib/alfc/plasmoid/package
 
 After an upgrade, restart the service and use `--upgrade` for an already installed
 widget. Pacman preserves a modified configuration as `.pacsave` on removal.
+The removal scriptlet returns a failed service-stop status without proceeding
+to disable the service; inspect pacman's output and service logs if stopping
+fails. This return value alone does not guarantee that pacman aborts removal.

@@ -103,7 +103,7 @@ versions with each result:
 5. Inspect the exact final archives and digests before any separately authorized
    release or AUR submission. Standard Windows archives must exclude CPUOC/SDK.
 
-## Fresh automated execution
+## First maintenance pass automated execution
 
 The following were executed during this review, rather than copied from the
 pre-merge baseline:
@@ -135,3 +135,53 @@ Remote validation is visible in [PR #15’s checks](https://github.com/ThatMarko
 Windows job compiles WmiDll with MSVC and executes the real COM/integer-decoder
 harness plus Windows-only batch cases. Treat that job’s actual conclusion as
 Windows evidence; the local Linux results above never establish it.
+
+## Second deep pass
+
+A fresh review of PR #15 started at `81172b8f1071c49d6d15e1b6979a6fcab2063887`.
+Remote `master` still pointed to the merged revision recorded above. Reviewers
+changed areas to examine the implementation independently. The following
+regressions reproduced failures before their fixes:
+
+| Finding                          | Reproduction and corrected behavior                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fan monitoring backlog           | A held ACPI read in fixed mode accumulated twelve timed-out reads in one minute and three periodic reinitializations in fifteen minutes. Releasing the real native queue exposed the burst. Monitoring now tracks the actual unresolved read independently of its consumer deadline, and permits one outstanding maintenance sequence. Recovery resumes current work without replaying the backlog; no OS-call cancellation is implied. |
+| Pending web form focus           | Submitting with Enter disabled the focused Apply control and left focus on the document. Focus now returns after completion or error only when the user has not navigated elsewhere, including overlapping form operations.                                                                                                                                                                                                             |
+| Plasma clock correction          | Moving the wall clock backward kept old telemetry fresh and postponed command/heartbeat deadlines. Future-dated readings are stale and the next clock check retires the session and pending commands without replay.                                                                                                                                                                                                                    |
+| Literal Plasma diagnostics       | Real Kirigami messages interpreted backend tags and paths as markup and collapsed whitespace. Escaped pre-wrap formatting now preserves literal tags, ampersands, line breaks and repeated spaces; a native component regression inspects the displayed document.                                                                                                                                                                       |
+| Omarchy stalled handshake        | A real TCP peer accepted the connection without completing WebSocket negotiation. The Open-only watchdog never ran. The connection timer now covers Connecting, with a ten-second handshake bound and backward-clock recovery. The ephemeral fixture owns and cleans up its sockets and threads.                                                                                                                                        |
+| Omarchy removal ownership        | When a parent prevented removing the empty module directory, removal discarded its marker and made later installation reject the leftover directory. Failed directory cleanup now restores the ownership marker for retry/reinstallation.                                                                                                                                                                                               |
+| Linux installation paths         | Isolated systemd/OpenRC fixtures showed destination symlinks redirecting writes outside the installation. Preflight now rejects redirected roots, executable/helper/configuration/service paths before service mutations. Incorrect required source path types also fail before mutation.                                                                                                                                               |
+| Linux optional resource upgrades | Upgrading from a release with desktop resources to one omitting them left stale installed integrations. Owned omitted resources are retired; existing service definitions also receive explicit readable/executable permissions under restrictive initial modes.                                                                                                                                                                        |
+| AUR stop failure                 | A successful disable operation overwrote the failed stop status in the removal scriptlet. The scriptlet now returns immediately on stop failure. This does not claim that pacman necessarily aborts the package transaction.                                                                                                                                                                                                            |
+
+The existing web insertion focus contract was confirmed by its regression and
+preserved. Backend HTTP/listener/origin/persistence review and independent
+Windows worker/NativeAOT and Linux RAPL review found no additional reproducible
+defect. A suspected numeric-method newline bypass was disproved. The old
+fan-controller timeout fixture now settles its held native operation when it
+simulates recovery, preserving its fixed-speed outcome assertion while testing
+the real distinction between consumer timeout and transport completion.
+
+Fresh combined verification for this pass:
+
+- Frozen Bun 1.4.3 installation and live audit passed; 293 packages had no
+  reported vulnerabilities. Node 24.22.0 ran the checked development tools.
+- ESLint, strict frontend/server/integration TypeScript, 359 Linux tests across
+  26 Vitest files, and both production builds passed. Twelve Windows-only cases
+  remain explicitly skipped locally and must execute in the Windows CI job.
+- All 19 Chromium scenarios passed, including pending-focus success, error,
+  deliberate navigation and overlapping-operation coverage.
+- Matching Qt 6.8.2 / Plasma 6.3.5 / Kirigami 6.13 passed 85 checks without
+  skips. Explicit Qt-only 6.12 passed 62 checks with 23 component skips.
+- Omarchy passed 21 transport/component checks without skips on both native
+  Qt 6.8.2 and PySide Qt 6.12, plus eight isolated installer checks.
+- Both production web/QML integration scenarios passed with natural process
+  cleanup. Portable C++ output packing compiled with warnings as errors and
+  passed; Python/shell syntax and source Markdown checks passed.
+
+Full desktop sessions and physical-device behavior remain the manual gates above.
+
+Final-commit CI is linked from [PR #15](https://github.com/ThatMarko/alfc/pull/15/checks).
+Local fixture results do not substitute for Windows MSVC/COM execution or the
+separate full desktop and physical release gates.

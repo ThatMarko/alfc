@@ -123,10 +123,11 @@ session's snapshot and readings. Sleep/resume or a backward clock adjustment
 retires the connection when detected by the next timer tick.
 
 Each loaded instance owns one persistent WebSocket, one one-second connection/
-freshness timer while connected, and one single-shot reconnect timer. Reconnect
+freshness timer while connecting or connected, and one single-shot reconnect timer. Reconnect
 delay grows from one to thirty seconds; heartbeats occur every twenty-five
 seconds, with a sixty-second response watchdog. A connection without a valid
-initial snapshot is retried after ten seconds. Telemetry uses the existing
+initial snapshot is retried after ten seconds; a peer that never completes its
+WebSocket handshake also has a ten-second deadline. Telemetry uses the existing
 subscription, without periodic subprocesses or independent hardware polling.
 Multiple monitors/modules or other clients each have their own bounded
 connection. Destruction closes the socket, cancels reconnects, and hides its
@@ -158,8 +159,8 @@ bash omarchy/uninstall.sh
 
 Removal deletes only the three named owned files; unrelated files and all other
 configuration remain. The ownership marker is removed with an empty directory,
-or retained alongside unrelated files so repeated removal and later installation
-remain safe. The backend's separate service/package removal remains documented in
+or retained alongside unrelated files or when the parent prevents directory
+removal, so repeated removal and later installation remain safe. The backend's separate service/package removal remains documented in
 [LINUX.md](LINUX.md).
 
 Older/customized Waybar setups are outside this Quickshell module's API. The
@@ -184,7 +185,7 @@ python3 omarchy/run_tests.py --qt-python /path/to/qt-test-venv/bin/python
 Missing required Qt dependencies fail the tests. Fixtures cover absent/late
 backend startup, restarts, no replay, concurrent clients, missing/stale/invalid
 telemetry, failed/unconfirmed output, capability loss/recovery, restart guidance,
-heartbeat loss, simulated sleep/resume, destruction, keyboard launch, narrow
+heartbeat loss, a stalled WebSocket handshake, simulated sleep/resume, destruction, keyboard launch, narrow
 vertical presentation, unsafe endpoints, JSON/path escaping, idempotent setup,
 and foreign ownership/symlink refusal. The harness stages the same three runtime
 files as installation. These are Qt-only component/transport checks with a fake

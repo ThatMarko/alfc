@@ -788,3 +788,64 @@ test("unknown GPU capability cannot advertise or enable GPU boost writes", async
   expect(server.requests).toEqual([]);
   expect(server.errors).toEqual([]);
 });
+
+test("keyboard submissions restore focus after confirmation without stealing focus from another form", async ({
+  page,
+}) => {
+  const server = await backend(page);
+  const fixed = page.getByLabel("Fixed fan speed percentage");
+  const apply = page
+    .getByRole("form", { name: "Fixed speed preset" })
+    .getByRole("button", { name: "Apply" });
+  await fixed.fill("61");
+  await fixed.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(1);
+  server.push({ fixedPercentage: 61 });
+  server.send({ kind: "success", requestId: server.requests[0]?.requestId });
+  await expect(apply).toBeEnabled();
+  await expect(apply).toBeFocused();
+
+  // Completing a separate operation must respect a user's new focus target.
+  await fixed.fill("62");
+  await fixed.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(2);
+  const pl1 = page.getByLabel("PL1 power limit in watts");
+  await pl1.focus();
+  server.push({ fixedPercentage: 62 });
+  server.send({ kind: "success", requestId: server.requests[1]?.requestId });
+  await expect(apply).toBeEnabled();
+  await expect(pl1).toBeFocused();
+
+  // Tuning submits from its input and must also keep its keyboard position
+  // after an error re-enables the fieldset.
+  await pl1.fill("47");
+  await pl1.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(3);
+  server.send({
+    kind: "error",
+    requestId: server.requests[2]?.requestId,
+    data: "Power limit could not be confirmed.",
+  });
+  await expect(pl1).toBeEnabled();
+  await expect(pl1).toBeFocused();
+  await expect(
+    page.getByText("Power limit could not be confirmed."),
+  ).toBeVisible();
+
+  // Both forms can be pending together. The older completion cannot reclaim
+  // focus after navigation to the newer form, even while its field is disabled.
+  await fixed.fill("63");
+  await fixed.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(4);
+  await pl1.fill("48");
+  await pl1.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(5);
+  server.push({ fixedPercentage: 63 });
+  server.send({ kind: "success", requestId: server.requests[3]?.requestId });
+  await expect(apply).toBeEnabled();
+  await expect(page.locator("body")).toBeFocused();
+  server.send({ kind: "success", requestId: server.requests[4]?.requestId });
+  await expect(pl1).toBeEnabled();
+  await expect(pl1).toBeFocused();
+  expect(server.errors).toEqual([]);
+});

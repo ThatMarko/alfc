@@ -76,7 +76,12 @@ def remove(target):
     try:
         target.rmdir()
     except OSError:
-        pass
+        # The module directory can remain writable even when its parent no
+        # longer allows removing it. Keep the leftover directory recognizable
+        # for repeated removal or reinstallation in that case. Exclusive
+        # creation also avoids overwriting a marker added during cleanup.
+        with (target / MARKER).open("x") as marker:
+            marker.write(IDENTITY)
 
 
 def main():

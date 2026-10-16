@@ -266,6 +266,7 @@ PlasmoidItem {
                 visible: !root.hasActivity || root.sensorFailure || root.restartRequired
                     || backendConnection.lastRequestError.length > 0
                 text: root.toolTipSubText
+                textFormat: Text.PlainText
                 color: root.sensorFailure || root.restartRequired
                     ? Kirigami.Theme.negativeTextColor
                     : Kirigami.Theme.disabledTextColor

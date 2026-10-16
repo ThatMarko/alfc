@@ -5,6 +5,7 @@ import {
   mkdir,
   readFile,
   readlink,
+  rename,
   stat,
   rm,
   symlink,
@@ -559,6 +560,18 @@ exit 0
         expect(await readFile(log, "utf8")).toMatch(
           /stopped:old-binary[\s\S]*started:new-binary/,
         );
+        expect(
+          (
+            await stat(
+              path.join(
+                directory,
+                init === "systemd"
+                  ? "etc/systemd/system/alfc.service"
+                  : "etc/init.d/alfc",
+              ),
+            )
+          ).mode & 0o777,
+        ).toBe(init === "systemd" ? 0o644 : 0o755);
         if (init === "openrc")
           expect(
             await readFile(path.join(directory, "etc/init.d/alfc"), "utf8"),
@@ -642,6 +655,123 @@ exit 0
         expect(await readFile(log, "utf8")).not.toContain("started:");
       },
     );
+
+    it.each(["systemd", "openrc"] as const)(
+      "retires omitted optional desktop resources during a %s upgrade",
+      async (init) => {
+        await prepare(init);
+        await rm(path.join(release, "omarchy"), { recursive: true });
+        await run("install.sh");
+        await expect(stat(path.join(installed, "omarchy"))).rejects.toThrow();
+        expect(
+          await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+        ).toBe('{"user":"preserve"}');
+      },
+    );
+
+    it.each(["frontend", "run.sh"])(
+      "rejects a release with an incorrect %s type before stopping the service",
+      async (name) => {
+        await prepare("systemd");
+        await rm(path.join(release, name), { recursive: true });
+        if (name === "frontend")
+          await writeFile(path.join(release, name), "not a directory");
+        else await mkdir(path.join(release, name));
+        await expect(run("install.sh")).rejects.toMatchObject({ code: 1 });
+        await expect(readFile(log)).rejects.toThrow();
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+      },
+    );
+
+    it.each(["systemd", "openrc"] as const)(
+      "refuses a symlinked %s installation root before service or foreign-file changes",
+      async (init) => {
+        await prepare(init);
+        const foreign = path.join(directory, "foreign");
+        await rename(installed, foreign);
+        await symlink(foreign, installed);
+        for (const name of ["install.sh", "uninstall.sh"]) {
+          await expect(run(name)).rejects.toMatchObject({ code: 1 });
+          expect(await readFile(path.join(foreign, "alfc"), "utf8")).toBe(
+            "old-binary",
+          );
+          await expect(readFile(log)).rejects.toThrow();
+        }
+      },
+    );
+
+    it.each(["alfc", "run.sh", "uninstall.sh", "alfc.config.json", "service"])(
+      "refuses a symlinked managed %s destination before install changes",
+      async (name) => {
+        await prepare("systemd");
+        const target =
+          name === "service"
+            ? path.join(directory, "etc/systemd/system/alfc.service")
+            : path.join(installed, name);
+        await rm(target, { force: true });
+        const foreign = path.join(directory, "foreign-file");
+        await writeFile(foreign, "foreign content", { mode: 0o600 });
+        await symlink(foreign, target);
+        await expect(run("install.sh")).rejects.toMatchObject({ code: 1 });
+        expect(await readFile(foreign, "utf8")).toBe("foreign content");
+        expect((await stat(foreign)).mode & 0o777).toBe(0o600);
+        await expect(readFile(log)).rejects.toThrow();
+      },
+    );
+
+    it.each(["systemd", "openrc"] as const)(
+      "refuses a symlinked %s service during removal",
+      async (init) => {
+        await prepare(init);
+        const target = path.join(
+          directory,
+          init === "systemd"
+            ? "etc/systemd/system/alfc.service"
+            : "etc/init.d/alfc",
+        );
+        await rm(target);
+        const foreign = path.join(directory, "foreign-service");
+        await writeFile(foreign, "foreign service");
+        await symlink(foreign, target);
+        await expect(run("uninstall.sh")).rejects.toMatchObject({ code: 1 });
+        expect(await readFile(foreign, "utf8")).toBe("foreign service");
+        await expect(readFile(log)).rejects.toThrow();
+      },
+    );
+
+    it("reports AUR pre-remove shutdown failure without disabling the running service", async () => {
+      await prepare("systemd");
+      await expect(
+        execute(
+          "bash",
+          [
+            "-c",
+            'source "$1"; pre_remove',
+            "alfc-aur-hook-test",
+            path.join(repositoryRoot, "aur/alfc.install"),
+          ],
+          {
+            env: {
+              ...process.env,
+              PATH: commandDir + path.delimiter + process.env.PATH,
+              ALFC_TEST_LOG: log,
+              ALFC_TEST_INSTALLED: installed,
+              ALFC_TEST_SERVICE_FILE: path.join(
+                directory,
+                "etc/systemd/system/alfc.service",
+              ),
+              ALFC_TEST_STOP_FAIL: "1",
+            },
+          },
+        ),
+      ).rejects.toMatchObject({ code: 1 });
+      expect(await readFile(log, "utf8")).not.toContain("disable");
+      expect(
+        await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+      ).toBe('{"user":"preserve"}');
+    });
 
     it("protects another installation's command and rejects incomplete releases before stopping", async () => {
       await prepare("systemd");

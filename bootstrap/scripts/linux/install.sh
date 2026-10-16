@@ -83,8 +83,10 @@ install_files() {
   # or QML/JS resources from the unprivileged desktop session.
   local desktop
   for desktop in plasmoid omarchy; do
+    # These are owned release resources. An omitted optional integration in
+    # the new release must retire its old installed version as well.
+    rm -rf "${INSTALL_DIR}/${desktop}"
     if [[ -d "${SCRIPT_DIR}/${desktop}" ]]; then
-      rm -rf "${INSTALL_DIR}/${desktop}"
       cp -r "${SCRIPT_DIR}/${desktop}" "${INSTALL_DIR}/${desktop}"
       find "${INSTALL_DIR}/${desktop}" -type d -exec chmod 755 {} +
       find "${INSTALL_DIR}/${desktop}" -type f -exec chmod 644 {} +
@@ -116,6 +118,7 @@ install_systemd() {
   fi
 
   sed "s|@@INSTALL_DIR@@|${INSTALL_DIR}|g" "${template}" >"${service_file}"
+  chmod 644 "${service_file}"
 
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
@@ -155,7 +158,7 @@ start_pre() {
 }
 EOF
 
-  chmod +x "${init_script}"
+  chmod 755 "${init_script}"
   rc-update add "${SERVICE_NAME}" default
   rc-service "${SERVICE_NAME}" restart
   echo "Service installed via OpenRC and started."
@@ -168,12 +171,16 @@ if [[ "${INIT_SYSTEM}" == "unknown" ]]; then
   exit 1
 fi
 
-for required in frontend alfc.config.json uninstall.sh run.sh; do
-  if [[ ! -e "${SCRIPT_DIR}/${required}" ]]; then
-    echo "Release is incomplete: missing ${required}; no files were changed."
+for required in alfc.config.json uninstall.sh run.sh; do
+  if [[ ! -f "${SCRIPT_DIR}/${required}" ]]; then
+    echo "Release is incomplete: missing regular file ${required}; no files were changed."
     exit 1
   fi
 done
+if [[ ! -d "${SCRIPT_DIR}/frontend" ]]; then
+  echo "Release is incomplete: frontend must be a directory; no files were changed."
+  exit 1
+fi
 if [[ "${INIT_SYSTEM}" == "systemd" && ! -f "${SCRIPT_DIR}/alfc.service" ]]; then
   echo "Release is incomplete: missing alfc.service; no files were changed."
   exit 1
@@ -182,6 +189,25 @@ if [[ "${SCRIPT_DIR}" == "${INSTALL_DIR}" ]]; then
   echo "Extract the new release outside ${INSTALL_DIR} before installing."
   exit 1
 fi
+
+# A command link alone cannot establish ownership of files reached through
+# another symlink. Refuse redirected destinations before stopping services,
+# copying/chmodding executables, or truncating the service definition.
+if [[ -L "${INSTALL_DIR}" || ( -e "${INSTALL_DIR}" && ! -d "${INSTALL_DIR}" ) ]]; then
+  echo "${INSTALL_DIR} must be a real installation directory; no files were changed."
+  exit 1
+fi
+case "${INIT_SYSTEM}" in
+  systemd) service_path="/etc/systemd/system/${SERVICE_NAME}.service" ;;
+  openrc) service_path="/etc/init.d/${SERVICE_NAME}" ;;
+esac
+for destination in "${INSTALL_DIR}/alfc" "${INSTALL_DIR}/alfc.config.json" \
+  "${INSTALL_DIR}/run.sh" "${INSTALL_DIR}/uninstall.sh" "${service_path}"; do
+  if [[ -L "${destination}" || ( -e "${destination}" && ! -f "${destination}" ) ]]; then
+    echo "Refusing redirected or non-file destination ${destination}; no files were changed."
+    exit 1
+  fi
+done
 if [[ -e /usr/bin/alfc || -L /usr/bin/alfc ]]; then
   if [[ "$(readlink /usr/bin/alfc || true)" != "${INSTALL_DIR}/alfc" ]]; then
     echo "/usr/bin/alfc belongs to another installation; remove it with its package manager first."

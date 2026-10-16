@@ -15,9 +15,12 @@ let reinitInterval: ReturnType<typeof setInterval> | null = null;
 let fanControlRunId = 0;
 let isFanControlShuttingDown = false;
 // Whether a collection cycle is currently in flight. Module-scoped and
-// shared across ALL runs so restarts can never overlap collections; a
-// wedged native read cannot hold it forever because every read times out.
+// shared across all runs so restarts can never overlap collections. Each
+// consumer read has a deadline; native channel ownership can outlive it.
 let isCycleInFlight = false;
+// A consumer timeout cannot cancel an ACPI operation. Keep its real lifetime
+// separate from the collection's timeout, including across controller runs.
+let sensorReadInFlight: ReturnType<typeof getCall> | null = null;
 let fanWriteQueue: Promise<void> = Promise.resolve();
 let appliedFanPercentage: number | null = null;
 let manualWriteVersion = 0;
@@ -157,8 +160,8 @@ type TempCollection =
 
 // Checks staleness before every ACPI read: a cancelled run must stop issuing
 // calls. An already-pending read cannot be aborted from JS, so it is bounded
-// by a timeout instead — that also bounds how long a wedged read can hold
-// the shared cycle lock.
+// by a timeout instead. This bounds collection work, while a held native
+// operation still blocks new reads until the transport actually settles.
 async function readSensor(
   runId: number,
   methodId: string,
@@ -169,7 +172,15 @@ async function readSensor(
   }
 
   try {
-    const result = await withReadTimeout(getCall(methodId, methodName));
+    const read = getCall(methodId, methodName);
+    sensorReadInFlight = read;
+    const release = () => {
+      if (sensorReadInFlight === read) sensorReadInFlight = null;
+    };
+    // Both handlers remain attached after a timeout; a late native rejection
+    // must neither become unhandled nor permit another queued sensor request.
+    void read.then(release, release);
+    const result = await withReadTimeout(read);
     if (typeof result !== "number" || !Number.isFinite(result) || result < 0)
       return "failed";
     return result;
@@ -287,15 +298,28 @@ export async function fanControl() {
   // might cause it.
   // So - enforcing every ~5 minutes that our fixed fan settings
   // are used should prevent that.
+  let reinitInFlight = false;
   reinitInterval = setInterval(
     () => {
-      if (isFanControlShuttingDown || runId !== fanControlRunId) {
+      if (
+        isFanControlShuttingDown ||
+        runId !== fanControlRunId ||
+        reinitInFlight
+      ) {
         return;
       }
 
-      void initFanControl(runId).catch((error: unknown) => {
-        console.warn("[FanControl] Failed to reinitialize fan control:", error);
-      });
+      reinitInFlight = true;
+      void initFanControl(runId)
+        .catch((error: unknown) => {
+          console.warn(
+            "[FanControl] Failed to reinitialize fan control:",
+            error,
+          );
+        })
+        .finally(() => {
+          reinitInFlight = false;
+        });
     },
     1000 * 60 * 5,
   );
@@ -357,9 +381,9 @@ export async function fanControl() {
 
     // Skip this tick while any collection cycle is still in flight,
     // including one from a previous run — collections must never overlap.
-    // A leftover cycle aborts at its next sensor read, and a wedged read
-    // times out, so this cannot deadlock a restart.
-    if (isCycleInFlight) {
+    // A leftover cycle aborts at its next sensor read. A timed-out native
+    // operation still owns the channel, so do not add reads behind it.
+    if (isCycleInFlight || sensorReadInFlight !== null) {
       return;
     }
     if (pendingManualWrites > 0) return;

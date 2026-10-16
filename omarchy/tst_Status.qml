@@ -15,6 +15,8 @@ Item {
     property int connections: 0
     property bool autoState: true
     property bool replyPings: true
+    // run_tests.py supplies an ephemeral real TCP peer that sends no handshake.
+    readonly property string silentEndpoint: "@ALFC_SILENT_HANDSHAKE_ENDPOINT@"
 
     function snapshot() {
         return { protocolVersion: "1.1", cpuFanTable: [[40,30],[90,100]],
@@ -224,6 +226,25 @@ Item {
             fixture.autoState = true
             tryCompare(fixture, "subscriptions", 3, 4000)
             verify(backend.ready)
+        }
+        function test_silentHandshakeReconnectsAndRecovers_data() {
+            return [{ tag: "deadline", clockJump: false }, { tag: "clock-jump", clockJump: true }]
+        }
+        function test_silentHandshakeReconnectsAndRecovers(data) {
+            backend.snapshotTimeout = data.clockJump ? 10000 : 100
+            backend.serverUrl = fixture.silentEndpoint
+            // Wait past the endpoint-change retry. A genuine accepted TCP
+            // connection now remains in Connecting, without a WS Open event.
+            tryCompare(backend, "reconnectPending", false, 2000)
+            verify(!backend.ready)
+            if (data.clockJump) {
+                backend.previousTick = Date.now() + 1000
+                backend.tick()
+            }
+            tryCompare(backend, "reconnectPending", true, 2000)
+            backend.serverUrl = fixture.endpoint()
+            tryCompare(backend, "ready", true, 4000)
+            compare(backend.status, "waiting")
         }
         function test_twoClientsAndDestruction() {
             extra = createTemporaryObject(backendComponent, fixture, { serverUrl: fixture.endpoint() })

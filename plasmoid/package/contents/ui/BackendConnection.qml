@@ -22,9 +22,9 @@ Item {
         function (key) { return root.pendingRequests[key].kind === "dofixedspeed" })
     readonly property int activityAgeMs: {
         root.freshnessTick
-        return root.lastActivityAt > 0
-            ? Math.min(2147483647, Math.max(0, Date.now() - root.lastActivityAt))
-            : 2147483647
+        const age = Date.now() - root.lastActivityAt
+        return root.lastActivityAt > 0 && age >= 0
+            ? Math.min(2147483647, age) : 2147483647
     }
     readonly property bool hasFreshActivity: ready
         && latestState.isFanControlAvailable !== false && hasActivity
@@ -50,6 +50,7 @@ Item {
     property real lastPongTime: 0
     property real lastActivityAt: 0
     property real lastStateAt: 0
+    property real lastClockCheckAt: 0
     property real activityExpectedSince: 0
     property bool receivedActivityInCurrentPeriod: false
     property int reconnectDelay: 1000
@@ -78,6 +79,7 @@ Item {
         root.latestActivity = null
         root.lastActivityAt = 0
         root.lastStateAt = 0
+        root.lastClockCheckAt = 0
         root.activityExpectedSince = 0
         root.receivedActivityInCurrentPeriod = false
         root.receivedProtocolVersion = ""
@@ -301,6 +303,7 @@ Item {
                 console.info("BackendConnection: Connected")
                 root.lastError = ""
                 root.lastPongTime = Date.now()
+                root.lastClockCheckAt = root.lastPongTime
                 root.reconnectDelay = 1000
                 reconnectTimer.stop()
                 keepaliveTimer.start()
@@ -374,8 +377,16 @@ Item {
         repeat: true
 
         onTriggered: {
-            root.freshnessTick = (root.freshnessTick + 1) % 2147483647
             const now = Date.now()
+            // Wall-clock corrections must not keep old telemetry fresh or
+            // postpone pending-request/pong deadlines until the clock catches
+            // up. A new session establishes timestamps in the corrected clock.
+            if (now < root.lastClockCheckAt) {
+                root.reconnect()
+                return
+            }
+            root.lastClockCheckAt = now
+            root.freshnessTick = (root.freshnessTick + 1) % 2147483647
             const requestIds = Object.keys(root.pendingRequests)
             for (let index = 0; index < requestIds.length; index += 1) {
                 const requestId = requestIds[index]

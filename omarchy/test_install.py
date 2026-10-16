@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 import manage
 
@@ -42,6 +43,19 @@ class InstallationTests(unittest.TestCase):
         manage.remove(self.target)
         self.assertFalse(self.target.exists())
         manage.remove(self.target)
+
+    def test_failed_directory_cleanup_retains_ownership_for_reinstallation(self):
+        manage.install(self.target, self.source)
+        # A read-only parent still permits deleting files from the writable
+        # module directory, but prevents removing the directory itself.
+        with mock.patch.object(Path, "rmdir", side_effect=PermissionError("read-only parent")):
+            manage.remove(self.target)
+            manage.remove(self.target)
+        self.assertEqual({entry.name for entry in self.target.iterdir()}, {manage.MARKER})
+        self.assertEqual((self.target / manage.MARKER).read_text(), manage.IDENTITY)
+        manage.install(self.target, self.source)
+        manage.remove(self.target)
+        self.assertFalse(self.target.exists())
 
     def test_foreign_directory_is_not_overwritten_or_removed(self):
         self.target.mkdir(parents=True)

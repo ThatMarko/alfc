@@ -241,6 +241,32 @@ Item {
             compare(fixture.requests.length, 0)
         }
 
+        function test_backwardClockChangeRetiresFreshnessAndPendingRequests() {
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 50, avgGPUTemp: 60, appliedSpeed: 30, target: 30
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+            const requestId = backend.setFixedPercentage(60)
+            tryVerify(function () { return fixture.requests.length === 1 })
+            // Model the session timestamps recorded before a backward wall-
+            // clock correction, without changing the host clock or Qt's Date
+            // intrinsic. They now lie one hour ahead of the current time.
+            const beforeCorrection = Date.now() + 3600000
+            backend.lastActivityAt = beforeCorrection
+            backend.lastPongTime = beforeCorrection
+            verify(!backend.hasFreshActivity)
+            backend.lastClockCheckAt = beforeCorrection
+            tryCompare(backend, "ready", false, 2000)
+            compare(Object.keys(backend.pendingRequests).length, 0)
+            compare(finished.count, 1)
+            compare(finished.signalArguments[0][0], requestId)
+            compare(finished.signalArguments[0][1], false)
+            tryCompare(backend, "ready", true)
+            tryCompare(fixture, "subscriptions", 2)
+            compare(fixture.requests.length, 1)
+            verify(!backend.hasActivity)
+        }
+
         function test_initialTelemetryDeadlineIgnoresUnrelatedTraffic() {
             backend.activityStaleTimeout = 100
             const firstStateAt = backend.activityExpectedSince
