@@ -52,7 +52,7 @@ assembles these assets into a **draft** GitHub Release:
 | Asset                          | Contents                                                                                                                                                                         |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `alfc-vX.Y.Z-linux-x64.tar.gz` | Executable, frontend, default config, systemd/OpenRC scripts, widget package/helpers, optional Omarchy module/install helpers, LICENSE, and root/common/widget/AUR Markdown docs |
-| `alfc-vX.Y.Z-windows-x64.zip`  | Executable, frontend, default config, WmiDll.dll, WinSW v2.12.0 x64, service scripts, LICENSE, and the same Markdown documentation paths                                         |
+| `alfc-vX.Y.Z-windows-x64.zip`  | Executable, frontend, default config, WmiDll.dll, WinSW v2.12.0 x64 and its `WinSW-LICENSE.txt` notice, service scripts, LICENSE, and the same Markdown documentation paths      |
 | `org.kde.alfc.plasmoid`        | Zip of `plasmoid/package`, including its MIT copyright/permission notice, for per-user KDE installation                                                                          |
 | `SHA256SUMS`                   | SHA-256 digests of all three distributable artifacts                                                                                                                             |
 
@@ -68,6 +68,12 @@ without adding a Node/Bun runtime requirement. Also check an isolated AUR stageâ
 `usr/share/doc/alfc-bin` as its own documentation root: runtime resources are
 installed separately under `usr/lib/alfc`, so archive-relative source links do
 not automatically remain valid there. Generated checksums detect asset changes; they are not a detached signature.
+
+Both Windows builders copy the unmodified
+[WinSW v2.12.0 copyright and permission notice](https://github.com/winsw/winsw/blob/v2.12.0/LICENSE.txt)
+from `bootstrap/WinSW-LICENSE.txt` into the archive as `WinSW-LICENSE.txt`, beside
+`alfc-service.exe`. Keep that notice aligned with the pinned wrapper version;
+ALFC's separate root `LICENSE` does not replace it.
 
 The Windows installer and uninstaller use `stopwait` before removing an existing
 service and abort if shutdown fails. The pinned wrapper's `stop` command only

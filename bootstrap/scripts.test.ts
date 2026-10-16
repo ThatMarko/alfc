@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFile,
   mkdtemp,
@@ -19,6 +20,31 @@ const execute = promisify(execFile);
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 
 describe("Windows service wrapper configuration", () => {
+  it("includes the pinned WinSW copyright notice in both Windows builders", async () => {
+    const notice = await readFile(
+      path.join(import.meta.dirname, "WinSW-LICENSE.txt"),
+    );
+    // Exact bytes from winsw/winsw v2.12.0 LICENSE.txt, matching the wrapper.
+    expect(createHash("sha256").update(notice).digest("hex")).toBe(
+      "1cdf703c10a70e5973bf3acf2a5eeabe7746237155b92db2034aeae26fdf7802",
+    );
+    const localBuilder = await readFile(
+      path.join(repositoryRoot, "build.bat"),
+      "utf8",
+    );
+    expect(localBuilder).toContain(
+      "copy bootstrap\\WinSW-LICENSE.txt dist\\alfc\\WinSW-LICENSE.txt || exit /b 1",
+    );
+    const workflow = await readFile(
+      path.join(repositoryRoot, ".github/workflows/release.yml"),
+      "utf8",
+    );
+    expect(workflow).toContain("winsw/releases/download/v2.12.0/WinSW-x64.exe");
+    expect(workflow).toContain(
+      'cp bootstrap/WinSW-LICENSE.txt "${RELEASE_DIR}/WinSW-LICENSE.txt"',
+    );
+  });
+
   it("keeps foreground startup attached and avoids premature browser launch in Windows entrypoints", async () => {
     const source = await readFile(
       path.join(import.meta.dirname, "scripts/run.bat"),
@@ -815,6 +841,67 @@ exit 0
         ).toBe("old service");
       },
     );
+
+    it("stages the Windows wrapper with its exact notice in the release workflow", async () => {
+      directory = await mkdtemp(path.join(os.tmpdir(), "alfc-windows-stage-"));
+      const fixtureFiles = [
+        "server/dist/alfc.exe",
+        "server/native/windows/wmidll/WmiDll.dll",
+        "frontend/build/index.html",
+        "alfc.config.json",
+        "WinSW-x64.exe",
+        "bootstrap/scripts/install.bat",
+        "bootstrap/scripts/uninstall.bat",
+        "bootstrap/scripts/run.bat",
+        "bootstrap/scripts/alfc-service.xml",
+        "README.md",
+        "common/PROTOCOL.md",
+        "plasmoid/README.md",
+        "plasmoid/package/contents/ui/Protocol.js",
+        "omarchy/install.sh",
+        "omarchy/uninstall.sh",
+        "omarchy/manage.py",
+        "omarchy/module/Widget.qml",
+        "aur/README.md",
+        "assets/screenshot.png",
+      ];
+      for (const name of fixtureFiles) {
+        const target = path.join(directory, name);
+        await mkdir(path.dirname(target), { recursive: true });
+        await writeFile(target, name);
+      }
+      await copyFile(
+        path.join(repositoryRoot, "LICENSE"),
+        path.join(directory, "LICENSE"),
+      );
+      await copyFile(
+        path.join(import.meta.dirname, "WinSW-LICENSE.txt"),
+        path.join(directory, "bootstrap/WinSW-LICENSE.txt"),
+      );
+      const workflow = await readFile(
+        path.join(repositoryRoot, ".github/workflows/release.yml"),
+        "utf8",
+      );
+      const assembly = workflow.match(
+        / {6}- name: Assemble Windows release\n[\s\S]*? {8}run: \|\n([\s\S]*?)(?=\n {6}- name:)/,
+      )?.[1];
+      expect(assembly).toBeDefined();
+      await execute("bash", ["-c", assembly!.replace(/^ {10}/gm, "")], {
+        cwd: directory,
+        env: { ...process.env, ALFC_RELEASE_VERSION: "v2.0.0" },
+        timeout: 5000,
+      });
+      const stage = path.join(directory, "alfc-v2.0.0-windows-x64");
+      expect(await readFile(path.join(stage, "alfc-service.exe"), "utf8")).toBe(
+        "WinSW-x64.exe",
+      );
+      expect(await readFile(path.join(stage, "WinSW-LICENSE.txt"))).toEqual(
+        await readFile(path.join(import.meta.dirname, "WinSW-LICENSE.txt")),
+      );
+      expect(await readFile(path.join(stage, "LICENSE"))).toEqual(
+        await readFile(path.join(repositoryRoot, "LICENSE")),
+      );
+    });
 
     it("packages outside the archive input and includes service, UI, widget, and documentation", async () => {
       directory = await mkdtemp(path.join(os.tmpdir(), "alfc-package-"));

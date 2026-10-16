@@ -63,7 +63,8 @@ The example uses simulated readings; it is not a hardware validation result.
   seconds; temperature collection and hardware latency affect actual timing.
   Startup uses the highest configured target until a valid temperature collection
   selects the first curve target. Later ramp-up needs one qualifying cycle and
-  ramp-down needs 30.
+  ramp-down needs 30. Manual fan commands reset that cooling history, including
+  a quick fixed-to-auto switch between samples.
 - The web UI and Plasma widget can save the inactive fixed preset or automatic curves without switching modes. The active mode and the saved settings are shown separately.
 - Fixed mode applies the configured percentage. Telemetry distinguishes the
   target from the last confirmed write; an unknown result is not shown as a

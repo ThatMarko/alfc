@@ -366,6 +366,7 @@ export async function fanControl() {
 
   let currRampDownCycle = 1;
   let currRampUpCycle = 1;
+  let previousManualWriteVersion = manualWriteVersion;
   let prevCPUFanTable = state.cpuFanTable;
   let prevGPUFanTable = state.gpuFanTable;
   // Last successfully collected averages of this run — published instead of
@@ -407,6 +408,18 @@ export async function fanControl() {
         cycleWriteVersion !== manualWriteVersion
       ) {
         return;
+      }
+
+      if (cycleWriteVersion !== previousManualWriteVersion) {
+        // A fixed-mode command can complete and return to Auto between
+        // samples. Retire cooling history even if no cycle saw that mode;
+        // the confirmed output below is the new ramp baseline. Failed or
+        // partial manual writes also invalidate the previous history, while
+        // the unconfirmed-output path still recovers the current target.
+        previousManualWriteVersion = cycleWriteVersion;
+        currRampDownCycle = 1;
+        currRampUpCycle = 1;
+        needsFirstAutomaticTarget = false;
       }
 
       if (collection.status === "failed") {

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { rename } from "node:fs/promises";
+import { open, rename, stat } from "node:fs/promises";
 import stringifyCompact from "json-stringify-pretty-compact";
 import path from "node:path";
 import { isCompiledBinary, isDev } from "../utils/consts";
@@ -119,7 +119,31 @@ export function persistState() {
   } = state;
   const serialized = stringifyCompact(persistable);
   const writeSnapshot = async () => {
-    await Bun.write(TMP_CONFIG_FILE, serialized);
+    let mode = 0o600;
+    try {
+      mode = (await stat(CONFIG_FILE)).mode & 0o777;
+    } catch (error) {
+      // Only a missing configuration may use the default. A transient access
+      // failure must not silently replace a file with broader permissions.
+      if (
+        !error ||
+        typeof error !== "object" ||
+        !("code" in error) ||
+        error.code !== "ENOENT"
+      )
+        throw error;
+    }
+    const file = await open(TMP_CONFIG_FILE, "w", 0o600);
+    try {
+      // A previous failed save may have left a temp file with another mode.
+      // Set it before writing so restricted settings are never staged as 0644
+      // merely because the service's umask is 022. Windows supports only its
+      // ordinary writable/read-only chmod semantics, not POSIX ACL management.
+      await file.chmod(mode);
+      await file.writeFile(serialized);
+    } finally {
+      await file.close();
+    }
     await rename(TMP_CONFIG_FILE, CONFIG_FILE);
   };
 

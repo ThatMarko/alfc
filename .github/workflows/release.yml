@@ -201,6 +201,7 @@ jobs:
 
           # WinSW service wrapper (MIT licensed)
           cp WinSW-x64.exe "${RELEASE_DIR}/alfc-service.exe"
+          cp bootstrap/WinSW-LICENSE.txt "${RELEASE_DIR}/WinSW-LICENSE.txt"
           cp bootstrap/scripts/alfc-service.xml "${RELEASE_DIR}/"
 
           # License and docs

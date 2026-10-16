@@ -58,6 +58,7 @@ Item {
     property int activityStaleTimeout: 10000
     property int heartbeatInterval: 25000
     property int heartbeatTimeout: 60000
+    property int connectionTimeout: 10000
     property int freshnessTick: 0
 
     signal messageReceived(var message)
@@ -75,6 +76,7 @@ Item {
     }
 
     function clearCachedData() {
+        connectionWatchdog.stop()
         root.latestState = null
         root.latestActivity = null
         root.lastActivityAt = 0
@@ -206,8 +208,12 @@ Item {
                     : i18n("Unsupported backend protocol %1. This widget requires ALFC 1.1 or a newer 1.x version.",
                         root.protocolVersion)
                 root.failPendingRequests(root.lastError)
+                // A later invalidation also retires readiness. Repeated bad
+                // snapshots must not postpone an already-running deadline.
+                if (root.isConnected) connectionWatchdog.start()
                 return
             }
+            connectionWatchdog.stop()
             root.lastError = ""
             root.latestState = data.data
             root.lastStateAt = Date.now()
@@ -229,7 +235,12 @@ Item {
             root.lastActivityAt = Date.now()
             root.receivedActivityInCurrentPeriod = true
         } else if (data.kind === "success" || data.kind === "error") {
-            if (data.kind === "error" && typeof data.data !== "string") {
+            // Correlation alone does not validate a reply. Match the web
+            // client's envelope guard while retaining optional legacy fields.
+            if (typeof data.requestId !== "string" || data.requestId.length === 0
+                    || (data.methodId !== undefined && typeof data.methodId !== "string")
+                    || (data.methodName !== undefined && typeof data.methodName !== "string")
+                    || (data.kind === "error" && typeof data.data !== "string")) {
                 return
             }
             root.finishRequest(root.responseRequestId(data), data.kind === "success",
@@ -299,6 +310,7 @@ Item {
         onStatusChanged: {
             if (socket.status === WebSocket.Connecting) {
                 reconnectTimer.stop()
+                connectionWatchdog.restart()
             } else if (socket.status === WebSocket.Open) {
                 console.info("BackendConnection: Connected")
                 root.lastError = ""
@@ -306,6 +318,9 @@ Item {
                 root.lastClockCheckAt = root.lastPongTime
                 root.reconnectDelay = 1000
                 reconnectTimer.stop()
+                // Completing the handshake starts a separate grace period
+                // for this connection's first validated settings snapshot.
+                connectionWatchdog.restart()
                 keepaliveTimer.start()
                 freshnessTimer.start()
 
@@ -353,7 +368,22 @@ Item {
             // active remains true after a remote close/error; changing it is
             // required for QtWebSockets to open a new connection.
             socket.active = false
+            // Qt may retain Connecting across cancellation/retry without a
+            // new status notification. Every activation owns a deadline.
+            connectionWatchdog.restart()
             socket.active = true
+        }
+    }
+
+    Timer {
+        id: connectionWatchdog
+
+        interval: root.connectionTimeout
+        repeat: false
+
+        onTriggered: {
+            console.warn("BackendConnection: Connection readiness timed out, forcing reconnect")
+            root.reconnect()
         }
     }
 

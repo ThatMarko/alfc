@@ -7,14 +7,48 @@ from pathlib import Path
 import sys
 import tempfile
 
-from PySide6.QtCore import QObject, Slot
+from PySide6.QtCore import QObject, Property, Signal, Slot, qFatal
+from PySide6.QtNetwork import QHostAddress, QTcpServer
 from PySide6.QtQml import QQmlEngine
 from PySide6.QtQuickTest import QUICK_TEST_MAIN_WITH_SETUP
 
 
 class Setup(QObject):
+    connectionsChanged = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self._silent_server = None
+        self._silent_connections = 0
+
+    @Property(int, notify=connectionsChanged)
+    def connections(self):
+        return self._silent_connections
+
+    def _accept_silent_connections(self):
+        while self._silent_server.hasPendingConnections():
+            socket = self._silent_server.nextPendingConnection()
+            socket.setParent(self._silent_server)
+            socket.readyRead.connect(lambda connection=socket: connection.readAll())
+            socket.disconnected.connect(socket.deleteLater)
+            socket.readAll()
+            self._silent_connections += 1
+            self.connectionsChanged.emit()
+
     @Slot(QQmlEngine)
     def qmlEngineAvailable(self, engine):
+        if self._silent_server is None:
+            self._silent_server = QTcpServer(self)
+            self._silent_server.newConnection.connect(self._accept_silent_connections)
+            if not self._silent_server.listen(QHostAddress.SpecialAddress.LocalHost, 0):
+                qFatal("Cannot listen for silent WebSocket handshakes: " + self._silent_server.errorString())
+        # Accept the TCP request without sending an HTTP/WebSocket handshake.
+        # QObject ownership closes outstanding sockets with the test setup.
+        engine.globalObject().setProperty(
+            "alfcSilentHandshakeEndpoint", f"ws://127.0.0.1:{self._silent_server.serverPort()}/ws"
+        )
+        QQmlEngine.setObjectOwnership(self, QQmlEngine.ObjectOwnership.CppOwnership)
+        engine.globalObject().setProperty("alfcSilentHandshakeProbe", engine.newQObject(self))
         engine.globalObject().setProperty("alfcTestTier", "qt-only")
         # Plasma supplies i18n in production. The standalone Qt test engine
         # needs the same callable interface for connection error messages.

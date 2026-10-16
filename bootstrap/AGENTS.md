@@ -8,6 +8,7 @@ Do not run install/uninstall against the development host during verification.
 | ---------------------------------------------------- | ------------------------------------------------------------------- |
 | `scripts/install.bat`, `uninstall.bat`, `run.bat`    | Windows install/remove/foreground entry points                      |
 | `scripts/alfc-service.xml`                           | WinSW v2.12 x64 wrapper configuration                               |
+| `WinSW-LICENSE.txt`                                  | Exact upstream WinSW v2.12.0 copyright and permission notice        |
 | `scripts/linux/install.sh`, `uninstall.sh`, `run.sh` | Linux service management and foreground execution                   |
 | `scripts/linux/alfc.service`                         | Shared systemd template; AUR substitutes its installation directory |
 | `scripts.test.ts`                                    | Isolated script execution and wrapper shutdown regression checks    |
@@ -43,7 +44,9 @@ name's exact spelling, including attribute names. The stop timeout is 15 seconds
 so the backend's 12-second bounded BIOS handoff can finish. WinSW first sends
 Ctrl+C, then forcibly terminates processes that do not stop. Never describe this
 as a guarantee that unresponsive firmware restored successfully. Windows logs
-roll beside the wrapper.
+roll beside the wrapper. Both Windows builders must stage the exact pinned
+upstream `WinSW-LICENSE.txt` beside `alfc-service.exe`, independently of ALFC's
+own `LICENSE`. Preserve the upstream attribution and permission text unchanged.
 
 The manual Linux installation directory is `/opt/alfc`; the command symlink is
 `/usr/bin/alfc`. Preflight required release files and init support before changing

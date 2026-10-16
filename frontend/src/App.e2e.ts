@@ -849,3 +849,40 @@ test("keyboard submissions restore focus after confirmation without stealing foc
   await expect(pl1).toBeFocused();
   expect(server.errors).toEqual([]);
 });
+
+test("keyboard mode changes retain focus after success or error without resending the selected mode", async ({
+  page,
+}) => {
+  const server = await backend(page);
+  const fixedMode = page.getByRole("button", { name: "Switch to fixed mode" });
+  const autoMode = page.getByRole("button", { name: "Switch to auto mode" });
+  await fixedMode.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(1);
+  await expect(fixedMode).toBeDisabled();
+  await expect(autoMode).toBeDisabled();
+  server.push({ doFixedSpeed: true });
+  server.send({ kind: "success", requestId: server.requests[0]?.requestId });
+  await expect(fixedMode).toHaveAttribute("aria-pressed", "true");
+  await expect(fixedMode).toBeFocused();
+  await fixedMode.press("Enter");
+  await fixedMode.press("Space");
+  await autoMode.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(2);
+  expect(server.requests[1]).toMatchObject({
+    kind: "dofixedspeed",
+    data: false,
+  });
+  await expect(autoMode).toBeDisabled();
+  server.send({
+    kind: "error",
+    requestId: server.requests[1]?.requestId,
+    data: "ACPI_ERROR: mode change rejected",
+  });
+  await expect(autoMode).toBeEnabled();
+  await expect(autoMode).toBeFocused();
+  await expect(fixedMode).toHaveAttribute("aria-pressed", "true");
+  expect(server.requests.map((request) => request.data)).toEqual([true, false]);
+  expect(server.errors).toEqual([]);
+});

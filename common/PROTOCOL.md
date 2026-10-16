@@ -34,6 +34,10 @@ Send `{"kind":"registeractivitysocket"}` once per connection to subscribe to
 `fancontrolactivity`. Registration has no acknowledgement and bypasses the
 hardware queue, including when that queue is full. Reconnecting creates a new
 connection: subscribe again and use its new initial state.
+The web and Plasma clients retire an open connection if it supplies no validated
+initial snapshot within ten seconds. Plasma and Omarchy also bound the preceding
+WebSocket handshake phase to ten seconds. These readiness deadlines are separate
+from telemetry freshness and never authorize replaying a command.
 
 Bun sends WebSocket protocol pings automatically (`sendPings: true`); the idle
 timeout is 120 seconds. Browser WebSocket implementations answer those protocol
@@ -99,6 +103,9 @@ Other request properties are not reflected. Server pushes contain no request
 metadata. Clients must reject pending operations on timeout/disconnect and must
 not replay a write after reconnecting: a lost acknowledgement does not prove that
 hardware rejected the original write.
+Current web and Plasma clients ignore replies with non-string `methodId` or
+`methodName` metadata, or an `error` without string `data`; malformed replies do
+not settle a pending request. Omitted optional method metadata remains valid.
 
 ## Client messages
 
@@ -158,7 +165,11 @@ successfully acknowledged paired fan command, not a measured physical output.
 For a successful configuration change the server saves, broadcasts `state`, and
 then acknowledges the request. Production saves serialize captured snapshots to
 `alfc.config.json.tmp` and rename that file over `alfc.config.json`. This avoids
-interleaved temporary-file writes and partial JSON replacement. It does not
+interleaved temporary-file writes and partial JSON replacement. POSIX permission
+bits are preserved when replacing an existing file; missing settings use mode
+`0600`. The temporary file receives that mode before settings are written.
+Windows uses its ordinary writable/read-only semantics; this does not preserve
+or manage Windows ACLs. Atomic replacement does not
 promise persistence across sudden power loss. Development mode intentionally
 keeps changes in memory and does not write the config file. Uncompiled source
 loads the repository-root config, including when `NODE_ENV=production` enables
@@ -240,6 +251,9 @@ Slow native calls can make ticks skip rather than overlap. Ramp-up uses each
 eligible cycle; ramp-down waits 30 consecutive eligible cooling cycles. Normal
 curve ramps move partway toward the target. Curve edits select the new target at
 the measured temperature without resetting to the minimum.
+Manual fan commands retire earlier ramp history, including a Fixed-to-Auto
+transition completed entirely between sampling ticks. Automatic control resumes
+from the last acknowledged paired output with a fresh cooling delay.
 
 Automatic startup commands the highest configured target before the first sensor
 collection. It retains that safe target through failed initial collections, then

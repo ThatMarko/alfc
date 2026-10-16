@@ -52,6 +52,7 @@ Item {
     property int snapshotTimeout: 10000
     property bool stopping: false
     readonly property bool reconnectPending: retry.running
+    readonly property int maximumMessageCodeUnits: 1024 * 1024
 
     onServerUrlChanged: reconnect()
 
@@ -93,9 +94,12 @@ Item {
             root.pongAt = Date.now()
             return
         }
-        // The server already bounds outbound data. Do not parse/retain oversized
-        // or invalid input from a foreign process listening on the local port.
-        if (message.length > 65536) return
+        // State envelopes add fields to an admitted 64 KiB curve request, and
+        // serializing numbers can expand its representation. Keep a separate
+        // bounded response budget, measured in JS UTF-16 code units. It accepts
+        // every message within the server's 1 MiB UTF-8 outbound budget because
+        // a string's UTF-16 unit count never exceeds its UTF-8 byte count.
+        if (message.length > root.maximumMessageCodeUnits) return
         let envelope
         try { envelope = JSON.parse(message) } catch (_error) { return }
         if (!Protocol.isRecord(envelope)) return

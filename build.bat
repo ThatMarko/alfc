@@ -41,6 +41,7 @@ copy bootstrap\scripts\uninstall.bat dist\alfc\ || exit /b 1
 copy bootstrap\scripts\run.bat dist\alfc\ || exit /b 1
 copy alfc.config.json dist\alfc\ || exit /b 1
 copy LICENSE dist\alfc\ || exit /b 1
+copy bootstrap\WinSW-LICENSE.txt dist\alfc\WinSW-LICENSE.txt || exit /b 1
 copy *.md dist\alfc\ || exit /b 1
 mkdir dist\alfc\common dist\alfc\plasmoid dist\alfc\aur dist\alfc\assets || exit /b 1
 copy common\*.md dist\alfc\common\ || exit /b 1

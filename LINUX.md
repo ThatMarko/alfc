@@ -78,6 +78,8 @@ and optional desktop resources omitted from the new release. Required source
 paths must have the expected file or directory type. Installation also rejects
 symlinked destination roots, executables, helpers, configuration and service
 definitions before stopping services or replacing files.
+Subsequent production settings saves retain the configuration's POSIX permission
+bits; creating a missing configuration uses mode `0600`.
 Run the installer again from a newly extracted release to upgrade. It refuses to
 overwrite `/usr/bin/alfc` if that command belongs to another installation.
 

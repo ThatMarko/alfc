@@ -16,11 +16,14 @@ See [PROTOCOL.md](PROTOCOL.md) for the exact envelope, constraints, and errors.
 
 The web and Plasma clients can save inactive fan presets without changing mode. The web
 UI retains its last validated settings and edits to unchanged fields across reconnects, with
-controls disabled until the new socket supplies a valid snapshot. Interrupted
+controls disabled until the new socket supplies a valid snapshot. A connection
+that opens without supplying a validated initial snapshot is retired after ten
+seconds by the web and Plasma clients. Interrupted
 requests stay unconfirmed and are not replayed.
 
 The web and Plasma clients validate incoming snapshots and telemetry before using them,
-correlate their commands with `requestId`, stop pending commands on connection
+correlate their commands with `requestId`, ignore malformed response metadata,
+stop pending commands on connection
 loss, and mark activity older than ten seconds stale. They resubscribe after
 reconnecting and do not replay uncertain writes. Sharing one machine or listening
 on a different loopback address does not create separate backend state.

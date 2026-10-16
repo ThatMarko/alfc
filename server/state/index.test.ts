@@ -1,17 +1,34 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import path from "node:path";
 
-const { readConfigMock, renameMock, stateRuntime } = vi.hoisted(() => ({
-  readConfigMock: vi.fn(),
-  renameMock: vi.fn().mockResolvedValue(undefined),
-  stateRuntime: { isDev: true, isCompiledBinary: false },
-}));
+const {
+  readConfigMock,
+  renameMock,
+  statMock,
+  openMock,
+  fileMock,
+  stateRuntime,
+} = vi.hoisted(() => {
+  const fileMock = { chmod: vi.fn(), writeFile: vi.fn(), close: vi.fn() };
+  return {
+    readConfigMock: vi.fn(),
+    renameMock: vi.fn().mockResolvedValue(undefined),
+    statMock: vi.fn(),
+    openMock: vi.fn(),
+    fileMock,
+    stateRuntime: { isDev: true, isCompiledBinary: false },
+  };
+});
 
 vi.mock("node:fs", () => ({
   readFileSync: readConfigMock,
 }));
 
-vi.mock("node:fs/promises", () => ({ rename: renameMock }));
+vi.mock("node:fs/promises", () => ({
+  rename: renameMock,
+  stat: statMock,
+  open: openMock,
+}));
 vi.mock("../utils/consts", () => stateRuntime);
 
 const VALID_CONFIG = {
@@ -58,6 +75,11 @@ describe("state config loading", () => {
     stateRuntime.isDev = true;
     stateRuntime.isCompiledBinary = false;
     renameMock.mockResolvedValue(undefined);
+    statMock.mockResolvedValue({ mode: 0o100600 });
+    openMock.mockResolvedValue(fileMock);
+    fileMock.chmod.mockResolvedValue(undefined);
+    fileMock.writeFile.mockResolvedValue(undefined);
+    fileMock.close.mockResolvedValue(undefined);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
 
@@ -99,7 +121,7 @@ describe("state config loading", () => {
   it("serializes distinct save snapshots and strips runtime capabilities", async () => {
     stateRuntime.isDev = false;
     mockConfigFile(JSON.stringify(VALID_CONFIG));
-    const write = vi.spyOn(Bun, "write").mockResolvedValue(1);
+    const write = fileMock.writeFile;
     const { state, persistState } = await importState();
     state.isFanControlAvailable = true;
     state.restartRequired = true;
@@ -109,8 +131,8 @@ describe("state config loading", () => {
     const second = persistState();
     await Promise.all([first, second]);
     expect(write).toHaveBeenCalledTimes(2);
-    const firstSaved = JSON.parse(String(write.mock.calls[0]?.[1]));
-    const secondSaved = JSON.parse(String(write.mock.calls[1]?.[1]));
+    const firstSaved = JSON.parse(String(write.mock.calls[0]?.[0]));
+    const secondSaved = JSON.parse(String(write.mock.calls[1]?.[0]));
     expect(firstSaved.fixedPercentage).toBe(60);
     expect(secondSaved.fixedPercentage).toBe(80);
     expect(firstSaved).not.toHaveProperty("isFanControlAvailable");
@@ -125,7 +147,7 @@ describe("state config loading", () => {
       stateRuntime.isDev = false;
       stateRuntime.isCompiledBinary = compiled;
       mockConfigFile(JSON.stringify(VALID_CONFIG));
-      const write = vi.spyOn(Bun, "write").mockResolvedValue(1);
+      const write = fileMock.writeFile;
       const configPath = compiled
         ? path.join(path.dirname(process.execPath), "alfc.config.json")
         : path.resolve(import.meta.dirname, "../../alfc.config.json");
@@ -134,10 +156,10 @@ describe("state config loading", () => {
         encoding: "utf8",
       });
       await persistState();
-      expect(write).toHaveBeenCalledWith(
-        configPath + ".tmp",
-        expect.any(String),
-      );
+      expect(openMock).toHaveBeenCalledWith(configPath + ".tmp", "w", 0o600);
+      expect(write).toHaveBeenCalledWith(expect.any(String));
+      expect(fileMock.chmod).toHaveBeenCalledWith(0o600);
+      expect(fileMock.close).toHaveBeenCalledOnce();
       expect(renameMock).toHaveBeenCalledWith(configPath + ".tmp", configPath);
     },
   );
@@ -146,8 +168,7 @@ describe("state config loading", () => {
     stateRuntime.isDev = false;
     mockConfigFile(JSON.stringify(VALID_CONFIG));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const write = vi
-      .spyOn(Bun, "write")
+    const write = fileMock.writeFile
       .mockRejectedValueOnce(new Error("disk full"))
       .mockResolvedValue(1);
     const { persistState } = await importState();
@@ -155,6 +176,34 @@ describe("state config loading", () => {
     await expect(persistState()).resolves.toBeUndefined();
     expect(write).toHaveBeenCalledTimes(2);
     expect(renameMock).toHaveBeenCalledTimes(1);
+    expect(fileMock.close).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves settings untouched when their mode cannot be read and recovers on the next save", async () => {
+    stateRuntime.isDev = false;
+    mockConfigFile(JSON.stringify(VALID_CONFIG));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    statMock.mockRejectedValueOnce(
+      Object.assign(new Error("access denied"), { code: "EACCES" }),
+    );
+    const { persistState } = await importState();
+    await expect(persistState()).rejects.toThrow("access denied");
+    expect(openMock).not.toHaveBeenCalled();
+    expect(renameMock).not.toHaveBeenCalled();
+    await persistState();
+    expect(renameMock).toHaveBeenCalledOnce();
+  });
+
+  it("closes the staged file without writing or replacing settings after a chmod failure", async () => {
+    stateRuntime.isDev = false;
+    mockConfigFile(JSON.stringify(VALID_CONFIG));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    fileMock.chmod.mockRejectedValueOnce(new Error("chmod failed"));
+    const { persistState } = await importState();
+    await expect(persistState()).rejects.toThrow("chmod failed");
+    expect(fileMock.close).toHaveBeenCalledOnce();
+    expect(fileMock.writeFile).not.toHaveBeenCalled();
+    expect(renameMock).not.toHaveBeenCalled();
   });
 
   it.each([

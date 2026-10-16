@@ -185,3 +185,44 @@ Full desktop sessions and physical-device behavior remain the manual gates above
 Final-commit CI is linked from [PR #15](https://github.com/ThatMarko/alfc/pull/15/checks).
 Local fixture results do not substitute for Windows MSVC/COM execution or the
 separate full desktop and physical release gates.
+
+## Third peer review
+
+The 2026-10-16 peer review started at PR #15 head
+`432cba5e0e559fd8e6378d2b0073a754464bc9df`, with remote `master` unchanged.
+Reviewers rotated across frontend, server, fan control, desktop clients and
+packaging. Confirmed failures were reproduced before their fixes:
+
+| Finding                       | Reproduction and corrected behavior                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mode-button focus             | A successful keyboard mode change left its button disabled even after the pending operation finished, so restoring focus failed. Selected mode buttons now remain focusable; reactivating the selected mode sends no request. Capability, connection and pending gates remain.                                                                                                                                  |
+| Rapid fan-mode transitions    | Entering Fixed and returning to Auto between two sampling ticks retained old cooling history, or the startup-only direct target path. Real native-queue fixtures reproduce premature output reduction. Manual fan operations now retire that history, and regressions verify 29 fresh cooling cycles hold the acknowledged 90% output before the 30th cycle steps to 52%.                                       |
+| Settings permissions          | A real production save under umask `022` replaced a `0600` configuration with `0644`. Atomic persistence now preserves existing POSIX permission bits, defaults missing settings to `0600`, and normalizes stale temporary-file permissions before writing. Stat/chmod failures preserve the prior configuration and report failure. Windows content/cleanup checks remain separate from POSIX mode assertions. |
+| Web initial settings deadline | A WebSocket that opened but withheld its initial settings remained unready after 120 simulated seconds. The provider now retires it after ten seconds, preserves retained settings/drafts and reconnects without replay. A valid snapshot cancels that socket's deadline; invalid snapshots cannot extend it.                                                                                                   |
+| Plasma readiness deadlines    | A real accepted TCP connection could stay Connecting past eleven seconds, and an Open connection supplying pongs without settings also stayed unready. Separate ten-second handshake and initial-snapshot phases now bound these states. Owned native/PySide TCP fixtures cover recovery and cleanup without a desktop shell.                                                                                   |
+| Plasma response metadata      | A malformed success/error carrying the widget's own request ID could complete a pending operation despite non-string method metadata. Reply validation now matches the web client's envelope guard. Valid replies with omitted optional metadata and exact large numeric strings still complete correctly.                                                                                                      |
+| Omarchy response budget       | A valid 65,536-byte fan-table request produces a 65,734-character state snapshot, which the old 65,536-unit response cap discarded. The bounded input ceiling is now 1,048,576 UTF-16 units; real sockets verify the larger valid snapshot and rejection above the new ceiling. This response budget is separate from the request limit.                                                                        |
+| Windows wrapper notice        | Both Windows builders bundled WinSW 2.12.0 without its copyright/permission notice. The exact pinned upstream notice is now staged beside the wrapper by both builders, retaining the separate ALFC license. The actual release assembly was exercised with disposable executable/DLL fixtures; local batch execution is not claimed.                                                                           |
+
+The independent native review found no further reproducible worker, NativeAOT,
+ACPI or RAPL defect; 101 focused native checks passed. Omarchy ownership,
+clock/session handling and user-configuration preservation remained correct.
+The browser's native Connecting-phase timeout was not measured, so this review
+does not claim a ten-second browser handshake bound. No physical hardware or
+full desktop-session result follows from these fixtures.
+
+Fresh combined checks passed frozen installation, the live dependency audit,
+lint, strict workspace/integration types, 366 Linux tests across 27 Vitest files
+(12 Windows-only skips), both production builds, all 22 Chromium scenarios and
+both real production web/QML integration scenarios. Portable C++ output packing,
+Python/shell syntax, source Markdown links and workflow validation also passed.
+The whole matching Qt 6.8.2 / Plasma / Kirigami tier passed 93 checks without
+skips; explicit PySide Qt 6.12 passed 70 with 23 component skips. Qt 6.12 can
+coalesce repeated Connecting status transitions, so retry activation explicitly
+arms the deadline; its regression counts actual accepted TCP connections.
+Omarchy passed 22 checks without skips on both Qt runtimes, plus eight isolated
+installer checks.
+The Qt and final-commit CI evidence remains available in
+[PR #15's checks](https://github.com/ThatMarko/alfc/pull/15/checks); the required
+component tier must execute without optional skips, and Windows MSVC/COM/batch
+evidence comes from its actual Windows job.

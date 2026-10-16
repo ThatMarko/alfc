@@ -32,6 +32,8 @@ Telemetry becomes stale after ten seconds without a valid update. If no telemetr
 
 Each mutation carries a unique `requestId`. Replies without that ID cannot complete a pending operation. The widget permits at most sixty-four outstanding requests, matching the backend command queue's bound; further commands fail locally until a request completes. Disconnects cancel pending UI operations; requests time out after thirty seconds. A timeout does not prove the backend rejected a change, so the widget does not automatically resend hardware commands. Later state broadcasts still update the displayed configuration. Text pings run every twenty-five seconds, and a missing pong eventually forces a reconnect with retry delays capped at thirty seconds.
 
+The connection handshake and the subsequent wait for a validated settings snapshot each have a ten-second deadline. Invalid snapshots and heartbeat traffic do not extend the settings deadline; losing readiness after an invalid update starts a new deadline. A timeout reconnects without replaying commands. Malformed success/error envelopes cannot confirm pending operations; optional method metadata must be strings when supplied, and errors must contain a string diagnostic.
+
 A backward system-clock correction invalidates cached telemetry and reconnects the widget so request and heartbeat deadlines cannot remain postponed until the old time catches up. Pending actions fail without replay. Backend diagnostics are rendered as literal text, preserving path-like angle brackets, ampersands, line breaks, and repeated spaces.
 
 ## Installation and removal

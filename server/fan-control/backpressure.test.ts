@@ -116,4 +116,59 @@ describe("fan monitoring through the real native queue", () => {
     );
     expect(starts).toHaveLength(2);
   });
+
+  it.each([
+    { phase: "after accumulated cooling", duringStartup: false },
+    { phase: "before the first automatic measurement", duringStartup: true },
+  ])(
+    "holds a fresh cooling delay after rapid fixed-to-auto $phase",
+    async ({ duringStartup }) => {
+      const { publishActivity } = await import("../websocket/index");
+      state.doFixedSpeed = !duringStartup;
+      state.fixedPercentage = 80;
+      await fan.fanControl();
+      await vi.advanceTimersByTimeAsync(fan.CYCLE_DURATION);
+      if (!duringStartup) {
+        releaseRead?.();
+        await vi.advanceTimersByTimeAsync(0);
+        state.doFixedSpeed = false;
+        await vi.advanceTimersByTimeAsync(
+          (fan.WAIT_RAMP_DOWN_CYCLES - 2) * fan.CYCLE_DURATION + 1000,
+        );
+      }
+
+      // Mirror the handler's ordered fixed-mode write and subsequent Auto
+      // command before another monitoring tick can observe the fixed mode.
+      state.fixedPercentage = 90;
+      const manual = fan.applyFixedFan(state.fixedPercentage);
+      if (duringStartup) {
+        // The manual request retires this initial collection when its held
+        // physical read returns, before any automatic target was measured.
+        releaseRead?.();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      await manual;
+      state.doFixedSpeed = true;
+      state.doFixedSpeed = false;
+      platform.setCall.mockClear();
+      await vi.advanceTimersByTimeAsync(
+        (fan.WAIT_RAMP_DOWN_CYCLES - 1) * fan.CYCLE_DURATION + 1000,
+      );
+
+      // Old cooling history must not shorten the new manual output's hold.
+      // No cooling write is eligible during the first 29 complete fresh cycles.
+      expect(platform.setCall).not.toHaveBeenCalled();
+      expect(publishActivity).toHaveBeenLastCalledWith(
+        expect.objectContaining({ appliedSpeed: 90, target: 15 }),
+      );
+      await vi.advanceTimersByTimeAsync(fan.CYCLE_DURATION);
+      expect(platform.setCall.mock.calls.map(([, name]) => name)).toEqual([
+        "SetFixedFanSpeed",
+        "SetGPUFanDuty",
+      ]);
+      expect(publishActivity).toHaveBeenLastCalledWith(
+        expect.objectContaining({ appliedSpeed: 52, target: 15 }),
+      );
+    },
+  );
 });

@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import QtWebSockets
 import "./module" as Alfc
+import "./module/Protocol.js" as Protocol
 
 Item {
     id: fixture
@@ -134,10 +135,46 @@ Item {
             fixture.push(fixture.lastPeer(), "fancontrolactivity", fixture.activity())
             tryCompare(backend, "status", "online")
             fixture.push(fixture.lastPeer(), "fancontrolactivity", { avgCPUTemp: "<b>bad</b>" })
-            fixture.lastPeer().sendTextMessage("x".repeat(65537))
-            wait(30)
+            const oversized = fixture.snapshot()
+            oversized.fixedPercentage = 99
+            oversized.padding = "x".repeat(backend.maximumMessageCodeUnits)
+            verify(Protocol.isState(oversized))
+            const previousPong = backend.pongAt
+            wait(1)
+            fixture.push(fixture.lastPeer(), "state", oversized)
+            // WebSocket text messages are ordered. Observe the following pong
+            // before asserting rejection, even on a slow component runner.
+            fixture.lastPeer().sendTextMessage("pong")
+            tryVerify(function() { return backend.pongAt > previousPong })
             compare(backend.status, "online")
             compare(backend.activity.avgCPUTemp, 51)
+            compare(backend.state.fixedPercentage, 50)
+        }
+        function test_largeValidProductionSnapshot() {
+            const state = fixture.snapshot()
+            state.cpuFanTable = []
+            state.gpuFanTable = [[40,15],[83,100]]
+            state.gpuBoost = true
+            state.fixedPercentage = 67
+            for (let index = 0; index < 6110; index++)
+                state.cpuFanTable.push([index / 100, 50])
+            verify(Protocol.isState(state))
+            // This exact request is valid at the production server's input
+            // boundary. The production-shaped snapshot adds envelope/settings/
+            // capability fields, so it exceeds that request's input budget.
+            const request = JSON.stringify({kind: "fantable",
+                data: {cpu: state.cpuFanTable, gpu: state.gpuFanTable}})
+            const utf8Bytes = encodeURIComponent(request).replace(/%[A-F0-9]{2}/g, "x").length
+            compare(utf8Bytes, 65536)
+            const snapshot = JSON.stringify({kind: "state", data: state})
+            compare(snapshot.length, 65734)
+            verify(snapshot.length < backend.maximumMessageCodeUnits)
+            fixture.lastPeer().sendTextMessage(snapshot)
+            tryVerify(function() { return backend.state.cpuFanTable.length === 6110 })
+            compare(backend.state.fixedPercentage, 67)
+            verify(backend.ready)
+            fixture.push(fixture.lastPeer(), "fancontrolactivity", fixture.activity())
+            tryCompare(backend, "status", "online")
         }
         function test_failuresAreDistinctFromZero() {
             const packet = fixture.activity()
