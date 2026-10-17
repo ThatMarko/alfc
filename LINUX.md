@@ -82,6 +82,10 @@ Subsequent production settings saves retain the configuration's POSIX permission
 bits; creating a missing configuration uses mode `0600`.
 Run the installer again from a newly extracted release to upgrade. It refuses to
 overwrite `/usr/bin/alfc` if that command belongs to another installation.
+Both installation and removal also verify the service's declared executable.
+They refuse foreign systemd units and OpenRC startup registrations even when
+the launcher symlink is missing. Systemd must resolve the service to the manual
+unit; an OpenRC default-runlevel link must resolve to the owned init script.
 
 For a temporary foreground run without installing a service:
 
@@ -117,6 +121,11 @@ Removal also refuses a foreign `/usr/bin/alfc` command before touching the
 shared `alfc` service name; remove a package installation with its package
 manager instead. Symlinked installation roots and service definitions also
 cause removal to stop before service mutations.
+If stopping succeeds but disabling the systemd unit or removing its OpenRC
+default-runlevel registration fails, removal returns an error and keeps the
+installation files and configuration for retry. The service has been stopped;
+it has not been fully uninstalled. Inspect the reported registration failure
+and rerun the uninstaller after correcting it.
 Uninstall the per-user widget separately.
 
 ## Troubleshooting

@@ -102,6 +102,10 @@ remote-management endpoint.
 The raw method catalog is shared between both native backends and the web UI.
 Inputs use their declared integer widths and canonical order. Large packed reads
 are exact decimal strings when they exceed JavaScript's safe integer range.
+Linux packs inputs into one 64-bit ACPI integer and rejects signatures wider
+than eight bytes before dispatch. Its ten-byte `SetDeepFan` input is unsupported;
+ten-byte outputs such as `GetDeepFan` remain supported. Windows uses named WMI
+arguments and does not share that input limit.
 Direct raw fan setters are intentionally rejected with `MANAGED_FAN_CONTROL` to
 preserve the configuration/output relationship. The widget does not expose the
 raw diagnostics catalog.

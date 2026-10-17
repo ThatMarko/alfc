@@ -3,6 +3,7 @@ import type { WmiMethods } from "../../../common/methods";
 import type { Args, NativeResult } from "../../../common/types";
 
 const ACPI_CALL_PATH = "/proc/acpi/call";
+const MAX_ACPI_INPUT_BYTES = 8;
 
 let _acpiAvailable: boolean | undefined;
 
@@ -55,6 +56,14 @@ function argsToHexString(
   ) {
     throw new TypeError(
       `ACPI '${methodName}' requires arguments: ${expectedNames.join(", ") || "none"}`,
+    );
+  }
+  // All catalog inputs are uint8. acpi_call parses this packed argument as
+  // one machine-width integer, so an otherwise valid wider signature loses
+  // its upper bytes on the supported 64-bit targets. Do not dispatch it.
+  if (expectedNames.length > MAX_ACPI_INPUT_BYTES) {
+    throw new RangeError(
+      `ACPI '${methodName}' requires ${expectedNames.length} input bytes; the Linux 8-byte ACPI integer transport cannot represent this signature`,
     );
   }
   // JSON object insertion order is not the firmware's argument order. Follow

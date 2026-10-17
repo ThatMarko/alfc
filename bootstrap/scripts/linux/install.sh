@@ -215,6 +215,51 @@ if [[ -e /usr/bin/alfc || -L /usr/bin/alfc ]]; then
   fi
 fi
 
+if [[ "${INIT_SYSTEM}" == "openrc" ]]; then
+  runlevel_link="/etc/runlevels/default/${SERVICE_NAME}"
+  if [[ -e "${runlevel_link}" || -L "${runlevel_link}" ]]; then
+    if [[ ! -L "${runlevel_link}" ||
+          "$(readlink -f -- "${runlevel_link}" || true)" != "${service_path}" ]]; then
+      echo "Refusing foreign default-runlevel registration ${runlevel_link}; no service changes were made."
+      exit 1
+    fi
+  fi
+fi
+
+# The service name is shared with other installations. Verify its declared
+# executable independently of the launcher symlink before stopping/replacing it.
+if [[ -n "${service_path}" && -f "${service_path}" ]]; then
+  case "${INIT_SYSTEM}" in
+    systemd) declared_command="$(sed -n 's/^[[:space:]]*ExecStart[[:space:]]*=[[:space:]]*//p' "${service_path}")" ;;
+    openrc) declared_command="$(sed -n 's/^[[:space:]]*command[[:space:]]*=[[:space:]]*//p' "${service_path}")" ;;
+  esac
+  if [[ "${declared_command}" != "${INSTALL_DIR}/alfc" &&
+        "${declared_command}" != "\"${INSTALL_DIR}/alfc\"" &&
+        "${declared_command}" != "'${INSTALL_DIR}/alfc'" ]]; then
+    echo "Refusing service definition ${service_path}: it does not name this installation's executable."
+    exit 1
+  fi
+fi
+if [[ "${INIT_SYSTEM}" == "systemd" ]]; then
+  # Resolve vendor/runtime units as well; absence of the manual unit does not
+  # establish that the service name is unused. 'show' is read-only and reports
+  # LoadState=not-found for a genuinely absent unit.
+  service_properties="$(systemctl show --property=LoadState --property=FragmentPath "${SERVICE_NAME}")"
+  load_state=""
+  fragment_path=""
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      LoadState) load_state="${value}" ;;
+      FragmentPath) fragment_path="${value}" ;;
+    esac
+  done <<<"${service_properties}"
+  if [[ "${fragment_path}" != "${service_path}" &&
+        ( "${load_state}" != "not-found" || -n "${fragment_path}" ) ]]; then
+    echo "Refusing service ${SERVICE_NAME}: systemd does not resolve it to ${service_path}."
+    exit 1
+  fi
+fi
+
 install_files
 
 case "${INIT_SYSTEM}" in

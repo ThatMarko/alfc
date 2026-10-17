@@ -191,6 +191,10 @@ Item {
             if (root.stopping || !root.validEndpoint) return
             root.reconnectDelay = Math.min(30000, root.reconnectDelay * 2)
             socket.active = false
+            // Qt can retain Connecting across cancellation/reactivation and
+            // omit another status notification. Each attempt owns a clock.
+            root.connectingAt = Date.now()
+            root.previousTick = root.connectingAt
             socket.active = true
         }
     }

@@ -56,6 +56,19 @@ existing service successfully before overwriting or deleting its files. Preserve
 Reject a foreign `/usr/bin/alfc` command before uninstalling as well: the service
 name is shared with package installations, so preserving that symlink alone does
 not establish ownership of the service.
+Before mutating an existing service, verify that its declared `ExecStart`
+(systemd) or `command` (OpenRC) names the manual installation's executable.
+Systemd's read-only `show` properties must also resolve its `FragmentPath` to the
+manual unit, or report a genuinely absent unit with `LoadState=not-found`;
+refuse vendor/runtime units and failed identity queries. This protects other
+installations even when their launcher symlink is missing.
+An existing OpenRC default-runlevel entry must resolve to the owned init script;
+accept ordinary absolute and relative links, but reject a foreign target before
+stopping or deregistering any service.
+After a successful stop, a failed systemd disable or OpenRC default-runlevel
+removal must return its failure and retain installation files for retry. Report
+that the service was stopped; do not imply it is still running or claim a
+successful uninstall. An already absent registration remains safe to remove.
 The installer fixes the owned installation directory and optional desktop
 resource permissions so a restrictive root umask cannot block unprivileged
 Plasma/Omarchy installation. Retain existing configuration bytes and mode.
@@ -77,7 +90,8 @@ Run `bunx vitest run bootstrap/scripts.test.ts` with the repository toolchain.
 Linux script tests rebase every privileged filesystem target into a temporary
 directory and replace service commands. They verify fresh installation, upgrade,
 config preservation, explicit purge, obsolete asset removal, failed stop/restart
-reporting, conflicting-installation refusal before service access, and tar layout.
+reporting, failed deregistration with retry, regular/symlinked foreign-service
+refusal, unavailable identity queries, idempotent removal, and tar layout.
 Windows also runs the real batch entrypoints against disposable compiled command
 substitutes for administrator detection, SCM queries, and WinSW. These verify
 fresh installation, shutdown ordering, and failed-stop/removal aborts without elevation or host service access;

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { open, rename, stat } from "node:fs/promises";
+import { chmod, lstat, open, rename, stat } from "node:fs/promises";
 import stringifyCompact from "json-stringify-pretty-compact";
 import path from "node:path";
 import { isCompiledBinary, isDev } from "../utils/consts";
@@ -104,6 +104,15 @@ export const state: State = {
 
 let persistQueue: Promise<void> = Promise.resolve();
 
+function isMissingFile(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ENOENT"
+  );
+}
+
 export function persistState() {
   if (isDev) {
     return Promise.resolve();
@@ -125,13 +134,21 @@ export function persistState() {
     } catch (error) {
       // Only a missing configuration may use the default. A transient access
       // failure must not silently replace a file with broader permissions.
-      if (
-        !error ||
-        typeof error !== "object" ||
-        !("code" in error) ||
-        error.code !== "ENOENT"
-      )
-        throw error;
+      if (!isMissingFile(error)) throw error;
+    }
+    try {
+      const staged = await lstat(TMP_CONFIG_FILE);
+      if (!staged.isFile()) {
+        throw new Error(
+          `Configuration staging path must be a regular file: ${TMP_CONFIG_FILE}`,
+        );
+      }
+      // A failed save can leave a read-only staging file. Restore private,
+      // writable staging permissions before opening/truncating it; doing
+      // this only through the opened descriptor cannot recover that state.
+      await chmod(TMP_CONFIG_FILE, 0o600);
+    } catch (error) {
+      if (!isMissingFile(error)) throw error;
     }
     const file = await open(TMP_CONFIG_FILE, "w", 0o600);
     try {

@@ -21,7 +21,7 @@ const dependencyName = "json-stringify-pretty-compact";
 // only state/validation does not initialize hardware or own a network listener.
 const fixture = `
 import assert from 'node:assert/strict';
-import { readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 const stagedPackage = path.join(import.meta.dirname, 'server/node_modules/json-stringify-pretty-compact');
 const dependency = Bun.resolveSync('json-stringify-pretty-compact', path.join(import.meta.dirname, 'server/state'));
@@ -52,6 +52,73 @@ try {
   if (process.platform !== 'win32') assert.equal((await stat(config)).mode & 0o777, 0o600,
     'New settings must use a restrictive mode even when a stale temp file exists');
   await assert.rejects(stat(config + '.tmp'), error => error.code === 'ENOENT');
+
+  // Read-only staging files are another legitimate failed-save residue. An
+  // open-before-chmod repair cannot reach its chmod on a non-root POSIX host
+  // or when Windows rejects opening a file with its read-only attribute.
+  await writeFile(config + '.tmp', 'readonly stale snapshot', { mode: 0o600 });
+  await chmod(config + '.tmp', 0o400);
+  state.fixedPercentage = 73;
+  await persistState();
+  assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 73);
+  if (process.platform !== 'win32') assert.equal((await stat(config)).mode & 0o777, 0o600);
+  await assert.rejects(stat(config + '.tmp'), error => error.code === 'ENOENT');
+
+  // A staging pathname can also be occupied by an unrelated non-file. Refuse
+  // it before chmod/open, preserving both the entry and the durable settings.
+  const staging = config + '.tmp';
+  await mkdir(staging, { mode: 0o750 });
+  await writeFile(path.join(staging, 'keep.txt'), 'unrelated staging-directory contents');
+  const originalDirectoryMode = (await stat(staging)).mode & 0o777;
+  try {
+    state.fixedPercentage = 74;
+    await assert.rejects(persistState());
+    assert.equal((await lstat(staging)).isDirectory(), true);
+    if (process.platform !== 'win32') assert.equal((await stat(staging)).mode & 0o777, originalDirectoryMode,
+      'Refusing a directory must not change its permissions');
+    assert.equal(await readFile(path.join(staging, 'keep.txt'), 'utf8'), 'unrelated staging-directory contents');
+    assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 73);
+  } finally {
+    await chmod(staging, originalDirectoryMode);
+    await rm(staging, { recursive: true, force: true });
+  }
+
+  const foreignDirectory = path.join(import.meta.dirname, 'foreign-staging-target');
+  await mkdir(foreignDirectory, { mode: 0o750 });
+  const foreignDirectoryMode = (await stat(foreignDirectory)).mode;
+  const foreignFile = path.join(foreignDirectory, 'keep.txt');
+  await writeFile(foreignFile, 'unrelated contents', { mode: 0o640 });
+  const foreignMode = (await stat(foreignFile)).mode & 0o777;
+  // Windows junctions need no file-symlink privilege and still exercise the
+  // nonregular lstat boundary. POSIX also verifies a symlink to a real file.
+  await symlink(process.platform === 'win32' ? foreignDirectory : foreignFile,
+    staging, process.platform === 'win32' ? 'junction' : 'file');
+  state.fixedPercentage = 75;
+  await assert.rejects(persistState());
+  assert.equal((await lstat(staging)).isSymbolicLink(), true);
+  assert.equal((await stat(foreignDirectory)).mode, foreignDirectoryMode);
+  assert.equal(await readFile(foreignFile, 'utf8'), 'unrelated contents');
+  if (process.platform !== 'win32') assert.equal((await stat(foreignFile)).mode & 0o777, foreignMode,
+    'Refusing a symlink must not chmod its target');
+  assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 73);
+  await rm(staging);
+
+  if (process.platform === 'win32') {
+    // A failed replacement of a readonly Windows configuration leaves a
+    // readonly staged file. Repairing just the main config must be enough
+    // for a later save; the user must not also find and repair the temp.
+    await chmod(config, 0o400);
+    state.fixedPercentage = 74;
+    await assert.rejects(persistState());
+    assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 73);
+    assert.equal((await stat(config + '.tmp')).mode & 0o200, 0);
+    await chmod(config, 0o600);
+    state.fixedPercentage = 75;
+    await persistState();
+    assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 75);
+    await assert.rejects(stat(config + '.tmp'), error => error.code === 'ENOENT');
+    console.log('PASS Windows readonly config failure and subsequent save recovery');
+  }
 } finally {
   process.umask(originalUmask);
 }
@@ -111,6 +178,10 @@ describe("real configuration persistence", () => {
       expect(stdout).toContain(
         "PASS actual ordered persistence preserves restricted mode",
       );
+      if (process.platform === "win32")
+        expect(stdout).toContain(
+          "PASS Windows readonly config failure and subsequent save recovery",
+        );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

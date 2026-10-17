@@ -233,3 +233,38 @@ staged parent `node_modules` junction. The fixture now stages the actual resolve
 package and verifies that the child resolves its copied entry inside the
 disposable layout. Production code and filesystem assertions are unchanged;
 Windows content/recovery coverage is retained rather than skipped.
+
+## Fourth bug-hunting pass
+
+The 2026-10-17 pass started from clean PR #15 head
+`3b3123c94c279729a39e13b675eb22a78258aaa2`; remote `master` remained at the
+recorded merge. Reviewers again rotated areas. Confirmed findings:
+
+| Finding                        | Reproduction and corrected behavior                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repeated Omarchy handshakes    | Qt 6.12 retained Connecting across a retry, so the second real TCP attempt kept `connectingAt = 0` and never expired. Retry activation now initializes its own handshake and clock timestamps. The real TCP regressions exercise repeated deadlines and recovery on both Qt versions.                                                                                                                                                                                         |
+| Read-only settings staging     | A read-only stale `.tmp` failed at open before descriptor-based permission repair could run, blocking repeated saves. Staging now repairs a regular file's writable/private mode before opening it. A review regression also proved that blindly chmodding a directory changed its permissions before failure; non-regular staging paths now fail without touching their contents, permissions or symlink targets. Existing config mode and atomic replacement remain intact. |
+| Foreign Linux service identity | With the launcher missing, regular foreign systemd/OpenRC service definitions were stopped and overwritten/deleted. Preflight now checks the declared executable and systemd's resolved unit identity before mutations, including inactive vendor/runtime units.                                                                                                                                                                                                              |
+| Failed service deregistration  | A failed systemd disable/OpenRC deregistration was ignored and removal reported success after deleting files. Removal now reports the failure and retains the stopped installation for retry; this does not imply that a successfully stopped service is still controlling hardware.                                                                                                                                                                                          |
+| Tooltip output claims          | A retained sensor-failure packet followed by a newer mode snapshot made Plasma claim a fail-safe maximum or active fixed output without new command telemetry. The shared production tooltip now describes the last acknowledged paired percentage or unconfirmed output, independently of mode configuration. Real Qt transport cases cover both directions, null output and stale readings.                                                                                 |
+| Linux ACPI input width         | A canonical ten-byte `SetDeepFan` input was encoded as an 80-bit integer although the pinned upstream parser uses a 64-bit machine integer on supported targets. Wider signatures now fail before dispatch. Four eight-byte high-bit cases and ten-byte output coverage remain valid. The managed WebSocket guard already blocks that raw setter; this is a direct native API limit, not a new restriction on managed curves or Windows WMI.                                  |
+
+The independent fan-control and frontend reviews found no new confirmed defect;
+their focused checks passed 30 and 26 cases respectively. Browser Connecting
+latency remains unmeasured, with no ten-second browser-handshake claim. Existing
+replacement-snapshot deadline coverage was retained. Linux permission recovery
+was reproduced with the actual store in an unprivileged disposable filesystem;
+root can bypass some POSIX write restrictions. The dedicated Windows readonly
+failure/recovery path requires its actual CI execution.
+
+OpenRC registration regressions also verify that absolute and relative links to
+the owned init script work, while foreign registration targets are preserved.
+The full combined Linux run passed lint, strict workspace/integration types,
+387 tests across 27 Vitest files (12 Windows-only skips), and both production
+builds. All 22 Chromium scenarios and both production web/QML integration
+scenarios passed. Required matching Qt 6.8.2 components
+passed 97 checks without skips; Qt-only 6.12 passed 74 with 23 component skips.
+Omarchy passed 22 Qt checks on both runtimes plus eight installer fixtures.
+The frozen installation, live advisory audit, source Markdown checks, shell
+syntax and portable C++ packing checks also passed. Final remote platform
+results remain linked from PR #15's checks above.

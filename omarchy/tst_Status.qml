@@ -270,15 +270,20 @@ Item {
         function test_silentHandshakeReconnectsAndRecovers(data) {
             backend.snapshotTimeout = data.clockJump ? 10000 : 100
             backend.serverUrl = fixture.silentEndpoint
-            // Wait past the endpoint-change retry. A genuine accepted TCP
-            // connection now remains in Connecting, without a WS Open event.
-            tryCompare(backend, "reconnectPending", false, 2000)
-            verify(!backend.ready)
-            if (data.clockJump) {
-                backend.previousTick = Date.now() + 1000
-                backend.tick()
+            // Exercise repeated attempts against the real silent TCP peer,
+            // rather than returning to a valid endpoint after one timeout.
+            // Qt 6.12 can retain Connecting across the second activation.
+            for (let attempt = 0; attempt < 2; attempt++) {
+                tryCompare(backend, "reconnectPending", false, 2000)
+                verify(!backend.ready)
+                verify(backend.connectingAt > 0)
+                verify(backend.previousTick > 0)
+                if (data.clockJump) {
+                    backend.previousTick = Date.now() + 1000
+                    backend.tick()
+                }
+                tryCompare(backend, "reconnectPending", true, 2000)
             }
-            tryCompare(backend, "reconnectPending", true, 2000)
             backend.serverUrl = fixture.endpoint()
             tryCompare(backend, "ready", true, 4000)
             compare(backend.status, "waiting")

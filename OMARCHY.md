@@ -189,7 +189,7 @@ python3 omarchy/run_tests.py --qt-python /path/to/qt-test-venv/bin/python
 Missing required Qt dependencies fail the tests. Fixtures cover absent/late
 backend startup, restarts, no replay, concurrent clients, missing/stale/invalid
 telemetry, failed/unconfirmed output, capability loss/recovery, restart guidance,
-heartbeat loss, a stalled WebSocket handshake, simulated sleep/resume, destruction, keyboard launch, narrow
+heartbeat loss, repeated stalled WebSocket handshakes, simulated sleep/resume, destruction, keyboard launch, narrow
 vertical presentation, unsafe endpoints, JSON/path escaping, idempotent setup,
 and foreign ownership/symlink refusal. The harness stages the same three runtime
 files as installation. These are Qt-only component/transport checks with a fake

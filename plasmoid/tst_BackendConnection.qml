@@ -73,6 +73,13 @@ Item {
         }
     }
 
+    Component {
+        id: tooltipComponent
+        Widget.BackendToolTip {
+            backend: tests.backend
+        }
+    }
+
     SignalSpy {
         id: finished
         signalName: "requestFinished"
@@ -326,6 +333,50 @@ Item {
             compare(finished.signalArguments[0][0], rejected)
             compare(finished.signalArguments[0][1], false)
             compare(fixture.requests.length, 0)
+        }
+
+        function test_sensorFailureTooltipUsesAcknowledgedCommandAcrossModeChanges_data() {
+            return [
+                {tag: "fixed-to-auto", fixed: true, applied: 40, target: 40},
+                {tag: "auto-to-fixed", fixed: false, applied: 100, target: 100},
+                {tag: "unconfirmed-fixed-to-auto", fixed: true, applied: null, target: 40},
+                {tag: "unconfirmed-auto-to-fixed", fixed: false, applied: null, target: 100}
+            ]
+        }
+
+        function test_sensorFailureTooltipUsesAcknowledgedCommandAcrossModeChanges(data) {
+            const initial = fixture.state()
+            initial.doFixedSpeed = data.fixed
+            initial.fixedPercentage = 40
+            fixture.push("state", initial)
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 50, avgGPUTemp: 60, appliedSpeed: data.applied,
+                target: data.target, sensorFailure: true
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+            const tooltip = createTemporaryObject(tooltipComponent, fixture)
+            verify(tooltip !== null)
+            const expected = data.applied === null
+                ? "Sensor error — fan output unconfirmed"
+                : "Sensor error — last acknowledged fan command " + data.applied + "%"
+            compare(tooltip.text, expected)
+            const acknowledgedAt = backend.lastActivityAt
+
+            // A state push may precede the next telemetry cycle, which may
+            // itself remain stalled. The new configured mode proves neither
+            // that its target was applied nor that physical fans rotated.
+            const changed = Object.assign({}, initial, {doFixedSpeed: !data.fixed})
+            fixture.push("state", changed)
+            tryVerify(function () {
+                return backend.latestState.doFixedSpeed === !data.fixed
+            })
+            compare(backend.lastActivityAt, acknowledgedAt)
+            compare(tooltip.text, expected)
+
+            backend.lastActivityAt = Date.now() - backend.activityStaleTimeout - 1
+            backend.freshnessTick += 1
+            verify(!backend.hasFreshActivity)
+            compare(tooltip.text, expected)
         }
 
         function test_backwardClockChangeRetiresFreshnessAndPendingRequests() {

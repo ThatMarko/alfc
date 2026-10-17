@@ -145,6 +145,11 @@ opcode/name mismatch, whitespace in an opcode, or an unknown method is invalid.
 `SetAIBoostStatus` additionally requires `Data` to be `0` or `1` and GPU-boost
 availability.
 
+The Linux native input transport packs at most eight `uint8` fields into one
+64-bit ACPI integer. Wider signatures fail before a firmware call; this does not
+limit wide buffer outputs or Windows named arguments. The raw ten-byte
+`SetDeepFan` setter is already blocked by managed fan ownership independently.
+
 Raw setters listed in `managedFanMethods` are rejected with
 `MANAGED_FAN_CONTROL`: they would bypass the authoritative fan controller. This
 includes direct fan duty/speed, automatic/fixed/step mode, deep-fan curves, fan
@@ -168,6 +173,8 @@ then acknowledges the request. Production saves serialize captured snapshots to
 interleaved temporary-file writes and partial JSON replacement. POSIX permission
 bits are preserved when replacing an existing file; missing settings use mode
 `0600`. The temporary file receives that mode before settings are written.
+Read-only regular staging files are repaired before opening; directories and
+symlinks occupying the staging path are rejected without changing their targets.
 Windows uses its ordinary writable/read-only semantics; this does not preserve
 or manage Windows ACLs. Atomic replacement does not
 promise persistence across sudden power loss. Development mode intentionally

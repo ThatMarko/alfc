@@ -36,6 +36,17 @@ Fan control requires the `acpi_call` kernel module and the firmware namespace `\
 
 Input fields are packed in canonical MOF declaration order, rather than JSON insertion order. Current input fields are all `uint8`; adding another type requires updating both native transports, not merely the frontend form. Accept only complete integer/buffer results. Reject error text, stale `not called` results, malformed/truncated buffers and out-of-range output values.
 
+The Linux input transport uses one ACPI integer and supports at most eight
+`uint8` fields on both supported 64-bit targets. Reject wider signatures before
+writing `/proc/acpi/call`: the [pinned upstream parser](https://github.com/nix-community/acpi_call/blob/6ad1e676dbfb5dcb1ec1f973c10ef5c57ffb4069/acpi_call.c#L269-L274)
+uses `simple_strtol` and cannot preserve an 80-bit packed value. In particular,
+the catalog's ten-byte `SetDeepFan` signature is unavailable through this Linux
+transport; the managed WebSocket fan-method guard already blocks that raw
+setter independently. Preserve all eight-byte input bit patterns, including a
+set high bit. This input limit does not constrain buffer outputs such as the
+ten-byte `GetDeepFan`, or Windows' named WMI arguments. Do not substitute an ACPI
+buffer argument without establishing firmware compatibility separately.
+
 Normalize validated hexadecimal method IDs to lowercase before sending them to
 `acpi_call`. Its [argument parser](https://github.com/nix-community/acpi_call/blob/master/acpi_call.c)
 checks a literal lowercase `0x` prefix; forwarding an accepted uppercase `0X`

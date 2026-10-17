@@ -378,6 +378,7 @@ describe.skipIf(process.platform === "win32")(
     let installed: string;
     let log: string;
     let commandDir: string;
+    let initSystem: "systemd" | "openrc";
 
     async function script(name: string): Promise<string> {
       const source = await readFile(
@@ -400,6 +401,7 @@ describe.skipIf(process.platform === "win32")(
     }
 
     async function prepare(init: "systemd" | "openrc") {
+      initSystem = init;
       directory = await mkdtemp(path.join(os.tmpdir(), "alfc-installer-"));
       release = path.join(directory, "release");
       installed = path.join(directory, "opt/alfc");
@@ -430,8 +432,19 @@ describe.skipIf(process.platform === "win32")(
             ? "etc/systemd/system/alfc.service"
             : "etc/init.d/alfc",
         ),
-        "old service",
+        init === "systemd"
+          ? `[Service]\nExecStart=${installed}/alfc\n`
+          : `#!/sbin/openrc-run\ncommand="${installed}/alfc"\n`,
       );
+      if (init === "openrc") {
+        await mkdir(path.join(directory, "etc/runlevels/default"), {
+          recursive: true,
+        });
+        await symlink(
+          path.join(directory, "etc/init.d/alfc"),
+          path.join(directory, "etc/runlevels/default/alfc"),
+        );
+      }
       await writeFile(path.join(directory, "proc/acpi/call"), "");
       await writeFile(path.join(installed, "alfc"), "old-binary");
       await writeFile(
@@ -480,6 +493,17 @@ describe.skipIf(process.platform === "win32")(
       await script("run.sh");
       const mock = `#!/bin/sh
 printf '%s\\n' "$0 $*" >> "$ALFC_TEST_LOG"
+if [ "$1" = show ]; then
+  [ "$ALFC_TEST_SHOW_FAIL" != 1 ] || exit 31
+  if [ -n "$ALFC_TEST_FOREIGN_SERVICE" ]; then
+    printf 'LoadState=loaded\\nFragmentPath=%s\\n' "$ALFC_TEST_FOREIGN_SERVICE"
+  elif [ -f "$ALFC_TEST_SERVICE_FILE" ]; then
+    printf 'LoadState=loaded\\nFragmentPath=%s\\n' "$ALFC_TEST_SERVICE_FILE"
+  else
+    printf 'LoadState=not-found\\nFragmentPath=\\n'
+  fi
+  exit 0
+fi
 case " $* " in
   *" is-active "*|*" is-enabled "*) [ -f "$ALFC_TEST_SERVICE_FILE" ] || exit 3 ;;
   *" stop "*)
@@ -490,6 +514,13 @@ case " $* " in
     [ "$ALFC_TEST_RESTART_FAIL" != 1 ] || exit 8
     printf 'started:%s\\n' "$(cat "$ALFC_TEST_INSTALLED/alfc")" >> "$ALFC_TEST_LOG"
     ;;
+  *" disable "*|*" del "*)
+    [ "$ALFC_TEST_DISABLE_FAIL" != 1 ] || exit 23
+    ;;
+esac
+case "$0 $*" in
+  *"rc-update add "*) ln -sf "$ALFC_TEST_SERVICE_FILE" "$ALFC_TEST_RUNLEVEL_LINK" ;;
+  *"rc-update del "*) rm -f "$ALFC_TEST_RUNLEVEL_LINK" ;;
 esac
 exit 0
 `;
@@ -499,7 +530,14 @@ exit 0
 
     async function run(
       name: string,
-      options: { stop?: boolean; restart?: boolean; args?: string[] } = {},
+      options: {
+        stop?: boolean;
+        restart?: boolean;
+        disable?: boolean;
+        show?: boolean;
+        foreignService?: string;
+        args?: string[];
+      } = {},
     ) {
       return execute(
         "bash",
@@ -518,9 +556,18 @@ exit 0
             ALFC_TEST_INSTALLED: installed,
             ALFC_TEST_STOP_FAIL: options.stop ? "1" : "0",
             ALFC_TEST_RESTART_FAIL: options.restart ? "1" : "0",
+            ALFC_TEST_DISABLE_FAIL: options.disable ? "1" : "0",
+            ALFC_TEST_SHOW_FAIL: options.show ? "1" : "0",
+            ALFC_TEST_FOREIGN_SERVICE: options.foreignService ?? "",
+            ALFC_TEST_RUNLEVEL_LINK: path.join(
+              directory,
+              "etc/runlevels/default/alfc",
+            ),
             ALFC_TEST_SERVICE_FILE: path.join(
               directory,
-              "etc/systemd/system/alfc.service",
+              initSystem === "systemd"
+                ? "etc/systemd/system/alfc.service"
+                : "etc/init.d/alfc",
             ),
           },
           timeout: 5000,
@@ -838,7 +885,144 @@ exit 0
             ),
             "utf8",
           ),
-        ).toBe("old service");
+        ).toContain(`${installed}/alfc`);
+      },
+    );
+
+    it.each(["systemd", "openrc"] as const)(
+      "refuses a foreign regular %s service even when the command link is missing",
+      async (init) => {
+        await prepare(init);
+        await rm(path.join(directory, "usr/bin/alfc"));
+        const service = path.join(
+          directory,
+          init === "systemd"
+            ? "etc/systemd/system/alfc.service"
+            : "etc/init.d/alfc",
+        );
+        const foreign =
+          init === "systemd"
+            ? "[Service]\nExecStart=/usr/lib/foreign-controller/daemon\n"
+            : '#!/sbin/openrc-run\ncommand="/usr/lib/foreign-controller/daemon"\n';
+        await writeFile(service, foreign);
+        for (const name of ["install.sh", "uninstall.sh"]) {
+          await expect(run(name)).rejects.toMatchObject({ code: 1 });
+          expect(await readFile(service, "utf8")).toBe(foreign);
+          expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+            "old-binary",
+          );
+          await expect(readFile(log)).rejects.toThrow();
+        }
+      },
+    );
+
+    it.each(["install.sh", "uninstall.sh"])(
+      "refuses %s when systemd resolves the service to a vendor unit",
+      async (name) => {
+        await prepare("systemd");
+        await rm(path.join(directory, "usr/bin/alfc"));
+        await rm(path.join(directory, "etc/systemd/system/alfc.service"));
+        await expect(
+          run(name, { foreignService: "/usr/lib/systemd/system/alfc.service" }),
+        ).rejects.toMatchObject({ code: 1 });
+        expect(await readFile(log, "utf8")).not.toMatch(
+          /\b(stop|disable|restart|daemon-reload)\b/,
+        );
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+      },
+    );
+
+    it.each(["systemd", "openrc"] as const)(
+      "reports %s deregistration failure and keeps the stopped installation for retry",
+      async (init) => {
+        await prepare(init);
+        await expect(
+          run("uninstall.sh", { disable: true }),
+        ).rejects.toMatchObject({
+          code: 23,
+          stdout: expect.not.stringContaining("ALFC uninstalled."),
+        });
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+        expect(
+          await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+        ).toBe('{"user":"preserve"}');
+        const commands = await readFile(log, "utf8");
+        expect(commands).toContain("stopped:old-binary");
+        expect(commands).not.toContain("daemon-reload");
+        await run("uninstall.sh");
+        await expect(readFile(path.join(installed, "alfc"))).rejects.toThrow();
+      },
+    );
+
+    it.each(["install.sh", "uninstall.sh"])(
+      "aborts %s before mutation when systemd identity cannot be queried",
+      async (name) => {
+        await prepare("systemd");
+        await expect(run(name, { show: true })).rejects.toMatchObject({
+          code: 31,
+        });
+        expect(await readFile(log, "utf8")).not.toMatch(
+          /\b(stop|disable|restart|daemon-reload)\b/,
+        );
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+      },
+    );
+
+    it.each(["install.sh", "uninstall.sh"])(
+      "refuses %s when the OpenRC default registration points to a foreign service",
+      async (name) => {
+        await prepare("openrc");
+        const registration = path.join(directory, "etc/runlevels/default/alfc");
+        const foreign = path.join(directory, "etc/init.d/foreign-service");
+        await writeFile(foreign, "foreign startup entry");
+        await rm(registration);
+        await symlink(foreign, registration);
+        await expect(run(name)).rejects.toMatchObject({ code: 1 });
+        expect(await readlink(registration)).toBe(foreign);
+        expect(await readFile(foreign, "utf8")).toBe("foreign startup entry");
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+        await expect(readFile(log)).rejects.toThrow();
+      },
+    );
+
+    it("accepts an owned relative OpenRC default-runlevel link", async () => {
+      await prepare("openrc");
+      const registration = path.join(directory, "etc/runlevels/default/alfc");
+      await rm(registration);
+      await symlink("../../init.d/alfc", registration);
+      await run("install.sh");
+      await rm(registration);
+      await symlink("../../init.d/alfc", registration);
+      await run("uninstall.sh");
+      await expect(readlink(registration)).rejects.toThrow();
+      expect(
+        await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+      ).toBe('{"user":"preserve"}');
+    });
+
+    it.each(["systemd", "openrc"] as const)(
+      "keeps %s removal idempotent after its service registration is gone",
+      async (init) => {
+        await prepare(init);
+        if (init === "openrc")
+          await rm(path.join(directory, "etc/runlevels/default/alfc"));
+        await run("uninstall.sh");
+        await run("uninstall.sh");
+        await expect(readFile(path.join(installed, "alfc"))).rejects.toThrow();
+        expect(
+          await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+        ).toBe('{"user":"preserve"}');
+        const commands = await readFile(log, "utf8");
+        if (init === "openrc") expect(commands).not.toContain(" del ");
+        else expect(commands.match(/ disable /g)).toHaveLength(1);
       },
     );
 

@@ -4,6 +4,8 @@ import path from "node:path";
 const {
   readConfigMock,
   renameMock,
+  chmodMock,
+  lstatMock,
   statMock,
   openMock,
   fileMock,
@@ -13,6 +15,8 @@ const {
   return {
     readConfigMock: vi.fn(),
     renameMock: vi.fn().mockResolvedValue(undefined),
+    chmodMock: vi.fn(),
+    lstatMock: vi.fn(),
     statMock: vi.fn(),
     openMock: vi.fn(),
     fileMock,
@@ -26,6 +30,8 @@ vi.mock("node:fs", () => ({
 
 vi.mock("node:fs/promises", () => ({
   rename: renameMock,
+  chmod: chmodMock,
+  lstat: lstatMock,
   stat: statMock,
   open: openMock,
 }));
@@ -75,6 +81,8 @@ describe("state config loading", () => {
     stateRuntime.isDev = true;
     stateRuntime.isCompiledBinary = false;
     renameMock.mockResolvedValue(undefined);
+    chmodMock.mockResolvedValue(undefined);
+    lstatMock.mockResolvedValue({ isFile: () => true });
     statMock.mockResolvedValue({ mode: 0o100600 });
     openMock.mockResolvedValue(fileMock);
     fileMock.chmod.mockResolvedValue(undefined);
@@ -157,6 +165,7 @@ describe("state config loading", () => {
       });
       await persistState();
       expect(openMock).toHaveBeenCalledWith(configPath + ".tmp", "w", 0o600);
+      expect(chmodMock).toHaveBeenCalledWith(configPath + ".tmp", 0o600);
       expect(write).toHaveBeenCalledWith(expect.any(String));
       expect(fileMock.chmod).toHaveBeenCalledWith(0o600);
       expect(fileMock.close).toHaveBeenCalledOnce();
@@ -188,9 +197,57 @@ describe("state config loading", () => {
     );
     const { persistState } = await importState();
     await expect(persistState()).rejects.toThrow("access denied");
+    expect(chmodMock).not.toHaveBeenCalled();
     expect(openMock).not.toHaveBeenCalled();
     expect(renameMock).not.toHaveBeenCalled();
     await persistState();
+    expect(renameMock).toHaveBeenCalledOnce();
+  });
+
+  it("creates a missing staging file after an ENOENT permission preflight", async () => {
+    stateRuntime.isDev = false;
+    mockConfigFile(JSON.stringify(VALID_CONFIG));
+    lstatMock.mockRejectedValueOnce(
+      Object.assign(new Error("missing staging file"), { code: "ENOENT" }),
+    );
+    const { persistState } = await importState();
+    await expect(persistState()).resolves.toBeUndefined();
+    expect(chmodMock).not.toHaveBeenCalled();
+    expect(openMock).toHaveBeenCalledOnce();
+    expect(fileMock.writeFile).toHaveBeenCalledOnce();
+    expect(renameMock).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a nonregular staging path before changing permissions or opening it", async () => {
+    stateRuntime.isDev = false;
+    mockConfigFile(JSON.stringify(VALID_CONFIG));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    lstatMock.mockResolvedValueOnce({ isFile: () => false });
+    const { persistState } = await importState();
+    await expect(persistState()).rejects.toThrow("must be a regular file");
+    expect(chmodMock).not.toHaveBeenCalled();
+    expect(openMock).not.toHaveBeenCalled();
+    expect(fileMock.writeFile).not.toHaveBeenCalled();
+    expect(renameMock).not.toHaveBeenCalled();
+  });
+
+  it("does not truncate a staging file after a permission preflight failure and lets the next save recover", async () => {
+    stateRuntime.isDev = false;
+    mockConfigFile(JSON.stringify(VALID_CONFIG));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    chmodMock.mockRejectedValueOnce(
+      Object.assign(new Error("cannot repair staging permissions"), {
+        code: "EPERM",
+      }),
+    );
+    const { persistState } = await importState();
+    await expect(persistState()).rejects.toThrow(
+      "cannot repair staging permissions",
+    );
+    expect(openMock).not.toHaveBeenCalled();
+    expect(fileMock.writeFile).not.toHaveBeenCalled();
+    expect(renameMock).not.toHaveBeenCalled();
+    await expect(persistState()).resolves.toBeUndefined();
     expect(renameMock).toHaveBeenCalledOnce();
   });
 
