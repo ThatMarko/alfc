@@ -1,31 +1,34 @@
 # ALFC contributor instructions
 
-These instructions describe the current `feat/wmi-ffi` implementation for PR #1.
-Use the actual checkout and applicable nested `AGENTS.md` files; do not infer the
-branch or revision from generated metadata. Keep changes on the user's requested
-branch and preserve unrelated user work.
+These instructions describe the merged mainline implementation on `master`.
+PR #1 merged as `79791f67b7c544b9a9f61e168a88bce5f22fc085`. Discover the
+remote default branch and current revision before starting; use applicable nested
+`AGENTS.md` files and preserve unrelated user work. Base follow-up work on the
+current default branch and respect its protections and review process.
 
 ## Repository map
 
-| Location                                | Responsibility                                                                  |
-| --------------------------------------- | ------------------------------------------------------------------------------- |
-| `common/`                               | Types, validation, protocol guards, canonical MOF method catalog, protocol docs |
-| `frontend/`                             | React/Vite UI, backend request manager, Vitest and Chromium scenarios           |
-| `server/index.ts`                       | Permission gate, HTTP/WS handlers, startup, bounded shutdown                    |
-| `server/http.ts`, `server/listeners.ts` | Static path/origin validation and explicit loopback listeners                   |
-| `server/fan-control/`                   | Paired writes, threshold curves, ramping, sampling, BIOS restoration            |
-| `server/native/`                        | Ordered platform calls; Linux ACPI/RAPL and Windows FFI workers                 |
-| `server/state/`, `server/websocket/`    | Validated configuration, ordered persistence, command handling                  |
-| `plasmoid/`                             | Plasma 6 QML/JS widget, installation, headless Qt tests                         |
-| `bootstrap/`, `aur/`                    | Windows WinSW and Linux service/package integration                             |
-| `.github/workflows/`                    | CI and tag-driven release packaging                                             |
-| `PORTING_REVIEW.md`                     | Audit evidence, authoritative sources, and physical release gates               |
+| Location                                | Responsibility                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------------- |
+| `common/`                               | Types, validation, protocol guards, canonical MOF method catalog, protocol docs       |
+| `frontend/`                             | React/Vite UI, backend request manager, Vitest and Chromium scenarios                 |
+| `server/index.ts`                       | Permission gate, HTTP/WS handlers, startup, bounded shutdown                          |
+| `server/http.ts`, `server/listeners.ts` | Static path/origin validation and explicit loopback listeners                         |
+| `server/fan-control/`                   | Paired writes, threshold curves, ramping, sampling, BIOS restoration                  |
+| `server/native/`                        | Ordered platform calls; Linux ACPI/RAPL and Windows FFI workers                       |
+| `server/state/`, `server/websocket/`    | Validated configuration, ordered persistence, command handling                        |
+| `plasmoid/`                             | Plasma 6 QML/JS widget, installation, Qt-only and required matching-component tests   |
+| `omarchy/`                              | Unprivileged read-only Omarchy QML status/launcher and owned user-module installation |
+| `integration/`                          | Production-handler web/QML cross-client tests with explicit fake hardware             |
+| `bootstrap/`, `aur/`                    | Windows WinSW and Linux service/package integration                                   |
+| `.github/workflows/`                    | CI and tag-driven release packaging                                                   |
+| `PORTING_REVIEW.md`                     | Audit evidence, authoritative sources, and physical release gates                     |
 
 ## Toolchain and commands
 
 Use Bun 1.4.3 (the package-manager and workflow pin) and Node.js 24.11 or newer within major 24 for the
-checked development tools. Node 24 is the one supported development major, matching
-CI. `bun run`/`bunx` preserve Node shebangs for CLIs such as Vite, Vitest, ESLint,
+checked development tools. Node 24.22.0 is the recommended and CI-tested LTS
+patch; 24.11 remains the minimum. Node 26 is Current, not the supported LTS major. `bun run`/`bunx` preserve Node shebangs for CLIs such as Vite, Vitest, ESLint,
 TypeScript, Playwright, Husky, and lint-staged. Packaged production embeds Bun and
 requires neither a separate Node nor Bun installation. TypeScript stays pinned to 6.0.3 while the ESLint parser requires <6.1.
 A Bun-only test migration
@@ -35,6 +38,8 @@ must first replace whole-global `Bun` mocks; forcing the current suite fails set
 bun install --frozen-lockfile
 bun run all-checks        # lint, strict type-check, Vitest, workspace builds
 bun run test:web          # Chromium scenarios; install browser first if needed
+bun run test:integration  # Built web assets + real QML connection; see CONTRIBUTING
+bun run check:docs        # Local Markdown paths and anchors
 bun audit                # Live registry advisory check, no automatic suppression
 bun run del:tscache       # Only the known workspace .tsbuildinfo files
 ```
@@ -107,5 +112,8 @@ do not invent performance or safety guarantees.
 
 The pre-commit hook runs ESLint, workspace type checks, and Prettier through
 lint-staged. Qt library JS contains `.pragma library` and is validated by Qt,
-not ESLint. Builds alone are not complete installable releases; follow
+not ESLint. The required component tier uses one distro’s Qt/KDE libraries;
+never mix unrelated wheel Qt with distro plugins. Qt-only optional skips do not
+count as component coverage. Full Plasma/Omarchy sessions remain a separate gate.
+Builds alone are not complete installable releases; follow
 `RELEASING.md` for staging, native libraries, service files, and release gates.

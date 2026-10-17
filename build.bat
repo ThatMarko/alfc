@@ -41,12 +41,19 @@ copy bootstrap\scripts\uninstall.bat dist\alfc\ || exit /b 1
 copy bootstrap\scripts\run.bat dist\alfc\ || exit /b 1
 copy alfc.config.json dist\alfc\ || exit /b 1
 copy LICENSE dist\alfc\ || exit /b 1
+copy bootstrap\WinSW-LICENSE.txt dist\alfc\WinSW-LICENSE.txt || exit /b 1
 copy *.md dist\alfc\ || exit /b 1
 mkdir dist\alfc\common dist\alfc\plasmoid dist\alfc\aur dist\alfc\assets || exit /b 1
 copy common\*.md dist\alfc\common\ || exit /b 1
 copy plasmoid\*.md dist\alfc\plasmoid\ || exit /b 1
 copy aur\README.md dist\alfc\aur\ || exit /b 1
 copy assets\screenshot.png dist\alfc\assets\ || exit /b 1
+mkdir dist\alfc\omarchy dist\alfc\plasmoid\package\contents\ui || exit /b 1
+copy omarchy\install.sh dist\alfc\omarchy\ || exit /b 1
+copy omarchy\uninstall.sh dist\alfc\omarchy\ || exit /b 1
+copy omarchy\manage.py dist\alfc\omarchy\ || exit /b 1
+xcopy /I /E omarchy\module dist\alfc\omarchy\module || exit /b 1
+copy plasmoid\package\contents\ui\Protocol.js dist\alfc\plasmoid\package\contents\ui\ || exit /b 1
 
 powershell -NoProfile -NonInteractive -Command "Compress-Archive -Path 'dist\alfc' -DestinationPath 'dist\alfc.zip'" || exit /b 1
 echo Build complete: dist\alfc.zip

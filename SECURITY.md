@@ -16,11 +16,12 @@ credentials or unrelated personal information. Community-conduct reports use
 
 ## Version status
 
-`feat/wmi-ffi` is under review in PR #1. Package metadata says `2.0.0`, but the
-published tags inspected during this audit were alpha tags; this document does
-not promise a stable release or a support SLA. Report current-branch issues
-with a commit hash and released issues with their exact tag. Older alpha
-artifacts may use different native helpers and do not establish current behavior.
+PR #1 is merged into `master`. On 2026-10-15, the latest published release
+was `v2.0.0-alpha.7`, marked as a prerelease and built before that merge. Older
+alpha drafts also exist. Package metadata `2.0.0` does not announce a stable
+release or a support SLA. Report mainline issues with a commit hash and released
+issues with their exact tag; alpha artifacts can use different native helpers
+and do not establish current behavior.
 
 ## Trust boundaries
 

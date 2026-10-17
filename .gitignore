@@ -13,3 +13,7 @@ dist
 .hoplite/archive/
 /playwright-report/
 /test-results/
+
+# Python development/test runner bytecode
+__pycache__/
+*.py[cod]

@@ -8,8 +8,9 @@ url="https://github.com/ThatMarko/alfc"
 license=('MIT')
 depends=('glibc' 'gcc-libs' 'icu')
 optdepends=(
-  'acpi_call: Required for fan control (kernel module)'
-  'acpi_call-dkms: Alternative DKMS-based acpi_call'
+  'acpi_call: Fan control module for the Arch linux kernel'
+  'acpi_call-lts: Fan control module for the Arch linux-lts kernel'
+  'acpi_call-dkms: Fan control module sources; requires target kernel headers'
 )
 provides=('alfc')
 conflicts=('alfc')
@@ -40,6 +41,14 @@ package() {
     find "${pkgdir}/usr/lib/alfc/plasmoid" -type f -exec chmod 644 {} +
     find "${pkgdir}/usr/lib/alfc/plasmoid" -type d -exec chmod 755 {} +
     find "${pkgdir}/usr/lib/alfc/plasmoid" -type f -name '*.sh' -exec chmod 755 {} +
+  fi
+
+  # Omarchy helpers and Quickshell module (optional, installed per user).
+  if [[ -d "${_srcdir}/omarchy" ]]; then
+    cp -r "${_srcdir}/omarchy" "${pkgdir}/usr/lib/alfc/omarchy"
+    find "${pkgdir}/usr/lib/alfc/omarchy" -type f -exec chmod 644 {} +
+    find "${pkgdir}/usr/lib/alfc/omarchy" -type d -exec chmod 755 {} +
+    find "${pkgdir}/usr/lib/alfc/omarchy" -type f -name '*.sh' -exec chmod 755 {} +
   fi
 
   # systemd service — generated from shared template

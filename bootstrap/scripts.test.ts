@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFile,
   mkdtemp,
   mkdir,
   readFile,
   readlink,
+  rename,
   stat,
   rm,
   symlink,
@@ -18,6 +20,31 @@ const execute = promisify(execFile);
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 
 describe("Windows service wrapper configuration", () => {
+  it("includes the pinned WinSW copyright notice in both Windows builders", async () => {
+    const notice = await readFile(
+      path.join(import.meta.dirname, "WinSW-LICENSE.txt"),
+    );
+    // Exact bytes from winsw/winsw v2.12.0 LICENSE.txt, matching the wrapper.
+    expect(createHash("sha256").update(notice).digest("hex")).toBe(
+      "1cdf703c10a70e5973bf3acf2a5eeabe7746237155b92db2034aeae26fdf7802",
+    );
+    const localBuilder = await readFile(
+      path.join(repositoryRoot, "build.bat"),
+      "utf8",
+    );
+    expect(localBuilder).toContain(
+      "copy bootstrap\\WinSW-LICENSE.txt dist\\alfc\\WinSW-LICENSE.txt || exit /b 1",
+    );
+    const workflow = await readFile(
+      path.join(repositoryRoot, ".github/workflows/release.yml"),
+      "utf8",
+    );
+    expect(workflow).toContain("winsw/releases/download/v2.12.0/WinSW-x64.exe");
+    expect(workflow).toContain(
+      'cp bootstrap/WinSW-LICENSE.txt "${RELEASE_DIR}/WinSW-LICENSE.txt"',
+    );
+  });
+
   it("keeps foreground startup attached and avoids premature browser launch in Windows entrypoints", async () => {
     const source = await readFile(
       path.join(import.meta.dirname, "scripts/run.bat"),
@@ -351,6 +378,7 @@ describe.skipIf(process.platform === "win32")(
     let installed: string;
     let log: string;
     let commandDir: string;
+    let initSystem: "systemd" | "openrc";
 
     async function script(name: string): Promise<string> {
       const source = await readFile(
@@ -373,6 +401,7 @@ describe.skipIf(process.platform === "win32")(
     }
 
     async function prepare(init: "systemd" | "openrc") {
+      initSystem = init;
       directory = await mkdtemp(path.join(os.tmpdir(), "alfc-installer-"));
       release = path.join(directory, "release");
       installed = path.join(directory, "opt/alfc");
@@ -380,7 +409,10 @@ describe.skipIf(process.platform === "win32")(
       commandDir = path.join(directory, "commands");
       for (const relative of [
         "release/frontend",
+        "release/omarchy/module",
+        "release/plasmoid/package/contents/ui",
         "opt/alfc/frontend",
+        "opt/alfc/omarchy",
         "usr/bin",
         "etc/systemd/system",
         "etc/init.d",
@@ -400,15 +432,31 @@ describe.skipIf(process.platform === "win32")(
             ? "etc/systemd/system/alfc.service"
             : "etc/init.d/alfc",
         ),
-        "old service",
+        init === "systemd"
+          ? `[Service]\nExecStart=${installed}/alfc\n`
+          : `#!/sbin/openrc-run\ncommand="${installed}/alfc"\n`,
       );
+      if (init === "openrc") {
+        await mkdir(path.join(directory, "etc/runlevels/default"), {
+          recursive: true,
+        });
+        await symlink(
+          path.join(directory, "etc/init.d/alfc"),
+          path.join(directory, "etc/runlevels/default/alfc"),
+        );
+      }
       await writeFile(path.join(directory, "proc/acpi/call"), "");
       await writeFile(path.join(installed, "alfc"), "old-binary");
       await writeFile(
         path.join(installed, "alfc.config.json"),
         '{"user":"preserve"}',
+        { mode: 0o600 },
       );
       await writeFile(path.join(installed, "frontend/old.js"), "old asset");
+      await writeFile(
+        path.join(installed, "omarchy/obsolete.qml"),
+        "old module",
+      );
       await symlink(
         path.join(installed, "alfc"),
         path.join(directory, "usr/bin/alfc"),
@@ -416,6 +464,25 @@ describe.skipIf(process.platform === "win32")(
       await writeFile(path.join(release, "alfc"), "new-binary");
       await writeFile(path.join(release, "alfc.config.json"), "default config");
       await writeFile(path.join(release, "frontend/new.js"), "new asset");
+      await writeFile(path.join(release, "omarchy/install.sh"), "user helper", {
+        mode: 0o755,
+      });
+      await writeFile(
+        path.join(release, "omarchy/module/Widget.qml"),
+        "new module",
+      );
+      await writeFile(
+        path.join(release, "plasmoid/install.sh"),
+        "user helper",
+        { mode: 0o700 },
+      );
+      await writeFile(
+        path.join(release, "plasmoid/package/contents/ui/Protocol.js"),
+        await readFile(
+          path.join(repositoryRoot, "plasmoid/package/contents/ui/Protocol.js"),
+        ),
+        { mode: 0o600 },
+      );
       await writeFile(
         path.join(release, "alfc.service"),
         await readFile(
@@ -426,12 +493,34 @@ describe.skipIf(process.platform === "win32")(
       await script("run.sh");
       const mock = `#!/bin/sh
 printf '%s\\n' "$0 $*" >> "$ALFC_TEST_LOG"
+if [ "$1" = show ]; then
+  [ "$ALFC_TEST_SHOW_FAIL" != 1 ] || exit 31
+  if [ -n "$ALFC_TEST_FOREIGN_SERVICE" ]; then
+    printf 'LoadState=loaded\\nFragmentPath=%s\\n' "$ALFC_TEST_FOREIGN_SERVICE"
+  elif [ -f "$ALFC_TEST_SERVICE_FILE" ]; then
+    printf 'LoadState=loaded\\nFragmentPath=%s\\n' "$ALFC_TEST_SERVICE_FILE"
+  else
+    printf 'LoadState=not-found\\nFragmentPath=\\n'
+  fi
+  exit 0
+fi
 case " $* " in
+  *" is-active "*|*" is-enabled "*) [ -f "$ALFC_TEST_SERVICE_FILE" ] || exit 3 ;;
   *" stop "*)
     printf 'stopped:%s\\n' "$(cat "$ALFC_TEST_INSTALLED/alfc")" >> "$ALFC_TEST_LOG"
     [ "$ALFC_TEST_STOP_FAIL" != 1 ] || exit 1
     ;;
-  *" restart "*) printf 'started:%s\\n' "$(cat "$ALFC_TEST_INSTALLED/alfc")" >> "$ALFC_TEST_LOG" ;;
+  *" restart "*)
+    [ "$ALFC_TEST_RESTART_FAIL" != 1 ] || exit 8
+    printf 'started:%s\\n' "$(cat "$ALFC_TEST_INSTALLED/alfc")" >> "$ALFC_TEST_LOG"
+    ;;
+  *" disable "*|*" del "*)
+    [ "$ALFC_TEST_DISABLE_FAIL" != 1 ] || exit 23
+    ;;
+esac
+case "$0 $*" in
+  *"rc-update add "*) ln -sf "$ALFC_TEST_SERVICE_FILE" "$ALFC_TEST_RUNLEVEL_LINK" ;;
+  *"rc-update del "*) rm -f "$ALFC_TEST_RUNLEVEL_LINK" ;;
 esac
 exit 0
 `;
@@ -439,17 +528,51 @@ exit 0
         await writeFile(path.join(commandDir, name), mock, { mode: 0o755 });
     }
 
-    async function run(name: string, failStop = false) {
-      return execute("bash", [await script(name)], {
-        env: {
-          ...process.env,
-          PATH: commandDir + path.delimiter + process.env.PATH,
-          ALFC_TEST_LOG: log,
-          ALFC_TEST_INSTALLED: installed,
-          ALFC_TEST_STOP_FAIL: failStop ? "1" : "0",
+    async function run(
+      name: string,
+      options: {
+        stop?: boolean;
+        restart?: boolean;
+        disable?: boolean;
+        show?: boolean;
+        foreignService?: string;
+        args?: string[];
+      } = {},
+    ) {
+      return execute(
+        "bash",
+        [
+          "-c",
+          'umask 077; exec bash "$@"',
+          "alfc-installer-fixture",
+          await script(name),
+          ...(options.args ?? []),
+        ],
+        {
+          env: {
+            ...process.env,
+            PATH: commandDir + path.delimiter + process.env.PATH,
+            ALFC_TEST_LOG: log,
+            ALFC_TEST_INSTALLED: installed,
+            ALFC_TEST_STOP_FAIL: options.stop ? "1" : "0",
+            ALFC_TEST_RESTART_FAIL: options.restart ? "1" : "0",
+            ALFC_TEST_DISABLE_FAIL: options.disable ? "1" : "0",
+            ALFC_TEST_SHOW_FAIL: options.show ? "1" : "0",
+            ALFC_TEST_FOREIGN_SERVICE: options.foreignService ?? "",
+            ALFC_TEST_RUNLEVEL_LINK: path.join(
+              directory,
+              "etc/runlevels/default/alfc",
+            ),
+            ALFC_TEST_SERVICE_FILE: path.join(
+              directory,
+              initSystem === "systemd"
+                ? "etc/systemd/system/alfc.service"
+                : "etc/init.d/alfc",
+            ),
+          },
+          timeout: 5000,
         },
-        timeout: 5000,
-      });
+      );
     }
 
     afterEach(async () => {
@@ -467,15 +590,61 @@ exit 0
         expect(
           await readFile(path.join(installed, "alfc.config.json"), "utf8"),
         ).toBe('{"user":"preserve"}');
+        expect(
+          (await stat(path.join(installed, "alfc.config.json"))).mode & 0o777,
+        ).toBe(0o600);
         await expect(
           readFile(path.join(installed, "frontend/old.js")),
         ).rejects.toThrow();
         expect(
           await readFile(path.join(installed, "frontend/new.js"), "utf8"),
         ).toBe("new asset");
+        await expect(
+          readFile(path.join(installed, "omarchy/obsolete.qml")),
+        ).rejects.toThrow();
+        expect(
+          await readFile(
+            path.join(installed, "omarchy/module/Widget.qml"),
+            "utf8",
+          ),
+        ).toBe("new module");
+        expect(
+          (await stat(path.join(installed, "omarchy/install.sh"))).mode & 0o777,
+        ).toBe(0o755);
+        for (const name of ["", "omarchy", "omarchy/module"])
+          expect((await stat(path.join(installed, name))).mode & 0o777).toBe(
+            0o755,
+          );
+        expect(
+          (await stat(path.join(installed, "omarchy/module/Widget.qml"))).mode &
+            0o777,
+        ).toBe(0o644);
+        expect(
+          (await stat(path.join(installed, "plasmoid/install.sh"))).mode &
+            0o777,
+        ).toBe(0o755);
+        expect(
+          (
+            await stat(
+              path.join(installed, "plasmoid/package/contents/ui/Protocol.js"),
+            )
+          ).mode & 0o777,
+        ).toBe(0o644);
         expect(await readFile(log, "utf8")).toMatch(
           /stopped:old-binary[\s\S]*started:new-binary/,
         );
+        expect(
+          (
+            await stat(
+              path.join(
+                directory,
+                init === "systemd"
+                  ? "etc/systemd/system/alfc.service"
+                  : "etc/init.d/alfc",
+              ),
+            )
+          ).mode & 0o777,
+        ).toBe(init === "systemd" ? 0o644 : 0o755);
         if (init === "openrc")
           expect(
             await readFile(path.join(directory, "etc/init.d/alfc"), "utf8"),
@@ -492,7 +661,7 @@ exit 0
       "aborts %s upgrade and uninstall if the running service cannot stop",
       async (init) => {
         await prepare(init);
-        await expect(run("install.sh", true)).rejects.toMatchObject({
+        await expect(run("install.sh", { stop: true })).rejects.toMatchObject({
           code: 1,
         });
         expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
@@ -501,14 +670,181 @@ exit 0
         expect(
           await readFile(path.join(installed, "frontend/old.js"), "utf8"),
         ).toBe("old asset");
-        await expect(run("uninstall.sh", true)).rejects.toMatchObject({
-          code: 1,
-        });
+        await expect(run("uninstall.sh", { stop: true })).rejects.toMatchObject(
+          {
+            code: 1,
+          },
+        );
         expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
           "old-binary",
         );
       },
     );
+
+    it.each(["systemd", "openrc"] as const)(
+      "installs a fresh %s service and explicitly purges its configuration",
+      async (init) => {
+        await prepare(init);
+        await rm(installed, { recursive: true });
+        const command = path.join(directory, "usr/bin/alfc");
+        await rm(command);
+        await rm(
+          path.join(
+            directory,
+            init === "systemd"
+              ? "etc/systemd/system/alfc.service"
+              : "etc/init.d/alfc",
+          ),
+        );
+        await run("install.sh");
+        expect(await readFile(log, "utf8")).not.toContain("stopped:");
+        expect(await readFile(log, "utf8")).toContain("started:new-binary");
+        expect(
+          await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+        ).toBe("default config");
+        expect((await stat(path.join(installed, "alfc"))).mode & 0o777).toBe(
+          0o755,
+        );
+        expect(await readlink(command)).toBe(path.join(installed, "alfc"));
+        await run("uninstall.sh", { args: ["--purge"] });
+        await expect(stat(installed)).rejects.toThrow();
+        await expect(readlink(command)).rejects.toThrow();
+      },
+    );
+
+    it.each(["systemd", "openrc"] as const)(
+      "reports %s restart failure without claiming a successful installation",
+      async (init) => {
+        await prepare(init);
+        await expect(
+          run("install.sh", { restart: true }),
+        ).rejects.toMatchObject({
+          code: 8,
+          stdout: expect.not.stringContaining("UI available"),
+        });
+        expect(
+          await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+        ).toBe('{"user":"preserve"}');
+        expect(await readFile(log, "utf8")).not.toContain("started:");
+      },
+    );
+
+    it.each(["systemd", "openrc"] as const)(
+      "retires omitted optional desktop resources during a %s upgrade",
+      async (init) => {
+        await prepare(init);
+        await rm(path.join(release, "omarchy"), { recursive: true });
+        await run("install.sh");
+        await expect(stat(path.join(installed, "omarchy"))).rejects.toThrow();
+        expect(
+          await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+        ).toBe('{"user":"preserve"}');
+      },
+    );
+
+    it.each(["frontend", "run.sh"])(
+      "rejects a release with an incorrect %s type before stopping the service",
+      async (name) => {
+        await prepare("systemd");
+        await rm(path.join(release, name), { recursive: true });
+        if (name === "frontend")
+          await writeFile(path.join(release, name), "not a directory");
+        else await mkdir(path.join(release, name));
+        await expect(run("install.sh")).rejects.toMatchObject({ code: 1 });
+        await expect(readFile(log)).rejects.toThrow();
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+      },
+    );
+
+    it.each(["systemd", "openrc"] as const)(
+      "refuses a symlinked %s installation root before service or foreign-file changes",
+      async (init) => {
+        await prepare(init);
+        const foreign = path.join(directory, "foreign");
+        await rename(installed, foreign);
+        await symlink(foreign, installed);
+        for (const name of ["install.sh", "uninstall.sh"]) {
+          await expect(run(name)).rejects.toMatchObject({ code: 1 });
+          expect(await readFile(path.join(foreign, "alfc"), "utf8")).toBe(
+            "old-binary",
+          );
+          await expect(readFile(log)).rejects.toThrow();
+        }
+      },
+    );
+
+    it.each(["alfc", "run.sh", "uninstall.sh", "alfc.config.json", "service"])(
+      "refuses a symlinked managed %s destination before install changes",
+      async (name) => {
+        await prepare("systemd");
+        const target =
+          name === "service"
+            ? path.join(directory, "etc/systemd/system/alfc.service")
+            : path.join(installed, name);
+        await rm(target, { force: true });
+        const foreign = path.join(directory, "foreign-file");
+        await writeFile(foreign, "foreign content", { mode: 0o600 });
+        await symlink(foreign, target);
+        await expect(run("install.sh")).rejects.toMatchObject({ code: 1 });
+        expect(await readFile(foreign, "utf8")).toBe("foreign content");
+        expect((await stat(foreign)).mode & 0o777).toBe(0o600);
+        await expect(readFile(log)).rejects.toThrow();
+      },
+    );
+
+    it.each(["systemd", "openrc"] as const)(
+      "refuses a symlinked %s service during removal",
+      async (init) => {
+        await prepare(init);
+        const target = path.join(
+          directory,
+          init === "systemd"
+            ? "etc/systemd/system/alfc.service"
+            : "etc/init.d/alfc",
+        );
+        await rm(target);
+        const foreign = path.join(directory, "foreign-service");
+        await writeFile(foreign, "foreign service");
+        await symlink(foreign, target);
+        await expect(run("uninstall.sh")).rejects.toMatchObject({ code: 1 });
+        expect(await readFile(foreign, "utf8")).toBe("foreign service");
+        await expect(readFile(log)).rejects.toThrow();
+      },
+    );
+
+    it("reports AUR pre-remove shutdown failure without disabling the running service", async () => {
+      await prepare("systemd");
+      await expect(
+        execute(
+          "bash",
+          [
+            "-c",
+            'source "$1"; pre_remove',
+            "alfc-aur-hook-test",
+            path.join(repositoryRoot, "aur/alfc.install"),
+          ],
+          {
+            env: {
+              ...process.env,
+              PATH: commandDir + path.delimiter + process.env.PATH,
+              ALFC_TEST_LOG: log,
+              ALFC_TEST_INSTALLED: installed,
+              ALFC_TEST_SERVICE_FILE: path.join(
+                directory,
+                "etc/systemd/system/alfc.service",
+              ),
+              ALFC_TEST_STOP_FAIL: "1",
+            },
+          },
+        ),
+      ).rejects.toMatchObject({ code: 1 });
+      expect(await readFile(log, "utf8")).not.toContain("disable");
+      expect(
+        await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+      ).toBe('{"user":"preserve"}');
+    });
 
     it("protects another installation's command and rejects incomplete releases before stopping", async () => {
       await prepare("systemd");
@@ -523,6 +859,231 @@ exit 0
       await expect(readFile(log)).rejects.toThrow();
       expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
         "old-binary",
+      );
+    });
+
+    it.each(["systemd", "openrc"] as const)(
+      "refuses %s removal when the command belongs to another installation",
+      async (init) => {
+        await prepare(init);
+        const command = path.join(directory, "usr/bin/alfc");
+        await rm(command);
+        await symlink("/usr/lib/alfc/alfc", command);
+        await expect(run("uninstall.sh")).rejects.toMatchObject({ code: 1 });
+        expect(await readlink(command)).toBe("/usr/lib/alfc/alfc");
+        await expect(readFile(log)).rejects.toThrow();
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+        expect(
+          await readFile(
+            path.join(
+              directory,
+              init === "systemd"
+                ? "etc/systemd/system/alfc.service"
+                : "etc/init.d/alfc",
+            ),
+            "utf8",
+          ),
+        ).toContain(`${installed}/alfc`);
+      },
+    );
+
+    it.each(["systemd", "openrc"] as const)(
+      "refuses a foreign regular %s service even when the command link is missing",
+      async (init) => {
+        await prepare(init);
+        await rm(path.join(directory, "usr/bin/alfc"));
+        const service = path.join(
+          directory,
+          init === "systemd"
+            ? "etc/systemd/system/alfc.service"
+            : "etc/init.d/alfc",
+        );
+        const foreign =
+          init === "systemd"
+            ? "[Service]\nExecStart=/usr/lib/foreign-controller/daemon\n"
+            : '#!/sbin/openrc-run\ncommand="/usr/lib/foreign-controller/daemon"\n';
+        await writeFile(service, foreign);
+        for (const name of ["install.sh", "uninstall.sh"]) {
+          await expect(run(name)).rejects.toMatchObject({ code: 1 });
+          expect(await readFile(service, "utf8")).toBe(foreign);
+          expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+            "old-binary",
+          );
+          await expect(readFile(log)).rejects.toThrow();
+        }
+      },
+    );
+
+    it.each(["install.sh", "uninstall.sh"])(
+      "refuses %s when systemd resolves the service to a vendor unit",
+      async (name) => {
+        await prepare("systemd");
+        await rm(path.join(directory, "usr/bin/alfc"));
+        await rm(path.join(directory, "etc/systemd/system/alfc.service"));
+        await expect(
+          run(name, { foreignService: "/usr/lib/systemd/system/alfc.service" }),
+        ).rejects.toMatchObject({ code: 1 });
+        expect(await readFile(log, "utf8")).not.toMatch(
+          /\b(stop|disable|restart|daemon-reload)\b/,
+        );
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+      },
+    );
+
+    it.each(["systemd", "openrc"] as const)(
+      "reports %s deregistration failure and keeps the stopped installation for retry",
+      async (init) => {
+        await prepare(init);
+        await expect(
+          run("uninstall.sh", { disable: true }),
+        ).rejects.toMatchObject({
+          code: 23,
+          stdout: expect.not.stringContaining("ALFC uninstalled."),
+        });
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+        expect(
+          await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+        ).toBe('{"user":"preserve"}');
+        const commands = await readFile(log, "utf8");
+        expect(commands).toContain("stopped:old-binary");
+        expect(commands).not.toContain("daemon-reload");
+        await run("uninstall.sh");
+        await expect(readFile(path.join(installed, "alfc"))).rejects.toThrow();
+      },
+    );
+
+    it.each(["install.sh", "uninstall.sh"])(
+      "aborts %s before mutation when systemd identity cannot be queried",
+      async (name) => {
+        await prepare("systemd");
+        await expect(run(name, { show: true })).rejects.toMatchObject({
+          code: 31,
+        });
+        expect(await readFile(log, "utf8")).not.toMatch(
+          /\b(stop|disable|restart|daemon-reload)\b/,
+        );
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+      },
+    );
+
+    it.each(["install.sh", "uninstall.sh"])(
+      "refuses %s when the OpenRC default registration points to a foreign service",
+      async (name) => {
+        await prepare("openrc");
+        const registration = path.join(directory, "etc/runlevels/default/alfc");
+        const foreign = path.join(directory, "etc/init.d/foreign-service");
+        await writeFile(foreign, "foreign startup entry");
+        await rm(registration);
+        await symlink(foreign, registration);
+        await expect(run(name)).rejects.toMatchObject({ code: 1 });
+        expect(await readlink(registration)).toBe(foreign);
+        expect(await readFile(foreign, "utf8")).toBe("foreign startup entry");
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+        await expect(readFile(log)).rejects.toThrow();
+      },
+    );
+
+    it("accepts an owned relative OpenRC default-runlevel link", async () => {
+      await prepare("openrc");
+      const registration = path.join(directory, "etc/runlevels/default/alfc");
+      await rm(registration);
+      await symlink("../../init.d/alfc", registration);
+      await run("install.sh");
+      await rm(registration);
+      await symlink("../../init.d/alfc", registration);
+      await run("uninstall.sh");
+      await expect(readlink(registration)).rejects.toThrow();
+      expect(
+        await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+      ).toBe('{"user":"preserve"}');
+    });
+
+    it.each(["systemd", "openrc"] as const)(
+      "keeps %s removal idempotent after its service registration is gone",
+      async (init) => {
+        await prepare(init);
+        if (init === "openrc")
+          await rm(path.join(directory, "etc/runlevels/default/alfc"));
+        await run("uninstall.sh");
+        await run("uninstall.sh");
+        await expect(readFile(path.join(installed, "alfc"))).rejects.toThrow();
+        expect(
+          await readFile(path.join(installed, "alfc.config.json"), "utf8"),
+        ).toBe('{"user":"preserve"}');
+        const commands = await readFile(log, "utf8");
+        if (init === "openrc") expect(commands).not.toContain(" del ");
+        else expect(commands.match(/ disable /g)).toHaveLength(1);
+      },
+    );
+
+    it("stages the Windows wrapper with its exact notice in the release workflow", async () => {
+      directory = await mkdtemp(path.join(os.tmpdir(), "alfc-windows-stage-"));
+      const fixtureFiles = [
+        "server/dist/alfc.exe",
+        "server/native/windows/wmidll/WmiDll.dll",
+        "frontend/build/index.html",
+        "alfc.config.json",
+        "WinSW-x64.exe",
+        "bootstrap/scripts/install.bat",
+        "bootstrap/scripts/uninstall.bat",
+        "bootstrap/scripts/run.bat",
+        "bootstrap/scripts/alfc-service.xml",
+        "README.md",
+        "common/PROTOCOL.md",
+        "plasmoid/README.md",
+        "plasmoid/package/contents/ui/Protocol.js",
+        "omarchy/install.sh",
+        "omarchy/uninstall.sh",
+        "omarchy/manage.py",
+        "omarchy/module/Widget.qml",
+        "aur/README.md",
+        "assets/screenshot.png",
+      ];
+      for (const name of fixtureFiles) {
+        const target = path.join(directory, name);
+        await mkdir(path.dirname(target), { recursive: true });
+        await writeFile(target, name);
+      }
+      await copyFile(
+        path.join(repositoryRoot, "LICENSE"),
+        path.join(directory, "LICENSE"),
+      );
+      await copyFile(
+        path.join(import.meta.dirname, "WinSW-LICENSE.txt"),
+        path.join(directory, "bootstrap/WinSW-LICENSE.txt"),
+      );
+      const workflow = await readFile(
+        path.join(repositoryRoot, ".github/workflows/release.yml"),
+        "utf8",
+      );
+      const assembly = workflow.match(
+        / {6}- name: Assemble Windows release\n[\s\S]*? {8}run: \|\n([\s\S]*?)(?=\n {6}- name:)/,
+      )?.[1];
+      expect(assembly).toBeDefined();
+      await execute("bash", ["-c", assembly!.replace(/^ {10}/gm, "")], {
+        cwd: directory,
+        env: { ...process.env, ALFC_RELEASE_VERSION: "v2.0.0" },
+        timeout: 5000,
+      });
+      const stage = path.join(directory, "alfc-v2.0.0-windows-x64");
+      expect(await readFile(path.join(stage, "alfc-service.exe"), "utf8")).toBe(
+        "WinSW-x64.exe",
+      );
+      expect(await readFile(path.join(stage, "WinSW-LICENSE.txt"))).toEqual(
+        await readFile(path.join(import.meta.dirname, "WinSW-LICENSE.txt")),
+      );
+      expect(await readFile(path.join(stage, "LICENSE"))).toEqual(
+        await readFile(path.join(repositoryRoot, "LICENSE")),
       );
     });
 
@@ -543,10 +1104,16 @@ exit 0
         "common/COMPATIBILITY.md",
         "aur/README.md",
         "plasmoid/package/metadata.json",
+        "plasmoid/package/contents/ui/Protocol.js",
         "plasmoid/install.sh",
         "plasmoid/uninstall.sh",
         "plasmoid/DEPENDENCIES.md",
         "plasmoid/README.md",
+        "omarchy/install.sh",
+        "omarchy/uninstall.sh",
+        "omarchy/manage.py",
+        "omarchy/module/Widget.qml",
+        "omarchy/module/Backend.qml",
         "bootstrap/scripts/linux/install.sh",
         "bootstrap/scripts/linux/uninstall.sh",
         "bootstrap/scripts/linux/run.sh",
@@ -558,7 +1125,8 @@ exit 0
         });
         await writeFile(
           path.join(directory, name),
-          name === "bootstrap/scripts/linux/alfc.service"
+          name === "bootstrap/scripts/linux/alfc.service" ||
+            name === "plasmoid/package/contents/ui/Protocol.js"
             ? await readFile(path.join(repositoryRoot, name), "utf8")
             : "fixture",
         );
@@ -589,6 +1157,12 @@ exit 0
         "install.sh",
         "alfc.service",
         "plasmoid/package/metadata.json",
+        "plasmoid/package/contents/ui/Protocol.js",
+        "omarchy/install.sh",
+        "omarchy/uninstall.sh",
+        "omarchy/manage.py",
+        "omarchy/module/Widget.qml",
+        "omarchy/module/Backend.qml",
         "LINUX.md",
         "RELEASING.md",
         "SECURITY.md",
@@ -614,6 +1188,31 @@ exit 0
       ).toBe(0o755);
       expect(await readlink(path.join(packageDir, "usr/bin/alfc"))).toBe(
         "/usr/lib/alfc/alfc",
+      );
+      expect(
+        (await stat(path.join(packageDir, "usr/lib/alfc/omarchy/install.sh")))
+          .mode & 0o777,
+      ).toBe(0o755);
+      for (const name of ["Widget.qml", "Backend.qml"])
+        expect(
+          await readFile(
+            path.join(packageDir, "usr/lib/alfc/omarchy/module", name),
+            "utf8",
+          ),
+        ).toBe("fixture");
+      expect(
+        await readFile(
+          path.join(
+            packageDir,
+            "usr/lib/alfc/plasmoid/package/contents/ui/Protocol.js",
+          ),
+          "utf8",
+        ),
+      ).toBe(
+        await readFile(
+          path.join(repositoryRoot, "plasmoid/package/contents/ui/Protocol.js"),
+          "utf8",
+        ),
       );
       expect(
         await readFile(

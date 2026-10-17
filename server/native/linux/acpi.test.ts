@@ -54,6 +54,74 @@ describe("linux ACPI adapter", () => {
     expect(writtenCommands).toEqual(["\\_SB.PCI0.AMW0.WMBD 0 104 0x030201"]);
   });
 
+  it("normalizes uppercase hexadecimal IDs for acpi_call's lowercase-prefix parser", async () => {
+    const acpi = await import("./acpi");
+    await acpi.getCall("0XE1", "getCpuTemp");
+    await acpi.setCall("0X81", "SetAIBoostStatus", { Data: 1 });
+    // acpi_call.c recognizes only a literal lowercase '0x' prefix before
+    // choosing hexadecimal parsing; '0XE1' otherwise parses as decimal zero.
+    expect(writtenCommands).toEqual([
+      "\\_SB.PCI0.AMW0.WMBC 0 0xe1 0",
+      "\\_SB.PCI0.AMW0.WMBD 0 0x81 0x01",
+    ]);
+  });
+
+  it("rejects an input signature wider than the kernel integer transport before writing", async () => {
+    const acpi = await import("./acpi");
+    await expect(
+      acpi.setCall("96", "SetDeepFan", {
+        Temperature0: 10,
+        Temperature1: 20,
+        Temperature2: 30,
+        Temperature3: 40,
+        Temperature4: 50,
+        Speed0: 60,
+        Speed1: 70,
+        Speed2: 80,
+        Speed3: 90,
+        Speed4: 100,
+      }),
+    ).rejects.toThrow("8-byte ACPI integer");
+    expect(writtenCommands).toEqual([]);
+  });
+
+  it.each([0x00, 0x7f, 0x80, 0xff])(
+    "preserves a full eight-byte input with high byte %i",
+    async (highByte) => {
+      // The current catalog has inputs of at most six bytes or SetDeepFan's
+      // ten bytes. Supply a controlled eight-byte catalog entry to exercise
+      // the integer boundary, including its signed high bit, without hardware.
+      const { setMethods } = await import("../../../common/methods");
+      setMethods.TestEightBytePacking = {
+        methodId: "1",
+        methodName: "TestEightBytePacking",
+        description: "Controlled transport-width fixture",
+        inArgs: Array.from({ length: 8 }, (_, index) => ({
+          name: `Byte${index}`,
+          type: "uint8",
+          description: "Controlled byte",
+        })),
+        outArgs: [],
+      };
+      try {
+        const acpi = await import("./acpi");
+        const values = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, highByte];
+        await acpi.setCall(
+          "1",
+          "TestEightBytePacking",
+          Object.fromEntries(
+            values.map((value, index) => [`Byte${index}`, value]),
+          ),
+        );
+        expect(writtenCommands).toEqual([
+          `\\_SB.PCI0.AMW0.WMBD 0 1 0x${highByte.toString(16).padStart(2, "0")}77665544332211`,
+        ]);
+      } finally {
+        delete setMethods.TestEightBytePacking;
+      }
+    },
+  );
+
   it("rejects firmware errors returned after a successful write", async () => {
     const acpi = await import("./acpi");
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

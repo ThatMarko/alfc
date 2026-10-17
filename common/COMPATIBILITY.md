@@ -10,19 +10,30 @@ See [PROTOCOL.md](PROTOCOL.md) for the exact envelope, constraints, and errors.
 | ---------------------------------------- | ------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Current React web UI                     | 1.1 and later major-1 minors                | Modern desktop browser on Linux or Windows | Managed fan mode/percentage/curves, CPU tuning, GPU boost, telemetry, and web-only raw diagnostics.                                   |
 | Current Plasma widget                    | 1.1 and later major-1 minors                | KDE Plasma 6 on Linux                      | The same primary managed controls and telemetry, with panel, tray, and desktop presentations.                                         |
+| Omarchy status/launcher module           | 1.1 and later major-1 minors                | Omarchy 4.0.4 Quickshell on Linux          | Read-only validated status and telemetry, plus a user-session launcher for the existing web controls; no hardware mutations.          |
 | Older/custom clients without `requestId` | The 1.1 server still accepts their envelope | Local WebSocket client                     | Must obey current method/payload validation; responses can echo method metadata, but safe correlation is the client's responsibility. |
 | Current clients with a 1.0 server        | Unsupported                                 | Any                                        | Current clients require the request correlation introduced in 1.1 and reject the snapshot.                                            |
 
-Both current clients can save inactive fan presets without changing mode. The web
+The web and Plasma clients can save inactive fan presets without changing mode. The web
 UI retains its last validated settings and edits to unchanged fields across reconnects, with
-controls disabled until the new socket supplies a valid snapshot. Interrupted
+controls disabled until the new socket supplies a valid snapshot. A connection
+that opens without supplying a validated initial snapshot is retired after ten
+seconds by the web and Plasma clients. Interrupted
 requests stay unconfirmed and are not replayed.
 
-Both current clients validate incoming snapshots and telemetry before using them,
-correlate their commands with `requestId`, stop pending commands on connection
+The web and Plasma clients validate incoming snapshots and telemetry before using them,
+correlate their commands with `requestId`, ignore malformed response metadata,
+stop pending commands on connection
 loss, and mark activity older than ten seconds stale. They resubscribe after
 reconnecting and do not replay uncertain writes. Sharing one machine or listening
 on a different loopback address does not create separate backend state.
+
+The optional [Omarchy module](../OMARCHY.md) reuses the QML protocol guards.
+It holds one read-only WebSocket subscription, with bounded reconnect and
+heartbeat timers, and distinguishes waiting, offline, stale, sensor failure,
+unconfirmed output, unavailable capability and restart-required states. It
+opens the web UI from the desktop user’s session. This desktop integration
+does not establish laptop firmware compatibility.
 
 The local `/ws` and `/ws/` endpoints are equivalent and enforce the same GET and
 Origin policy. The shipped browser UI requires plain HTTP on the local hostname
@@ -91,6 +102,10 @@ remote-management endpoint.
 The raw method catalog is shared between both native backends and the web UI.
 Inputs use their declared integer widths and canonical order. Large packed reads
 are exact decimal strings when they exceed JavaScript's safe integer range.
+Linux packs inputs into one 64-bit ACPI integer and rejects signatures wider
+than eight bytes before dispatch. Its ten-byte `SetDeepFan` input is unsupported;
+ten-byte outputs such as `GetDeepFan` remain supported. Windows uses named WMI
+arguments and does not share that input limit.
 Direct raw fan setters are intentionally rejected with `MANAGED_FAN_CONTROL` to
 preserve the configuration/output relationship. The widget does not expose the
 raw diagnostics catalog.
@@ -126,8 +141,14 @@ arbitrary opcodes or direct fan writes must migrate to supported commands.
 `bun run all-checks` covers TypeScript, ESLint, Vitest contracts, and package
 builds. Relevant tests include shared decoder checks, handler validation and
 cross-listener broadcasts, persistence recovery, fan-control timing/failures, and
-web/Qt guard parity. Browser tests and Qt Quick tests exercise their own runtime
-behavior. Linux cloud checks can validate protocol behavior and package startup
+web/Qt guard parity. `bun run test:integration` uses built production web assets
+and the actual QML connection client with production HTTP/WebSocket/state/native
+queue code and explicit fake hardware adapters. It requires the documented Qt
+runtime and a free loopback port 5522; it covers correlated errors, cross-family
+broadcasts, interrupted writes without replay, capability failures, persistence
+failure and restart/readback. Browser scenarios and Qt Quick tests retain their
+focused controlled-response coverage. Matching Qt/KDE component tests are a
+separate required CI job; a substituted shell boundary is not a desktop session. Linux cloud checks can validate protocol behavior and package startup
 without proving physical fan, RAPL, WMI, or XTU operation.
 
 A release still needs recorded manual evidence for supported devices and desktop

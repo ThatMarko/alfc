@@ -39,15 +39,42 @@ export function useBackendCommand() {
   const [isPending, setIsPending] = useState(false);
   const pendingRef = useRef(false);
   const mountedRef = useRef(true);
+  const commandFocusRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
     };
   }, []);
+  useEffect(() => {
+    if (isPending) {
+      const onFocus = () => {
+        if (
+          document.activeElement !== document.body &&
+          document.activeElement !== commandFocusRef.current
+        )
+          commandFocusRef.current = null;
+      };
+      // Remember navigation even when a second form subsequently disables its
+      // own focused control. An older completion must not reclaim that focus.
+      document.addEventListener("focusin", onFocus);
+      return () => document.removeEventListener("focusin", onFocus);
+    }
+    const target = commandFocusRef.current;
+    commandFocusRef.current = null;
+    // Disabling a pending control can move focus to the document body. Restore
+    // it after the controls re-enable, while respecting deliberate navigation.
+    if (target?.isConnected && document.activeElement === document.body)
+      target.focus({ preventScroll: true });
+    return undefined;
+  }, [isPending]);
   const runCommand = useCallback(
     async (message: Command, notify = true) => {
       if (pendingRef.current) return undefined;
+      commandFocusRef.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
       pendingRef.current = true;
       setIsPending(true);
       try {

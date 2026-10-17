@@ -41,7 +41,8 @@ Item {
                 // Absence is expected in the Qt-only CI image. A present but
                 // broken/incompatible plugin must fail, rather than hide lost
                 // editor coverage behind the same optional-runtime skip.
-                if (String(error).indexOf('module "org.kde.plasma.components" is not installed') === -1) {
+                if (alfcTestTier !== "qt-only"
+                        || String(error).indexOf('module "org.kde.plasma.components" is not installed') === -1) {
                     fail("Unable to load Plasma components: " + error)
                 }
             }
@@ -162,6 +163,21 @@ Item {
             fixture.editor.updateValue(model, 0, "speed", "70")
             waitForRendering(canvas)
             verify(!grabImage(canvas).equals(first))
+        }
+
+        function test_keyboardFocusSurvivesPointRemovalAndInsertion() {
+            const remove = findChild(fixture.editor, "fanCurveRemove-1")
+            verify(remove !== null)
+            remove.forceActiveFocus()
+            keyClick(Qt.Key_Space)
+            compare(fixture.editor.activeModel().count, 1)
+            const first = findChild(fixture.editor, "fanCurveTemperature-0")
+            tryCompare(first, "activeFocus", true)
+            fixture.editor.addRow()
+            compare(fixture.editor.activeModel().count, 2)
+            const added = findChild(fixture.editor, "fanCurveTemperature-1")
+            tryCompare(added, "activeFocus", true)
+            compare(added.Accessible.name, "CPU fan curve point 2 temperature")
         }
     }
 }

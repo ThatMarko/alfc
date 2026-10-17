@@ -1,9 +1,13 @@
-# PR #1 implementation and documentation audit
+# ALFC implementation and documentation review
 
-This audit applies to `feat/wmi-ffi`, the branch for
-[PR #1](https://github.com/ThatMarko/alfc/pull/1). It covers implementation,
-client parity, packaging, documentation, and evidence limits. A package version,
-passing fixtures, or a native compile does not certify physical laptop support.
+The original audit below records `feat/wmi-ffi` and
+[PR #1](https://github.com/ThatMarko/alfc/pull/1), merged into `master` as
+`79791f67b7c544b9a9f61e168a88bce5f22fc085`. Its final verified feature commit
+was `ee6ae26`; the [four-job baseline run](https://github.com/ThatMarko/alfc/actions/runs/38667043632)
+is historical evidence. It does not restrict follow-up work to that branch.
+Current mainline findings and freshly executed checks are recorded separately in
+[MAINTENANCE_REVIEW.md](MAINTENANCE_REVIEW.md). A package version, passing fixture,
+or native compile does not certify physical laptop support.
 
 ## Scope and review method
 
@@ -70,7 +74,7 @@ intact, with project/reporting links clarified.
   proceed after a failed service stop, preserves settings, and protects another
   installation's command link. Local tar creation uses separate staging.
 
-## Toolchain and repeatable checks
+## Pre-merge toolchain and repeatable checks
 
 Bun 1.4.3 was confirmed as the latest stable npm release during this audit and
 is pinned by the package manager and workflows. Node.js 24.11 or newer within major 24 runs development
@@ -165,13 +169,15 @@ python3 -m venv /tmp/alfc-qt
 /tmp/alfc-qt/bin/python plasmoid/run_qml_tests.py
 ```
 
-Full editor/layout tests require compatible Plasma/Kirigami modules; the verified
+The historical full editor/layout run required compatible Plasma/Kirigami modules; the verified
 Plasma 6.3.5 environment uses Qt 6.8.2, in a separate environment from Qt 6.12.
 Qt-only CI checks both PySide6 6.8.2.1 and 6.12.0 and
 reports those missing modules as explicit skips. Linked EGL/GL libraries and Qt
 Quick software rendering are required by the headless setup. See
 [plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md). This is not a full Plasma
-shell session.
+shell session. For the current required distro-native component tier, follow
+[plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md) rather than mixing Qt wheels
+and distro private-ABI plugins.
 
 Linux CI also runs C++ packing and C# export fixtures. Windows CI builds the
 actual WMI DLL with MSVC and executes the COM completion/integer-decoder harness
@@ -277,7 +283,7 @@ replacement needs a supported runtime boundary and complete licensed dependencie
 NativeAOT libraries cannot be explicitly unloaded; their owning worker remains
 loaded until process exit.
 
-## Verification results
+## Historical pre-merge verification results
 
 - Frozen installation, ESLint, strict TypeScript, and both workspace builds pass.
   Vitest executes 25 files: 335 tests pass on Linux and twelve Windows-only cases
@@ -304,9 +310,10 @@ loaded until process exit.
 - The live registry audit reports no advisories after the toolchain changes.
   This is a point-in-time result, not a promise about future advisories.
 
-Tests using controlled native fixtures do not access real firmware or Intel
-drivers. Review the CI run associated with the audit commit on PR #1 for actual
-Linux/Windows outcomes, including MSVC and the Windows COM regression executable.
+These results were recorded before the merge; they are not fresh mainline test
+results. Tests using controlled native fixtures do not access real firmware or
+Intel drivers. Review the linked baseline CI run for its actual Linux/Windows
+outcomes, including MSVC and the Windows COM regression executable.
 
 ## Authoritative grounding
 

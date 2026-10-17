@@ -684,6 +684,34 @@ test("fan row controls cannot insert duplicate floating-point temperatures", asy
   expect(server.errors).toEqual([]);
 });
 
+test("removing a fan curve row keeps keyboard focus in the remaining curve", async ({
+  page,
+}) => {
+  const server = await backend(page);
+  const gpuTemperature = page.getByLabel("GPU temperature for row 1");
+  await gpuTemperature.fill("42.5");
+  await page
+    .getByRole("button", { name: "Remove CPU row 2", exact: true })
+    .focus();
+  await page.keyboard.press("Enter");
+  const nextTemperature = page.getByLabel("CPU temperature for row 2");
+  await expect(nextTemperature).toHaveValue("88");
+  await expect(nextTemperature).toBeFocused();
+  await nextTemperature.fill("89");
+  await page
+    .getByRole("button", { name: "Remove CPU row 2", exact: true })
+    .focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("CPU temperature for row 1")).toBeFocused();
+  await expect(page.getByLabel("CPU temperature for row 2")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Remove CPU row 1", exact: true }),
+  ).toBeDisabled();
+  await expect(gpuTemperature).toHaveValue("42.5");
+  expect(server.requests).toEqual([]);
+  expect(server.errors).toEqual([]);
+});
+
 test("a server without request correlation is rejected before writes are enabled", async ({
   page,
 }) => {
@@ -758,5 +786,103 @@ test("unknown GPU capability cannot advertise or enable GPU boost writes", async
     page.getByLabel("Argument Data", { exact: true }),
   ).toHaveAttribute("max", "1");
   expect(server.requests).toEqual([]);
+  expect(server.errors).toEqual([]);
+});
+
+test("keyboard submissions restore focus after confirmation without stealing focus from another form", async ({
+  page,
+}) => {
+  const server = await backend(page);
+  const fixed = page.getByLabel("Fixed fan speed percentage");
+  const apply = page
+    .getByRole("form", { name: "Fixed speed preset" })
+    .getByRole("button", { name: "Apply" });
+  await fixed.fill("61");
+  await fixed.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(1);
+  server.push({ fixedPercentage: 61 });
+  server.send({ kind: "success", requestId: server.requests[0]?.requestId });
+  await expect(apply).toBeEnabled();
+  await expect(apply).toBeFocused();
+
+  // Completing a separate operation must respect a user's new focus target.
+  await fixed.fill("62");
+  await fixed.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(2);
+  const pl1 = page.getByLabel("PL1 power limit in watts");
+  await pl1.focus();
+  server.push({ fixedPercentage: 62 });
+  server.send({ kind: "success", requestId: server.requests[1]?.requestId });
+  await expect(apply).toBeEnabled();
+  await expect(pl1).toBeFocused();
+
+  // Tuning submits from its input and must also keep its keyboard position
+  // after an error re-enables the fieldset.
+  await pl1.fill("47");
+  await pl1.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(3);
+  server.send({
+    kind: "error",
+    requestId: server.requests[2]?.requestId,
+    data: "Power limit could not be confirmed.",
+  });
+  await expect(pl1).toBeEnabled();
+  await expect(pl1).toBeFocused();
+  await expect(
+    page.getByText("Power limit could not be confirmed."),
+  ).toBeVisible();
+
+  // Both forms can be pending together. The older completion cannot reclaim
+  // focus after navigation to the newer form, even while its field is disabled.
+  await fixed.fill("63");
+  await fixed.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(4);
+  await pl1.fill("48");
+  await pl1.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(5);
+  server.push({ fixedPercentage: 63 });
+  server.send({ kind: "success", requestId: server.requests[3]?.requestId });
+  await expect(apply).toBeEnabled();
+  await expect(page.locator("body")).toBeFocused();
+  server.send({ kind: "success", requestId: server.requests[4]?.requestId });
+  await expect(pl1).toBeEnabled();
+  await expect(pl1).toBeFocused();
+  expect(server.errors).toEqual([]);
+});
+
+test("keyboard mode changes retain focus after success or error without resending the selected mode", async ({
+  page,
+}) => {
+  const server = await backend(page);
+  const fixedMode = page.getByRole("button", { name: "Switch to fixed mode" });
+  const autoMode = page.getByRole("button", { name: "Switch to auto mode" });
+  await fixedMode.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(1);
+  await expect(fixedMode).toBeDisabled();
+  await expect(autoMode).toBeDisabled();
+  server.push({ doFixedSpeed: true });
+  server.send({ kind: "success", requestId: server.requests[0]?.requestId });
+  await expect(fixedMode).toHaveAttribute("aria-pressed", "true");
+  await expect(fixedMode).toBeFocused();
+  await fixedMode.press("Enter");
+  await fixedMode.press("Space");
+  await autoMode.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => server.requests.length).toBe(2);
+  expect(server.requests[1]).toMatchObject({
+    kind: "dofixedspeed",
+    data: false,
+  });
+  await expect(autoMode).toBeDisabled();
+  server.send({
+    kind: "error",
+    requestId: server.requests[1]?.requestId,
+    data: "ACPI_ERROR: mode change rejected",
+  });
+  await expect(autoMode).toBeEnabled();
+  await expect(autoMode).toBeFocused();
+  await expect(fixedMode).toHaveAttribute("aria-pressed", "true");
+  expect(server.requests.map((request) => request.data)).toEqual([true, false]);
   expect(server.errors).toEqual([]);
 });

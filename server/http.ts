@@ -3,6 +3,36 @@ import { realpath } from "node:fs/promises";
 
 const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+// Keep source, packaged execution, and the hardware-free integration entrypoint
+// on the same HTTP and upgrade boundary. Only index.ts owns privilege checks
+// and hardware startup; this handler has no permission bypass or test routes.
+export function createHttpHandler({
+  frontendDir,
+  isDev,
+  isShuttingDown,
+}: {
+  frontendDir: string;
+  isDev: boolean;
+  isShuttingDown: () => boolean;
+}) {
+  return (request: Request, server: Bun.Server<undefined>) => {
+    if (isShuttingDown()) {
+      return new Response("Service Unavailable", { status: 503 });
+    }
+    const webSocketResponse = handleWebSocketRequest(request, server);
+    if (webSocketResponse !== null) return webSocketResponse;
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return new Response("Method Not Allowed", {
+        status: 405,
+        headers: { Allow: "GET, HEAD" },
+      });
+    }
+    return isDev
+      ? new Response("Nothing to see here.")
+      : serveFrontendAsset(frontendDir, new URL(request.url).pathname);
+  };
+}
+
 // null leaves non-WebSocket paths to the static HTTP handler; undefined means
 // Bun accepted an upgrade and owns the response.
 export function handleWebSocketRequest(
