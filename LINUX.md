@@ -78,6 +78,8 @@ and optional desktop resources omitted from the new release. Required source
 paths must have the expected file or directory type. Installation also rejects
 symlinked destination roots, executables, helpers, configuration and service
 definitions before stopping services or replacing files.
+The release must include a regular `frontend/index.html`; an empty frontend
+directory cannot replace a working installation.
 The source release must be outside the installation tree, including when reached
 through a directory symlink, so retiring old resources cannot delete its source.
 Subsequent production settings saves retain the configuration's POSIX permission

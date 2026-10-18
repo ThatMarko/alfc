@@ -171,7 +171,7 @@ if [[ "${INIT_SYSTEM}" == "unknown" ]]; then
   exit 1
 fi
 
-for required in alfc.config.json uninstall.sh run.sh; do
+for required in alfc.config.json uninstall.sh run.sh frontend/index.html; do
   if [[ ! -f "${SCRIPT_DIR}/${required}" ]]; then
     echo "Release is incomplete: missing regular file ${required}; no files were changed."
     exit 1

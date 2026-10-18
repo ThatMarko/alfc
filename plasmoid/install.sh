@@ -33,12 +33,20 @@ if [[ -d "${INSTALLED_PACKAGE}" ]]; then
 fi
 # KPackage derives the uninstall target from metadata, including while
 # upgrading. A directory named org.kde.alfc must not name another applet there.
-python3 - "${metadata_files[@]}" <<'PY'
+python3 - "${PACKAGE_DIR}" "${INSTALLED_PACKAGE}" "${metadata_files[@]}" <<'PY'
 import json
 from pathlib import Path
 import sys
 
-for name in sys.argv[1:]:
+try:
+    source = Path(sys.argv[1]).resolve()
+    installed = Path(sys.argv[2]).resolve()
+except (OSError, RuntimeError) as error:
+    sys.exit(f"Error: cannot resolve package paths: {error}")
+if source == installed or source in installed.parents or installed in source.parents:
+    sys.exit("Error: refusing overlapping source and installed package directories.")
+
+for name in sys.argv[3:]:
     entry = Path(name)
     try:
         if entry.is_symlink() or not entry.is_file():

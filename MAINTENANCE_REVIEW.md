@@ -371,3 +371,60 @@ regressions and richer failure diagnostics. The production ownership guards
 and all positive/negative assertions remain intact. The existing real-token
 probe also exceeded its 20-second hosted-runner budget; its test-only limit is
 now 40 seconds with sibling-process cancellation and the same token comparison.
+
+## Complete tracked-file reading
+
+The next 2026-10-18 review began at
+`4a68de5d52c1e07a0084ba4d2c1fa2388f114a61`. Its inventory contained 224 tracked
+files: 220 text files with 31,285 lines and four binary assets. Every text file
+was read start to finish, including the entire lockfile, tests, manifests,
+workflows, source, scripts, licenses, and documentation. Bounded reads and
+per-file SHA-256 records were used to reconcile coverage; truncated output was
+reread rather than counted as complete. Changed sections were reviewed again.
+Dependencies and generated build outputs are outside this source inventory.
+
+| Reading area                 | Files | Original text lines |
+| ---------------------------- | ----- | ------------------- |
+| Root, tooling and docs       | 38    | 4,036               |
+| Frontend and public assets   | 49    | 4,679               |
+| Native adapters and bindings | 25    | 4,489               |
+| Plasma widget and tooling    | 38    | 5,708               |
+| Backend and shared protocol  | 36    | 7,310               |
+| Bootstrap and AUR            | 20    | 3,215               |
+| Omarchy and integration      | 18    | 1,848               |
+
+All three image/icon assets were decoded and visually inspected. The proprietary
+Intel DLL was inspected through PE/CLR metadata without execution; its source is
+unavailable, and this does not certify its internals or deployment. Its known
+Framework/WCF/SQL CE/Intel companion dependencies remain the documented reason
+that the CPUOC prototype is excluded from standard archives.
+
+The review checked all 74 frontend relative imports, HTML/manifest resources,
+widget resources and local imports, 71 getter and 66 setter declarations, and
+all workspace declarations in the lockfile. Its 361 external integrity records
+and 698 dependency/peer edges were consistent, allowing explicitly optional
+peer absences. Frozen installation and the live audit passed without dependency
+changes or advisory suppression.
+
+Three additional issues were reproduced and fixed:
+
+- Linux installation accepted a frontend directory without `index.html`,
+  replacing a working installation and reporting success without its UI.
+  Missing or directory entry files now fail before service changes; four
+  systemd/OpenRC regressions retain the old executable and assets.
+- A Plasma source alias or nested installation tree let KPackage remove its
+  own source during upgrade. Resolved source/destination overlap now fails
+  before package operations. Both adapter fixtures and real isolated KPackage
+  reproduced the prior deletion and verified preservation after the fix.
+- Cache cleanup omitted `integration/tsconfig.tsbuildinfo`. It now removes all
+  five known project caches. An isolated execution verifies that an unrelated
+  cache remains untouched.
+
+No further confirmed defect was found in the frontend, backend/shared, native,
+or Omarchy review. Fresh combined checks passed lint, strict types, 432 Linux
+tests across 30 files (35 Windows-only skips), both production builds, all 22
+browser scenarios and both production web/QML scenarios. Matching Qt/Plasma
+passed 97 checks without skips; Qt-only 6.12 passed 74 with 23 component skips.
+Omarchy passed 22 checks without skips on both runtimes. Twelve Plasma and eight
+Omarchy installer fixtures passed. Physical hardware and full desktop sessions
+remain separate gates; final remote platform results are linked from PR #15.

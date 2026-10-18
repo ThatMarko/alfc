@@ -693,6 +693,7 @@ describe.skipIf(process.platform === "win32")(
       await writeFile(path.join(release, "alfc"), "new-binary");
       await writeFile(path.join(release, "alfc.config.json"), "default config");
       await writeFile(path.join(release, "frontend/new.js"), "new asset");
+      await writeFile(path.join(release, "frontend/index.html"), "new entry");
       await writeFile(path.join(release, "omarchy/install.sh"), "user helper", {
         mode: 0o755,
       });
@@ -984,6 +985,29 @@ exit 0
         expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
           "old-binary",
         );
+      },
+    );
+
+    it.each([
+      { init: "systemd", entry: "missing" },
+      { init: "systemd", entry: "directory" },
+      { init: "openrc", entry: "missing" },
+      { init: "openrc", entry: "directory" },
+    ] as const)(
+      "rejects a $entry frontend entry before changing a working $init installation",
+      async ({ init, entry }) => {
+        await prepare(init);
+        const index = path.join(release, "frontend/index.html");
+        await rm(index);
+        if (entry === "directory") await mkdir(index);
+        await expect(run("install.sh")).rejects.toMatchObject({ code: 1 });
+        await expect(readFile(log)).rejects.toThrow();
+        expect(await readFile(path.join(installed, "alfc"), "utf8")).toBe(
+          "old-binary",
+        );
+        expect(
+          await readFile(path.join(installed, "frontend/old.js"), "utf8"),
+        ).toBe("old asset");
       },
     );
 

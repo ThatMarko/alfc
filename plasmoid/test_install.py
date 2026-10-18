@@ -171,6 +171,28 @@ else:
         self.assertNotEqual(self.commands()[0][3], str(self.target.parent))
         self.assertEqual(list(self.scratch.iterdir()), [])
 
+    def test_upgrade_source_alias_preserves_the_working_user_package(self):
+        source_package = self.source / "package"
+        shutil.copytree(source_package, self.target)
+        original = (self.target / "contents/ui/main.qml").read_bytes()
+        shutil.rmtree(source_package)
+        for candidate in (self.target, self.target / "upgrade candidate"):
+            if candidate != self.target:
+                shutil.copytree(self.target, candidate)
+            source_package.symlink_to(candidate, target_is_directory=True)
+            failed = self.run_script("install.sh", expected=1)
+            self.assertIn("overlapping source and installed", failed.stderr)
+            self.assertEqual((self.target / "contents/ui/main.qml").read_bytes(), original)
+            self.assertEqual(self.commands(), [])
+            source_package.unlink()
+
+    def test_install_destination_inside_source_fails_before_recursive_copy(self):
+        self.env["XDG_DATA_HOME"] = str(self.source / "package" / "nested user data")
+        failed = self.run_script("install.sh", expected=1)
+        self.assertIn("overlapping source and installed", failed.stderr)
+        self.assertFalse((self.source / "package" / "nested user data").exists())
+        self.assertEqual(self.commands(), [])
+
     def test_symlink_and_non_directory_user_packages_are_rejected(self):
         self.target.parent.mkdir(parents=True)
         victim = self.root / "foreign"
