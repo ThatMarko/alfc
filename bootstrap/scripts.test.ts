@@ -155,7 +155,17 @@ if (executable === "powershell.exe") {
 }
 if (executable === "sc.exe") {
   if (process.env.ALFC_TEST_QUERY_FAIL === "1") process.exit(5);
-  process.exit(readFileSync(process.env.ALFC_TEST_STATE, "utf8") === "deleted" ? 1060 : 0);
+  if (readFileSync(process.env.ALFC_TEST_STATE, "utf8") === "deleted") {
+    // Bun's process.exit narrows status to eight bits. SCM uses Win32 DWORD
+    // errors, including ERROR_SERVICE_DOES_NOT_EXIST (1060).
+    const { dlopen, FFIType } = await import("bun:ffi");
+    const kernel = dlopen("kernel32.dll", {
+      ExitProcess: { args: [FFIType.u32], returns: FFIType.void },
+    });
+    kernel.symbols.ExitProcess(1060);
+    throw new Error("ExitProcess unexpectedly returned");
+  }
+  process.exit(0);
 }
 if (executable !== "alfc-service.exe") process.exit(90);
 const command = process.argv[2];
@@ -278,7 +288,13 @@ switch (command) {
         },
       );
       result.child.stdin?.end("\r\n");
-      return result;
+      return result.catch((error: unknown) => {
+        if (error instanceof Error) {
+          const failure = error as Error & { stdout?: string; stderr?: string };
+          failure.message += `\nstdout:\n${failure.stdout ?? ""}\nstderr:\n${failure.stderr ?? ""}`;
+        }
+        throw error;
+      });
     }
 
     async function runWithoutWaiting(name: string) {
@@ -328,6 +344,18 @@ switch (command) {
       await run("install.bat");
       expect(await readFile(log, "utf8")).toBe("install\nstart\n");
       expect(await readFile(stateFile, "utf8")).toBe("running");
+    }, 15_000);
+
+    it("preserves the native SCM missing-service exit status", async () => {
+      await writeFile(stateFile, "deleted");
+      await expect(
+        execute(path.join(release, "sc.exe"), ["query", "alfc"], {
+          env: { ...process.env, ALFC_TEST_STATE: stateFile },
+          timeout: 10_000,
+          windowsHide: true,
+        }),
+      ).rejects.toMatchObject({ code: 1060 });
+      await expect(readFile(log)).rejects.toThrow();
     }, 15_000);
 
     it.each([
@@ -418,6 +446,12 @@ switch (command) {
         status: 1,
       },
       {
+        name: "relative wrapper path",
+        image: "relative",
+        query: "0",
+        status: 1,
+      },
+      {
         name: "unreadable service identity",
         image: "unreadable",
         query: "0",
@@ -463,10 +497,12 @@ switch (command) {
         const script = `function Get-ItemProperty {
   param($LiteralPath, $Name, $ErrorAction)
   if ($env:ALFC_TEST_IMAGE -eq 'unreadable') { throw 'fixture identity read failed' }
-  $wrapper = $env:ALFC_WRAPPER_PATH
+  $wrapper = [IO.Path]::GetFullPath($env:ALFC_WRAPPER_PATH)
+  [Console]::Error.WriteLine(('fixture raw wrapper: ' + $env:ALFC_WRAPPER_PATH + '; normalized wrapper: ' + $wrapper))
   switch ($env:ALFC_TEST_IMAGE) {
     'case' { $wrapper = $wrapper.ToUpperInvariant() }
     'foreign' { $wrapper = Join-Path (Split-Path $wrapper) 'foreign.exe' }
+    'relative' { $wrapper = 'alfc-service.exe' }
   }
   $image = [string][char]34 + $wrapper + [char]34
   if ($env:ALFC_TEST_IMAGE -eq 'arguments') { $image += ' --foreign-config' }
@@ -475,6 +511,7 @@ switch (command) {
 }
 ${guards[0]}`;
         let status = 0;
+        let diagnostic = "";
         try {
           await execute(
             path.join(
@@ -495,9 +532,15 @@ ${guards[0]}`;
             },
           );
         } catch (error) {
-          status = Number((error as { code?: number | string }).code);
+          const failure = error as {
+            code?: number | string;
+            stdout?: string;
+            stderr?: string;
+          };
+          status = Number(failure.code);
+          diagnostic = `stdout:\n${failure.stdout ?? ""}\nstderr:\n${failure.stderr ?? ""}`;
         }
-        expect(status).toBe(fixture.status);
+        expect(status, diagnostic).toBe(fixture.status);
         await expect(readFile(log)).rejects.toThrow();
       },
       15_000,

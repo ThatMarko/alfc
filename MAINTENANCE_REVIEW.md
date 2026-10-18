@@ -334,7 +334,7 @@ Confirmed failures and fixes:
 Fresh combined checks passed frozen Bun 1.4.3 installation, the live advisory
 audit (293 packages, no vulnerabilities), lint, strict workspace/integration
 types, 428 Linux tests across 30 Vitest files, and both production builds.
-The 33 local platform skips include 32 Windows batch/PowerShell cases that
+The 35 local platform skips include 34 Windows batch/PowerShell cases that
 require actual Windows CI. All 22 Chromium scenarios and both production
 web/QML integration scenarios passed. Matching Qt 6.8.2 / Plasma / Kirigami
 passed 97 checks with no skips; explicit Qt-only 6.12 passed 74 with 23 component
@@ -361,3 +361,13 @@ Final-commit Windows, Linux and Qt evidence remains available through
 [PR #15's checks](https://github.com/ThatMarko/alfc/pull/15/checks). Real UAC/SCM,
 full Plasma/Omarchy sessions, physical fan/RAPL behavior and firmware handoff
 remain separate manual release gates.
+
+The first Windows CI attempt exposed fixture mismatches: the compiled SCM
+substitute narrowed the missing-service status instead of preserving the native
+DWORD value 1060, and the registry substitute supplied a raw temporary path
+instead of WinSW's canonical executable path. Those boundaries now use Win32
+`ExitProcess` and .NET path normalization, with explicit status and relative-path
+regressions and richer failure diagnostics. The production ownership guards
+and all positive/negative assertions remain intact. The existing real-token
+probe also exceeded its 20-second hosted-runner budget; its test-only limit is
+now 40 seconds with sibling-process cancellation and the same token comparison.

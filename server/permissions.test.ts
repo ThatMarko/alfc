@@ -32,7 +32,10 @@ it.runIf(process.platform === "win32")(
     async function probe(label: string, command: string, args: string[]) {
       try {
         const { stdout } = await execute(command, args, {
-          timeout: 20_000,
+          // Hosted Windows cold starts can exceed 20 seconds while compiled
+          // fixtures are launching. Keep a bounded probe without weakening the
+          // effective-token comparison or changing production startup policy.
+          timeout: 40_000,
           signal: controller.signal,
           windowsHide: true,
         });
@@ -70,7 +73,7 @@ it.runIf(process.platform === "win32")(
       controller.abort();
     }
   },
-  25_000,
+  45_000,
 );
 
 describe("effective process privileges", () => {
