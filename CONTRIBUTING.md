@@ -116,6 +116,10 @@ Additional checks, with prerequisites and limits, are in
   the legacy Intel SDK can be published or executed through NativeAOT.
 - Real Bun subprocess tests exercise loopback networking and entrypoint cleanup
   with hardware replaced by fixtures.
+- `python3 plasmoid/test_install.py` and `python3 omarchy/test_install.py` run
+  the shipped per-user helpers in disposable directories. Service and AUR
+  lifecycle regressions run with Vitest against isolated manager adapters;
+  they never install or remove a host service.
 
 Husky runs lint-staged before commits: ESLint on staged JS/TS, workspace type
 checks for TS changes, and Prettier on staged JSON/CSS/Markdown. QML library JS

@@ -46,6 +46,7 @@ const exitWithError = () => {
 
 const servers: Bun.Server<undefined>[] = [];
 let nativeInitialization: Promise<void> | undefined;
+let isReady = false;
 let isShuttingDown = false;
 let shutdownPromise: Promise<void> | undefined;
 let shutdownExitCode = 0;
@@ -189,11 +190,6 @@ async function runServer() {
   }
   if (isShuttingDown) return;
 
-  console.log("[Server] Initializing fan control...");
-  nativeInitialization = initNativeServices(() => isShuttingDown);
-  await nativeInitialization;
-  if (isShuttingDown) return;
-
   console.log("[Server] Starting server...");
 
   const options = {
@@ -202,6 +198,7 @@ async function runServer() {
     fetch: createHttpHandler({
       frontendDir,
       isDev,
+      isReady: () => isReady,
       isShuttingDown: () => isShuttingDown,
     }),
 
@@ -217,6 +214,15 @@ async function runServer() {
     return;
   }
 
+  // Acquire every control endpoint before touching hardware. A second manual
+  // start beside an installed service must fail without changing its fan mode
+  // or restoring BIOS control over the existing controller during rollback.
+  console.log("[Server] Initializing fan control...");
+  nativeInitialization = initNativeServices(() => isShuttingDown);
+  await nativeInitialization;
+  if (isShuttingDown) return;
+
+  isReady = true;
   setServers(servers);
 
   console.log(

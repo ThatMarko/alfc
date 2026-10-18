@@ -64,6 +64,9 @@ jobs:
       - name: Verify documentation links and anchors
         run: bun run check:docs
 
+      - name: Verify per-user Plasma installation and removal
+        run: python3 plasmoid/test_install.py
+
       - name: Verify native WMI output packing
         run: |
           c++ -std=c++17 -Wall -Wextra -Werror server/native/windows/wmidll/WmiOutput.test.cpp -o "$RUNNER_TEMP/alfc-wmi-output-test"

@@ -143,8 +143,9 @@ describe("Bun runtime", () => {
           stderr: "",
         });
       }
-      // Negative control proves the real entrypoint reaches the trap as soon as
-      // the fixture token is admitted; the denied test cannot pass on an inert app.
+      // Negative control reaches the listener trap once the token is admitted.
+      // Listener ownership now precedes hardware initialization; denied tokens
+      // still reach neither trap in either source or compiled execution.
       await expect(
         execute("bun", source, {
           env: {
@@ -158,7 +159,7 @@ describe("Bun runtime", () => {
       ).rejects.toMatchObject({
         code: 1,
         stdout: expect.stringContaining("TRACE token-check"),
-        stderr: expect.stringContaining("UNEXPECTED_HARDWARE_INITIALIZATION"),
+        stderr: expect.stringContaining("UNEXPECTED_LISTENER"),
       });
     } finally {
       await rm(directory, { recursive: true, force: true });

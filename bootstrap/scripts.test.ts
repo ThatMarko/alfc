@@ -143,6 +143,9 @@ import path from "node:path";
 const executable = path.basename(process.execPath).toLowerCase();
 // Replace administrator detection and SCM queries before they reach the host.
 if (executable === "powershell.exe") {
+  if (process.argv.some(argument => argument.includes("Get-ItemProperty"))) {
+    process.exit(process.env.ALFC_TEST_FOREIGN_SERVICE === "1" || process.env.ALFC_TEST_IDENTITY_FAIL === "1" ? 1 : 0);
+  }
   if (process.env.ALFC_TEST_ELEVATION_FAIL === "1") {
     const probe = process.argv.includes("-NonInteractive");
     appendFileSync(process.env.ALFC_TEST_LOG, probe ? "admin-check\\n" : "elevate\\n");
@@ -151,7 +154,8 @@ if (executable === "powershell.exe") {
   process.exit(0);
 }
 if (executable === "sc.exe") {
-  process.exit(readFileSync(process.env.ALFC_TEST_STATE, "utf8") === "deleted" ? 1 : 0);
+  if (process.env.ALFC_TEST_QUERY_FAIL === "1") process.exit(5);
+  process.exit(readFileSync(process.env.ALFC_TEST_STATE, "utf8") === "deleted" ? 1060 : 0);
 }
 if (executable !== "alfc-service.exe") process.exit(90);
 const command = process.argv[2];
@@ -223,7 +227,17 @@ switch (command) {
           path.join(release, name),
         );
       await writeFile(path.join(release, "alfc.exe"), "fixture");
-      await writeFile(path.join(release, "alfc-service.xml"), "fixture");
+      await copyFile(
+        path.join(import.meta.dirname, "scripts/alfc-service.xml"),
+        path.join(release, "alfc-service.xml"),
+      );
+      await writeFile(path.join(release, "WmiDll.dll"), "fixture");
+      await mkdir(path.join(release, "frontend"));
+      await writeFile(path.join(release, "frontend/index.html"), "fixture");
+      await writeFile(
+        path.join(release, "alfc.config.json"),
+        '{"user":"preserve"}',
+      );
       await writeFile(stateFile, "running");
     });
 
@@ -237,6 +251,9 @@ switch (command) {
         stop?: boolean;
         uninstall?: boolean;
         elevation?: boolean;
+        query?: boolean;
+        foreign?: boolean;
+        identity?: boolean;
       } = {},
     ) {
       const result = execute(
@@ -252,6 +269,9 @@ switch (command) {
             ALFC_TEST_STOP_FAIL: failures.stop ? "1" : "0",
             ALFC_TEST_UNINSTALL_FAIL: failures.uninstall ? "1" : "0",
             ALFC_TEST_ELEVATION_FAIL: failures.elevation ? "1" : "0",
+            ALFC_TEST_QUERY_FAIL: failures.query ? "1" : "0",
+            ALFC_TEST_FOREIGN_SERVICE: failures.foreign ? "1" : "0",
+            ALFC_TEST_IDENTITY_FAIL: failures.identity ? "1" : "0",
           },
           timeout: 10_000,
           windowsHide: true,
@@ -310,12 +330,178 @@ switch (command) {
       expect(await readFile(stateFile, "utf8")).toBe("running");
     }, 15_000);
 
-    it("rejects an incomplete release before touching a service", async () => {
-      await rm(path.join(release, "alfc.exe"));
-      await expect(run("install.bat")).rejects.toMatchObject({ code: 1 });
-      await expect(readFile(log)).rejects.toThrow();
-      expect(await readFile(stateFile, "utf8")).toBe("running");
-    }, 15_000);
+    it.each([
+      "alfc.exe",
+      "alfc-service.exe",
+      "alfc-service.xml",
+      "WmiDll.dll",
+      "frontend/index.html",
+    ])(
+      "rejects a release missing %s before touching a service",
+      async (name) => {
+        await rm(path.join(release, name));
+        await expect(run("install.bat")).rejects.toMatchObject({ code: 1 });
+        await expect(readFile(log)).rejects.toThrow();
+        expect(await readFile(stateFile, "utf8")).toBe("running");
+      },
+      15_000,
+    );
+
+    it.each(["alfc.exe", "WmiDll.dll", "frontend/index.html"])(
+      "rejects a directory substituted for release file %s before service access",
+      async (name) => {
+        await rm(path.join(release, name));
+        await mkdir(path.join(release, name));
+        await expect(run("install.bat")).rejects.toMatchObject({ code: 1 });
+        await expect(readFile(log)).rejects.toThrow();
+        expect(await readFile(stateFile, "utf8")).toBe("running");
+      },
+      15_000,
+    );
+
+    it.each(["install.bat", "uninstall.bat"])(
+      "refuses %s when SCM cannot be queried",
+      async (name) => {
+        await expect(run(name, { query: true })).rejects.toMatchObject({
+          code: 5,
+        });
+        await expect(readFile(log)).rejects.toThrow();
+        expect(await readFile(stateFile, "utf8")).toBe("running");
+      },
+      15_000,
+    );
+
+    it.each(["install.bat", "uninstall.bat"])(
+      "refuses %s for a foreign service or unavailable identity",
+      async (name) => {
+        for (const failure of [{ foreign: true }, { identity: true }]) {
+          await expect(run(name, failure)).rejects.toMatchObject({ code: 1 });
+          await expect(readFile(log)).rejects.toThrow();
+          expect(await readFile(stateFile, "utf8")).toBe("running");
+        }
+      },
+      15_000,
+    );
+
+    it("preserves settings through reinstallation and repeated removal", async () => {
+      await run("install.bat");
+      await run("uninstall.bat");
+      const { stdout } = await run("uninstall.bat");
+      expect(stdout).toContain("service is already absent");
+      expect(await readFile(log, "utf8")).toBe(
+        "stopwait\nuninstall\ninstall\nstart\nstopwait\nuninstall\n",
+      );
+      expect(
+        await readFile(path.join(release, "alfc.config.json"), "utf8"),
+      ).toBe('{"user":"preserve"}');
+    }, 25_000);
+
+    it.each([
+      { name: "owned quoted wrapper", image: "owned", query: "0", status: 0 },
+      {
+        name: "case-insensitive owned path",
+        image: "case",
+        query: "0",
+        status: 0,
+      },
+      { name: "foreign executable", image: "foreign", query: "0", status: 1 },
+      {
+        name: "foreign wrapper arguments",
+        image: "arguments",
+        query: "0",
+        status: 1,
+      },
+      {
+        name: "ambiguous unquoted path",
+        image: "unquoted",
+        query: "0",
+        status: 1,
+      },
+      {
+        name: "unreadable service identity",
+        image: "unreadable",
+        query: "0",
+        status: 1,
+      },
+      {
+        name: "foreign XML service ID",
+        image: "owned",
+        query: "0",
+        status: 1,
+        xml: "<service><id>foreign</id></service>",
+      },
+      {
+        name: "malformed XML",
+        image: "owned",
+        query: "0",
+        status: 1,
+        xml: "<service>",
+      },
+      {
+        name: "absent service without a registry read",
+        image: "unreadable",
+        query: "1060",
+        status: 0,
+      },
+    ])(
+      "executes the real PowerShell identity guard for $name",
+      async (fixture) => {
+        const guards = await Promise.all(
+          ["install.bat", "uninstall.bat"].map(async (name) => {
+            const source = await readFile(path.join(release, name), "utf8");
+            return /^powershell -NoProfile -NonInteractive -Command "(.*Get-ItemProperty.*)"\r?$/m.exec(
+              source,
+            )?.[1];
+          }),
+        );
+        expect(guards[0]).toBeDefined();
+        expect(guards[1]).toBe(guards[0]);
+        if (fixture.xml)
+          await writeFile(path.join(release, "alfc-service.xml"), fixture.xml);
+        // Run the installed PowerShell interpreter, replacing only the registry
+        // boundary. No host SCM query, registry read, UAC, or service mutation.
+        const script = `function Get-ItemProperty {
+  param($LiteralPath, $Name, $ErrorAction)
+  if ($env:ALFC_TEST_IMAGE -eq 'unreadable') { throw 'fixture identity read failed' }
+  $wrapper = $env:ALFC_WRAPPER_PATH
+  switch ($env:ALFC_TEST_IMAGE) {
+    'case' { $wrapper = $wrapper.ToUpperInvariant() }
+    'foreign' { $wrapper = Join-Path (Split-Path $wrapper) 'foreign.exe' }
+  }
+  $image = [string][char]34 + $wrapper + [char]34
+  if ($env:ALFC_TEST_IMAGE -eq 'arguments') { $image += ' --foreign-config' }
+  if ($env:ALFC_TEST_IMAGE -eq 'unquoted') { $image = $wrapper }
+  [pscustomobject]@{ ImagePath = $image }
+}
+${guards[0]}`;
+        let status = 0;
+        try {
+          await execute(
+            path.join(
+              process.env.SystemRoot ?? "C:\\Windows",
+              "System32/WindowsPowerShell/v1.0/powershell.exe",
+            ),
+            ["-NoProfile", "-NonInteractive", "-Command", script],
+            {
+              cwd: release,
+              env: {
+                ...process.env,
+                ALFC_WRAPPER_PATH: path.join(release, "alfc-service.exe"),
+                ALFC_QUERY_STATUS: fixture.query,
+                ALFC_TEST_IMAGE: fixture.image,
+              },
+              timeout: 10_000,
+              windowsHide: true,
+            },
+          );
+        } catch (error) {
+          status = Number((error as { code?: number | string }).code);
+        }
+        expect(status).toBe(fixture.status);
+        await expect(readFile(log)).rejects.toThrow();
+      },
+      15_000,
+    );
 
     it.each(["install.bat", "uninstall.bat", "run.bat"])(
       "propagates the elevation command failure from %s without service access",
@@ -496,11 +682,11 @@ printf '%s\\n' "$0 $*" >> "$ALFC_TEST_LOG"
 if [ "$1" = show ]; then
   [ "$ALFC_TEST_SHOW_FAIL" != 1 ] || exit 31
   if [ -n "$ALFC_TEST_FOREIGN_SERVICE" ]; then
-    printf 'LoadState=loaded\\nFragmentPath=%s\\n' "$ALFC_TEST_FOREIGN_SERVICE"
+    printf 'LoadState=loaded\\nFragmentPath=%s\\nDropInPaths=\\n' "$ALFC_TEST_FOREIGN_SERVICE"
   elif [ -f "$ALFC_TEST_SERVICE_FILE" ]; then
-    printf 'LoadState=loaded\\nFragmentPath=%s\\n' "$ALFC_TEST_SERVICE_FILE"
+    printf 'LoadState=loaded\\nFragmentPath=%s\\nExecStart={ path=%s/alfc ; argv[]=%s/alfc ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0 }\\n' "$ALFC_TEST_SERVICE_FILE" "$ALFC_TEST_INSTALLED" "$ALFC_TEST_INSTALLED"
   else
-    printf 'LoadState=not-found\\nFragmentPath=\\n'
+    printf 'LoadState=not-found\\nFragmentPath=\\nDropInPaths=\\n'
   fi
   exit 0
 fi
@@ -1176,16 +1362,41 @@ exit 0
       const packageDir = path.join(directory, "pkg");
       await execute("bash", [
         "-c",
-        'source "$1"; pkgdir="$2"; cd "$3"; ln -s "$3/dist/alfc" "alfc-v$pkgver-linux-x64"; package',
+        'source "$1"; pkgdir="$2"; srcdir="$4"; cd "$3"; ln -s "$3/dist/alfc" "alfc-v$pkgver-linux-x64"; package',
         "alfc-package-test",
         path.join(repositoryRoot, "aur/PKGBUILD"),
         packageDir,
         directory,
+        path.join(repositoryRoot, "aur"),
       ]);
       expect(
         (await stat(path.join(packageDir, "usr/lib/alfc/plasmoid/install.sh")))
           .mode & 0o777,
       ).toBe(0o755);
+      for (const [source, target, mode] of [
+        [
+          "alfc-stop-service.hook",
+          "usr/share/libalpm/hooks/alfc-stop-service.hook",
+          0o644,
+        ],
+        ["alfc-package-stop", "usr/lib/alfc/alfc-package-stop", 0o755],
+      ] as const) {
+        expect(await readFile(path.join(packageDir, target))).toEqual(
+          await readFile(path.join(repositoryRoot, "aur", source)),
+        );
+        expect((await stat(path.join(packageDir, target))).mode & 0o777).toBe(
+          mode,
+        );
+      }
+      const hook = await readFile(
+        path.join(packageDir, "usr/share/libalpm/hooks/alfc-stop-service.hook"),
+        "utf8",
+      );
+      expect(hook).toMatch(/^Operation = Upgrade$/m);
+      expect(hook).toMatch(/^Operation = Remove$/m);
+      expect(hook).toMatch(/^When = PreTransaction$/m);
+      expect(hook).toMatch(/^AbortOnFail$/m);
+      expect(hook).toMatch(/^Exec = \/usr\/lib\/alfc\/alfc-package-stop$/m);
       expect(await readlink(path.join(packageDir, "usr/bin/alfc"))).toBe(
         "/usr/lib/alfc/alfc",
       );
@@ -1246,11 +1457,12 @@ exit 0
         execute("bash", [
           "-e",
           "-c",
-          'source "$1"; pkgdir="$2"; cd "$3"; package',
+          'source "$1"; pkgdir="$2"; srcdir="$4"; cd "$3"; package',
           "alfc-package-test",
           path.join(repositoryRoot, "aur/PKGBUILD"),
           incompletePackageDir,
           directory,
+          path.join(repositoryRoot, "aur"),
         ]),
       ).rejects.toMatchObject({ code: 1 });
       await expect(

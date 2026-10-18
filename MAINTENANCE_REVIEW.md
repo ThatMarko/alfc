@@ -268,3 +268,96 @@ Omarchy passed 22 Qt checks on both runtimes plus eight installer fixtures.
 The frozen installation, live advisory audit, source Markdown checks, shell
 syntax and portable C++ packing checks also passed. Final remote platform
 results remain linked from PR #15's checks above.
+
+## Installation, removal, services and persistence review
+
+The 2026-10-18 investigation started at clean PR #15 head
+`a45a875f61c2e1a310bc24ebe682f5478978519e`, with remote `master` still at the
+recorded merge. Independent reviewers traced manual Linux, Windows, AUR and
+desktop installation paths, service startup/shutdown, and configuration saves.
+Confirmed failures and fixes:
+
+- **Windows service identity and incomplete releases.** The batch scripts
+  trusted the SCM name alone, allowing an invocation from another extracted
+  directory to stop and replace that registration while switching configuration
+  paths. They now verify the exact registered WinSW path and local XML service
+  ID before mutation. Only SCM error 1060 means absence; other query failures
+  propagate. Repeated uninstall preserves files and succeeds for an absent
+  service. Required binary, WMI DLL and frontend file checks precede replacement.
+  Existing shutdown/elevation cases remain, alongside actual PowerShell guard
+  fixtures with only the registry boundary replaced.
+- **Effective systemd ownership.** A drop-in could replace `ExecStart` while
+  retaining an owned main unit and `FragmentPath`. Both manual scripts and the
+  AUR transaction helper now check the effective single executable and argv.
+  Harmless service-policy drop-ins remain supported. The check follows the
+  versioned systemd
+  [property renderer](https://github.com/systemd/systemd/blob/70bae7648f2c18010187c9cf20093155eaa26029/src/systemctl/systemctl-show.c#L1405-L1455).
+- **OpenRC startup persistence.** Removal previously deregistered only
+  `default`, leaving boot/custom registrations behind, and installation ignored
+  foreign registrations there. Ownership checks and removal now cover all
+  runlevels, including valid leading-dot names. Partial deregistration failure
+  keeps installation/configuration files for a later retry.
+- **Nested Linux upgrade sources.** An extracted release inside the installed
+  frontend could stop the service and delete its own source before copying.
+  Physical path checks reject sources anywhere inside the installation before
+  service changes, including source aliases and symlinked ancestor directories.
+- **AUR transaction ordering.** A deactivating service bypassed `is-active`,
+  and a failing `pre_remove` scriptlet did not prevent libalpm from removing
+  files. The packaged `PreTransaction`/`AbortOnFail` hook now verifies ownership
+  and waits for an unconditional stop before upgrade/removal. The fallback stop
+  also covers activating/deactivating units. The hook must already be installed
+  before the transaction; first migration from an older package and deliberately
+  disabled hooks remain documented limits. The source references and ordinary
+  `.pacsave`/`--nosave` behavior are recorded in [aur/README.md](aur/README.md).
+- **Duplicate backend startup.** A second instance initialized hardware before
+  discovering an occupied control port, then restored BIOS mode over the running
+  controller during rollback. Startup now acquires both loopback listeners before
+  hardware initialization. HTTP and WebSocket upgrade attempts receive 503 until
+  initialization completes. Real Bun fixtures verify no initialization/restore
+  on a port conflict and preserve normal ready-state serving and shutdown.
+- **Hard-linked configuration staging.** A regular `.tmp` hard link passed the
+  prior file-type guard, allowing chmod/truncation to change the durable config
+  or another linked file before rename. A link-count check now rejects it before
+  mutation. The real filesystem fixture preserves bytes and modes for links to
+  both the configuration and an unrelated file, then verifies save recovery.
+- **Plasma user-package selection and identity.** KPackage's `--show` can find
+  a system copy even when no user copy exists. A mismatched metadata ID can also
+  redirect removal to a neighboring applet. Helpers now explicitly select the
+  user's data root, validate metadata with Python 3, reject redirected paths,
+  and propagate package-tool failures instead of reporting absence/success.
+- **Incomplete Plasma upgrades.** Actual KPackage upgrade removed a valid user
+  package before rejecting a candidate missing `main.qml`. The helper now tests
+  an upgrade candidate with a temporary package-root installation first. Failed
+  validation preserves the old package and cleans staging. Later I/O failures
+  or interruption during the real upgrade can still require reinstallation.
+
+Fresh combined checks passed frozen Bun 1.4.3 installation, the live advisory
+audit (293 packages, no vulnerabilities), lint, strict workspace/integration
+types, 428 Linux tests across 30 Vitest files, and both production builds.
+The 33 local platform skips include 32 Windows batch/PowerShell cases that
+require actual Windows CI. All 22 Chromium scenarios and both production
+web/QML integration scenarios passed. Matching Qt 6.8.2 / Plasma / Kirigami
+passed 97 checks with no skips; explicit Qt-only 6.12 passed 74 with 23 component
+skips. Ten Plasma installer and eight Omarchy installer fixtures passed.
+The full run's original permission-test negative control expected hardware to
+precede listener binding; it now expects the listener trap. Denied-token
+assertions still require neither listening nor hardware access in source and
+compiled execution.
+
+Additional current-pass checks used real tools in disposable roots:
+
+- Extracted Debian 13 KPackage 6.13 reproduced system-only selection, metadata
+  redirection and destructive invalid-candidate upgrade. Corrected helpers
+  passed install, upgrade, removal, repeated removal and preservation checks
+  without a host desktop installation.
+- Extracted pacman 7.0.0 / libalpm 15.0.0 ran real package transactions in an
+  unprivileged user namespace. With the current hook/helper and a controlled
+  `systemctl` adapter, failed stops aborted upgrade/removal and preserved exact
+  package bytes and database versions; successful stops permitted both.
+  This minimal package fixture disabled scriptlets to isolate hook ordering;
+  it is not a full Arch installation or real systemd/firmware result.
+
+Final-commit Windows, Linux and Qt evidence remains available through
+[PR #15's checks](https://github.com/ThatMarko/alfc/pull/15/checks). Real UAC/SCM,
+full Plasma/Omarchy sessions, physical fan/RAPL behavior and firmware handoff
+remain separate manual release gates.

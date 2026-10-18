@@ -65,16 +65,18 @@ uninstall_openrc() {
   if [[ -f "${init_script}" ]]; then
     rc-service "${SERVICE_NAME}" stop
   fi
-  local runlevel_link="/etc/runlevels/default/${SERVICE_NAME}"
-  if [[ -e "${runlevel_link}" || -L "${runlevel_link}" ]]; then
-    if rc-update del "${SERVICE_NAME}" default; then
+  local runlevel_link runlevel
+  for runlevel_link in /etc/runlevels/{*,.[!.]*,..?*}/"${SERVICE_NAME}"; do
+    [[ -e "${runlevel_link}" || -L "${runlevel_link}" ]] || continue
+    runlevel="$(basename "$(dirname "${runlevel_link}")")"
+    if rc-update del "${SERVICE_NAME}" "${runlevel}"; then
       :
     else
       local disable_status=$?
-      echo "ALFC was stopped, but removing its default runlevel registration failed; installation files were kept for retry." >&2
+      echo "ALFC was stopped, but removing its ${runlevel} runlevel registration failed; installation files were kept for retry." >&2
       return "${disable_status}"
     fi
-  fi
+  done
   rm -f "${init_script}"
   echo "Service removed (OpenRC)."
 }
@@ -99,14 +101,14 @@ if [[ -n "${service_path}" && ( -L "${service_path}" || ( -e "${service_path}" &
 fi
 
 if [[ "${INIT_SYSTEM}" == "openrc" ]]; then
-  runlevel_link="/etc/runlevels/default/${SERVICE_NAME}"
-  if [[ -e "${runlevel_link}" || -L "${runlevel_link}" ]]; then
+  for runlevel_link in /etc/runlevels/{*,.[!.]*,..?*}/"${SERVICE_NAME}"; do
+    [[ -e "${runlevel_link}" || -L "${runlevel_link}" ]] || continue
     if [[ ! -L "${runlevel_link}" ||
           "$(readlink -f -- "${runlevel_link}" || true)" != "${service_path}" ]]; then
-      echo "Refusing foreign default-runlevel registration ${runlevel_link}; no service changes were made."
+      echo "Refusing foreign runlevel registration ${runlevel_link}; no service changes were made."
       exit 1
     fi
-  fi
+  done
 fi
 
 # The service name is shared with other installations. Verify its declared
@@ -127,19 +129,34 @@ if [[ "${INIT_SYSTEM}" == "systemd" ]]; then
   # Resolve vendor/runtime units as well; absence of the manual unit does not
   # establish that the service name is unused. 'show' is read-only and reports
   # LoadState=not-found for a genuinely absent unit.
-  service_properties="$(systemctl show --property=LoadState --property=FragmentPath "${SERVICE_NAME}")"
+  service_properties="$(systemctl show --property=LoadState --property=FragmentPath --property=ExecStart "${SERVICE_NAME}")"
   load_state=""
   fragment_path=""
+  exec_start=""
+  exec_start_count=0
   while IFS='=' read -r key value; do
     case "${key}" in
       LoadState) load_state="${value}" ;;
       FragmentPath) fragment_path="${value}" ;;
+      ExecStart) exec_start="${value}"; exec_start_count=$((exec_start_count + 1)) ;;
     esac
   done <<<"${service_properties}"
   if [[ "${fragment_path}" != "${service_path}" &&
         ( "${load_state}" != "not-found" || -n "${fragment_path}" ) ]]; then
     echo "Refusing service ${SERVICE_NAME}: systemd does not resolve it to ${service_path}."
     exit 1
+  fi
+  if [[ "${load_state}" != "not-found" || -n "${fragment_path}" ]]; then
+    # A drop-in can replace ExecStart while preserving the owned FragmentPath.
+    # systemctl prints one record per command (systemd v257 systemctl-show.c).
+    expected_exec_prefix="{ path=${INSTALL_DIR}/alfc ; argv[]=${INSTALL_DIR}/alfc ; ignore_errors="
+    exec_metadata="${exec_start#"${expected_exec_prefix}"}"
+    exec_metadata="${exec_metadata%" }"}"
+    if [[ "${exec_start_count}" -ne 1 || "${exec_start}" != "${expected_exec_prefix}"*' }' ||
+          "${exec_metadata}" == *'{'* || "${exec_metadata}" == *'}'* ]]; then
+      echo "Refusing service ${SERVICE_NAME}: its effective ExecStart is not this installation's single executable."
+      exit 1
+    fi
   fi
 fi
 

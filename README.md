@@ -108,6 +108,12 @@ configuration, and WinSW files together. CPUOC is not part of the standard
 archive. Windows logs are `alfc-service.out.log` and `alfc-service.err.log` in
 that directory. Installation and removal wait for an existing service to stop;
 if shutdown fails, they abort before removing or replacing the service.
+The registered service must point to the WinSW executable in the current
+directory. To move an installation, uninstall the service from its original
+directory, copy its retained `alfc.config.json` into the new release directory,
+then install there. Reinstalling in the same directory and uninstalling the
+service retain the configuration and release files. A failed service query or
+an unexpected WinSW service ID aborts without changing the service.
 
 Vendor WMI registration and drivers must already match the laptop. ALFC does
 not install or safely reconstruct them. Avoid applying another model's registry

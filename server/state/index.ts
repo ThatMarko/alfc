@@ -143,6 +143,13 @@ export function persistState() {
           `Configuration staging path must be a regular file: ${TMP_CONFIG_FILE}`,
         );
       }
+      if (staged.nlink !== 1) {
+        // chmod/truncate would also affect every other name for this inode,
+        // potentially changing the current config before its atomic rename.
+        throw new Error(
+          `Configuration staging file must not have other hard links: ${TMP_CONFIG_FILE}`,
+        );
+      }
       // A failed save can leave a read-only staging file. Restore private,
       // writable staging permissions before opening/truncating it; doing
       // this only through the opened descriptor cannot recover that state.

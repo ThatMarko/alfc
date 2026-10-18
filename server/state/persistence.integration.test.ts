@@ -21,7 +21,7 @@ const dependencyName = "json-stringify-pretty-compact";
 // only state/validation does not initialize hardware or own a network listener.
 const fixture = `
 import assert from 'node:assert/strict';
-import { chmod, lstat, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 const stagedPackage = path.join(import.meta.dirname, 'server/node_modules/json-stringify-pretty-compact');
 const dependency = Bun.resolveSync('json-stringify-pretty-compact', path.join(import.meta.dirname, 'server/state'));
@@ -102,6 +102,27 @@ try {
     'Refusing a symlink must not chmod its target');
   assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 73);
   await rm(staging);
+
+  // A hard link is a regular file, but truncating it also changes its other
+  // pathname before atomic replacement. Refuse both links to the current
+  // config and unrelated files, preserving bytes and permissions at each name.
+  for (const target of [config, foreignFile]) {
+    const originalContents = await readFile(target, 'utf8');
+    const originalMode = (await stat(target)).mode;
+    await link(target, staging);
+    assert.equal((await lstat(staging)).nlink, 2);
+    state.fixedPercentage = 76;
+    await assert.rejects(persistState(), /hard link/);
+    assert.equal(await readFile(target, 'utf8'), originalContents);
+    assert.equal((await stat(target)).mode, originalMode,
+      'Refusing a hard link must not chmod its other pathname');
+    assert.equal(await readFile(staging, 'utf8'), originalContents);
+    assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 73);
+    await rm(staging);
+  }
+  state.fixedPercentage = 73;
+  await persistState();
+  assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 73);
 
   if (process.platform === 'win32') {
     // A failed replacement of a readonly Windows configuration leaves a

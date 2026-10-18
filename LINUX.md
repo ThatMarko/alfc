@@ -78,6 +78,8 @@ and optional desktop resources omitted from the new release. Required source
 paths must have the expected file or directory type. Installation also rejects
 symlinked destination roots, executables, helpers, configuration and service
 definitions before stopping services or replacing files.
+The source release must be outside the installation tree, including when reached
+through a directory symlink, so retiring old resources cannot delete its source.
 Subsequent production settings saves retain the configuration's POSIX permission
 bits; creating a missing configuration uses mode `0600`.
 Run the installer again from a newly extracted release to upgrade. It refuses to
@@ -85,7 +87,11 @@ overwrite `/usr/bin/alfc` if that command belongs to another installation.
 Both installation and removal also verify the service's declared executable.
 They refuse foreign systemd units and OpenRC startup registrations even when
 the launcher symlink is missing. Systemd must resolve the service to the manual
-unit; an OpenRC default-runlevel link must resolve to the owned init script.
+unit, and its effective `ExecStart` must still be this installation's single
+command. A drop-in that redirects the executable or adds another start command
+therefore blocks manual installation or removal, while unrelated service policy
+drop-ins remain supported. Every OpenRC runlevel link must resolve to the owned
+init script.
 
 For a temporary foreground run without installing a service:
 
@@ -121,9 +127,11 @@ Removal also refuses a foreign `/usr/bin/alfc` command before touching the
 shared `alfc` service name; remove a package installation with its package
 manager instead. Symlinked installation roots and service definitions also
 cause removal to stop before service mutations.
-If stopping succeeds but disabling the systemd unit or removing its OpenRC
-default-runlevel registration fails, removal returns an error and keeps the
-installation files and configuration for retry. The service has been stopped;
+OpenRC removal deregisters the service from every runlevel, including boot and
+custom runlevels, before removing the init script. If stopping succeeds but
+disabling the systemd unit or removing any OpenRC runlevel registration fails,
+removal returns an error and keeps the installation files and configuration for
+retry. The service has been stopped;
 it has not been fully uninstalled. Inspect the reported registration failure
 and rerun the uninstaller after correcting it.
 Uninstall the per-user widget separately.
@@ -167,12 +175,13 @@ Install QtWebSockets QML support using the package names in
 /opt/alfc/plasmoid/install.sh
 ```
 
-The helper upgrades an existing installation. Alternatively use
-`kpackagetool6 --type Plasma/Applet --install /opt/alfc/plasmoid/package`, replacing
-`--install` with `--upgrade` for an existing widget. Add the widget through Plasma's
-Add Widgets interface. Remove it with `/opt/alfc/plasmoid/uninstall.sh` before
-removing the backend installation, or with
-`kpackagetool6 --type Plasma/Applet --remove org.kde.alfc` afterward.
+The helper requires Python 3 to validate package metadata and upgrades an
+existing user installation. It explicitly targets the desktop user's data
+directory, leaving system-installed copies to their package manager. Add the
+widget through Plasma's Add Widgets interface. Remove it with
+`/opt/alfc/plasmoid/uninstall.sh` before removing the backend installation, or
+run `plasmoid/uninstall.sh` from an extracted release afterward. The helper
+refuses mismatched metadata that could make KPackage remove another widget.
 
 The widget depends on the running backend and mirrors its capabilities and
 confirmed state. See [plasmoid/README.md](plasmoid/README.md) for supported controls,

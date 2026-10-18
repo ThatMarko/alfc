@@ -38,13 +38,15 @@ A backward system-clock correction invalidates cached telemetry and reconnects t
 
 ## Installation and removal
 
-Install [the runtime dependencies](DEPENDENCIES.md) and start ALFC separately. From the repository root, run the widget installer **as your desktop user**:
+Install [the runtime dependencies](DEPENDENCIES.md) and start ALFC separately. The installer/remover also uses Python 3's standard library to verify package metadata before allowing KPackage to change an existing installation. From the repository root, run the widget installer **as your desktop user**:
 
 ```bash
 ./plasmoid/install.sh
 ```
 
-The installer resolves `package/` relative to its own location, so it also works when invoked by absolute path from another directory. It uses `kpackagetool6` to install or upgrade `org.kde.alfc`. It does not install the backend, load kernel modules, or modify system services.
+The installer resolves `package/` relative to its own location, so it also works when invoked by absolute path from another directory. It uses `kpackagetool6` to install or upgrade `org.kde.alfc` under `${XDG_DATA_HOME:-$HOME/.local/share}/plasma/plasmoids/`. `XDG_DATA_HOME`, when set, must be absolute. A system-wide package alone does not select a user upgrade; the installer creates a user package that takes precedence for that user. Symlink and non-directory user-package destinations are rejected. Source and existing user metadata must declare `KPlugin.Id` as `org.kde.alfc`; missing, malformed, symlinked, or foreign metadata causes a failure before package changes, preserving neighboring applets. It does not install the backend, load kernel modules, or modify system services.
+
+Before upgrading an existing user package, the installer validates the candidate through KPackage in a private temporary package root. A failed validation returns its error and preserves the working user copy; the temporary package is cleaned up. The subsequent real upgrade remains a KPackage operation: an interruption or filesystem failure after that operation begins can require rerunning the installer.
 
 Manual installation and upgrade from the repository root:
 
@@ -61,7 +63,7 @@ Remove widget instances and uninstall the user package:
 ./plasmoid/uninstall.sh
 ```
 
-An absent package is reported without an error. An actual removal failure returns a nonzero status and is not reported as a successful uninstall. System-wide packages installed by a distribution should be managed through its package manager. Removing the widget does not stop ALFC.
+An absent user package is reported without an error, including when a system-wide copy exists. An existing package that cannot be removed or has invalid metadata returns a nonzero status and is not reported as an absent or successful uninstall. Both scripts explicitly target the user's package directory. System-wide packages installed by a distribution should be managed through its package manager; removing a user copy can expose an existing system copy again. Plasma's applet configuration and other desktop settings are preserved by the scripts. Removing the widget does not stop ALFC.
 
 ## Configuration
 
@@ -92,6 +94,8 @@ The development-only Qt test runner uses PySide6. Installation, matching KDE imp
 
 ```bash
 python3 plasmoid/run_qml_tests.py --tier qt-only
+# Disposable package-command fixtures; no Plasma session is touched:
+python3 plasmoid/test_install.py
 # Native Debian 13 Qt + Plasma/Kirigami component tier:
 bash plasmoid/run_component_tests.sh
 ```
@@ -102,7 +106,7 @@ The required CI **Plasma components (Debian 13)** tier compiles a native Qt Quic
 
 Full, compact, and settings tests use the actual production QML with real Plasma/Kirigami controls. The tracked test setup substitutes the shell-owned heading, applet singleton and `PlasmoidItem` boundary. These are explicitly **standalone component tests with a shell boundary fixture**. They do not establish full Plasma-shell, global-shortcut, KConfig-dialog or physical hardware results.
 
-The main `bun run test` suite executes the shipped QML protocol guards against the same cases as the shared TypeScript guards. CI retains Qt diagnostics and the component job's resolved distribution package versions. Python, PySide6, C++, CMake, Ninja and QtTest are development dependencies, outside the installable `package/`.
+The main `bun run test` suite executes the shipped QML protocol guards against the same cases as the shared TypeScript guards. CI retains Qt diagnostics and the component job's resolved distribution package versions. The disposable installer fixtures cover user/system package separation, upgrades/removal, preserved desktop configuration, invalid/foreign metadata, incomplete upgrade candidates, package-command failures, symlinks, and escaped paths using a controlled package adapter. Python is also used by the install/remove scripts; PySide6, C++, CMake, Ninja and QtTest are development dependencies, outside the installable `package/`.
 
 For the full-session tier, record Plasma/Qt versions and perform this manual checklist on an actual Plasma 6 desktop:
 

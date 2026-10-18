@@ -21,6 +21,12 @@ not support it. It never binds a wildcard address. Supported endpoint forms are:
 - `ws://127.0.0.1:5522/ws`
 - `ws://[::1]:5522/ws`, when IPv6 is available
 
+The backend reserves its loopback listeners before initializing hardware. A
+port conflict therefore rejects a second start before it can change the running
+controller's hardware state. Until initialization finishes, HTTP requests and
+WebSocket upgrade attempts receive HTTP `503 Service Unavailable` and no state
+snapshot. Clients can reconnect after startup completes.
+
 `/ws/` is an equivalent trailing-slash alias on each listener. Both paths use
 the same GET and Origin checks. Other suffixes and prefixed paths are not endpoints.
 The shipped web UI connects by plain WebSocket to its page's hostname on port 5522. HTTPS, alternate ports, and proxy prefixes are not supported web deployments;
@@ -175,6 +181,8 @@ bits are preserved when replacing an existing file; missing settings use mode
 `0600`. The temporary file receives that mode before settings are written.
 Read-only regular staging files are repaired before opening; directories and
 symlinks occupying the staging path are rejected without changing their targets.
+Regular staging files with additional hard links are also rejected before
+chmod or truncation, preserving the configuration and other linked files.
 Windows uses its ordinary writable/read-only semantics; this does not preserve
 or manage Windows ACLs. Atomic replacement does not
 promise persistence across sudden power loss. Development mode intentionally

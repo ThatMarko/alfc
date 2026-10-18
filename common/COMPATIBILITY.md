@@ -68,6 +68,12 @@ firmware will accept every later operation. Runtime failures can downgrade them
 and push new state. Configuration files cannot override capabilities or inject a
 restart warning; those fields are never persisted.
 
+Production atomic saves preserve existing POSIX permission bits and create
+missing settings privately. Unexpected staging directories, symlinks, or regular
+files with additional hard links reject the save before changing those entries
+or their targets. The active configuration is still broadcast with a
+`PERSISTENCE_ERROR`; fixing the staging path permits a later save to recover.
+
 `fixedPercentage` is an integer `0..100`; CPU limits are integer watts `0..200`.
 CPU/GPU curves accept non-empty, strictly ascending temperatures `0..110` and
 percentages `0..100`, including fractions. These constraints are shared by the

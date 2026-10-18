@@ -80,6 +80,13 @@ service and abort if shutdown fails. The pinned wrapper's `stop` command only
 requests shutdown; [its v2.12.0 implementation](https://github.com/winsw/winsw/blob/v2.12.0/src/WinSW/Program.cs#L406)
 waits for `Stopped` only with `stopwait`. Waiting prevents removal/reinstallation
 from racing the backend's shutdown and pending service deletion.
+Before either operation, the scripts verify the WinSW XML service ID and the
+registered service's executable path. A service registered from another release
+directory must be removed using that installation's uninstaller first. Copy the
+retained configuration into the new directory before installing there; the
+scripts do not migrate settings between extracted releases. Query or identity
+failures leave the existing registration intact. Repeated removal of an absent
+service succeeds without invoking WinSW.
 
 WinSW XML names are case-sensitive and deliberately mix naming conventions.
 For the pinned **v2.12.0** wrapper, use these exact spellings:

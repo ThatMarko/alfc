@@ -18,7 +18,7 @@ post_install() {
   echo "  Web UI: http://localhost:5522"
   echo ""
   echo "  KDE Plasma 6 widget (optional):"
-  echo "    kpackagetool6 --type Plasma/Applet --install /usr/lib/alfc/plasmoid/package"
+  echo "    /usr/lib/alfc/plasmoid/install.sh"
 }
 
 post_upgrade() {
@@ -26,16 +26,15 @@ post_upgrade() {
   echo ""
   echo "  Restart the service: sudo systemctl restart alfc"
   echo ""
-  echo "  Upgrade KDE widget (if installed):"
-  echo "    kpackagetool6 --type Plasma/Applet --upgrade /usr/lib/alfc/plasmoid/package"
+  echo "  Upgrade KDE widget as the desktop user (if installed):"
+  echo "    /usr/lib/alfc/plasmoid/install.sh"
 }
 
 pre_remove() {
-  if systemctl is-active --quiet alfc 2>/dev/null; then
-    # Scriptlets do not inherit errexit. Preserve a failed BIOS handoff instead
-    # of replacing it with the later successful is-enabled/disable status.
-    systemctl stop alfc || return $?
-  fi
+  # The installed AbortOnFail pre-transaction hook is the removal guard. This
+  # fallback also waits for activating/deactivating units; its return alone
+  # cannot abort libalpm's transaction if the hook was unavailable or disabled.
+  systemctl stop alfc || return $?
   if systemctl is-enabled --quiet alfc 2>/dev/null; then
     systemctl disable alfc
   fi
@@ -45,7 +44,7 @@ post_remove() {
   echo "==> ALFC removed."
   echo ""
   echo "  To remove the KDE widget (if installed):"
-  echo "    kpackagetool6 --type Plasma/Applet --remove org.kde.alfc"
+  echo "    Run ./plasmoid/uninstall.sh from an extracted ALFC release as the desktop user."
   echo ""
   echo "  Config file preserved at /usr/lib/alfc/alfc.config.json.pacsave (if modified)"
 }

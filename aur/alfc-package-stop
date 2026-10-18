@@ -1,0 +1,55 @@
+#!/bin/sh
+
+# A package transaction must not stop another installation with the same name,
+# or replace files while ALFC is still handing fan control back to the BIOS.
+if ! identity=$(systemctl show alfc.service --property=LoadState,FragmentPath,ExecStart); then
+  echo "ALFC package transaction stopped: could not verify the loaded service." >&2
+  exit 1
+fi
+
+load_state=
+fragment=
+exec_start=
+exec_count=0
+while IFS= read -r property; do
+  case "$property" in
+    LoadState=*) load_state=${property#LoadState=} ;;
+    FragmentPath=*) fragment=${property#FragmentPath=} ;;
+    ExecStart=*)
+      exec_start=${property#ExecStart=}
+      exec_count=$((exec_count + 1))
+      ;;
+  esac
+done <<EOF
+$identity
+EOF
+
+owned_command=false
+# systemd prints one ExecStart property per configured command. Verify its
+# effective executable and argv so harmless policy drop-ins remain supported.
+case "$exec_start" in
+  "{ path=/usr/lib/alfc/alfc ; argv[]=/usr/lib/alfc/alfc ; ignore_errors="*" }")
+    metadata=${exec_start#"{ path=/usr/lib/alfc/alfc ; argv[]=/usr/lib/alfc/alfc ; ignore_errors="}
+    metadata=${metadata%" }"}
+    case "$metadata" in
+      *'{'*|*'}'*) ;;
+      *) [ "$exec_count" -ne 1 ] || owned_command=true ;;
+    esac
+    ;;
+esac
+
+if [ "$load_state" != loaded ] ||
+   [ "$fragment" != /usr/lib/systemd/system/alfc.service ] ||
+   [ "$owned_command" != true ]; then
+  echo "ALFC package transaction stopped: alfc.service is missing, overridden, or belongs to another installation." >&2
+  echo "Resolve the service definition before retrying the package operation." >&2
+  exit 1
+fi
+
+# is-active is false during activation/deactivation. An unconditional stop also
+# waits for those jobs and succeeds for an already inactive, loaded unit.
+systemctl stop alfc.service || {
+  status=$?
+  echo "ALFC package transaction stopped: service shutdown failed; installed files were retained." >&2
+  exit "$status"
+}

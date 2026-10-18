@@ -9,14 +9,16 @@ const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 export function createHttpHandler({
   frontendDir,
   isDev,
+  isReady = () => true,
   isShuttingDown,
 }: {
   frontendDir: string;
   isDev: boolean;
+  isReady?: () => boolean;
   isShuttingDown: () => boolean;
 }) {
   return (request: Request, server: Bun.Server<undefined>) => {
-    if (isShuttingDown()) {
+    if (!isReady() || isShuttingDown()) {
       return new Response("Service Unavailable", { status: 503 });
     }
     const webSocketResponse = handleWebSocketRequest(request, server);

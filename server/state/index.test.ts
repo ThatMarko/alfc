@@ -82,7 +82,7 @@ describe("state config loading", () => {
     stateRuntime.isCompiledBinary = false;
     renameMock.mockResolvedValue(undefined);
     chmodMock.mockResolvedValue(undefined);
-    lstatMock.mockResolvedValue({ isFile: () => true });
+    lstatMock.mockResolvedValue({ isFile: () => true, nlink: 1 });
     statMock.mockResolvedValue({ mode: 0o100600 });
     openMock.mockResolvedValue(fileMock);
     fileMock.chmod.mockResolvedValue(undefined);
@@ -229,6 +229,21 @@ describe("state config loading", () => {
     expect(openMock).not.toHaveBeenCalled();
     expect(fileMock.writeFile).not.toHaveBeenCalled();
     expect(renameMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a hard-linked staging file before chmod or truncate and lets a later save recover", async () => {
+    stateRuntime.isDev = false;
+    mockConfigFile(JSON.stringify(VALID_CONFIG));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    lstatMock.mockResolvedValueOnce({ isFile: () => true, nlink: 2 });
+    const { persistState } = await importState();
+    await expect(persistState()).rejects.toThrow("hard links");
+    expect(chmodMock).not.toHaveBeenCalled();
+    expect(openMock).not.toHaveBeenCalled();
+    expect(fileMock.writeFile).not.toHaveBeenCalled();
+    expect(renameMock).not.toHaveBeenCalled();
+    await expect(persistState()).resolves.toBeUndefined();
+    expect(renameMock).toHaveBeenCalledOnce();
   });
 
   it("does not truncate a staging file after a permission preflight failure and lets the next save recover", async () => {

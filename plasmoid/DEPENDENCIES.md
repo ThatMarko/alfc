@@ -27,7 +27,7 @@ Package names vary by distribution and release. These are the relevant Qt/KDE pa
 | Qt Declarative | `qt6-declarative` | `qt6-qtdeclarative` | `qml6-module-qtquick`, `qml6-module-qtquick-controls`, `qml6-module-qtquick-layouts` | `qt6-declarative-imports` |
 | Kirigami       | `kirigami`        | `kf6-kirigami`      | `qml6-module-org-kde-kirigami`                                                       | `kf6-kirigami-imports`    |
 
-On Debian 13, `kpackagetool6` installs/upgrades/removes the package, and `plasma-sdk` supplies the development preview tools. `plasma-desktoptheme` provides the Plasma components used by the component tests. These package names and their Qt/KDE versions are available in the official [Debian package index](https://packages.debian.org/trixie/). Ubuntu 24.04's default Plasma 5 desktop does not meet this applet's requirement.
+The repository's install/remove scripts require `kpackagetool6` and Python 3's standard library; Python verifies that source and installed metadata identify ALFC before package mutations. This is an installer dependency, separate from the running applet. On Debian 13 these packages are `kpackagetool6` and `python3`, and `plasma-sdk` supplies the development preview tools. `plasma-desktoptheme` provides the Plasma components used by the component tests. These package names and their Qt/KDE versions are available in the official [Debian package index](https://packages.debian.org/trixie/). Ubuntu 24.04's default Plasma 5 desktop does not meet this applet's requirement.
 
 Run widget installation as the desktop user, not with `sudo`; see [README.md](README.md#installation-and-removal). Installing a widget does not install, start, or elevate the backend.
 

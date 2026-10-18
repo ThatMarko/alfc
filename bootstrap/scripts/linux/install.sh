@@ -10,7 +10,7 @@ fi
 # desktop user even when sudo preserves a restrictive caller umask.
 umask 022
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 SERVICE_NAME="alfc"
 INSTALL_DIR="/opt/alfc"
 
@@ -185,7 +185,11 @@ if [[ "${INIT_SYSTEM}" == "systemd" && ! -f "${SCRIPT_DIR}/alfc.service" ]]; the
   echo "Release is incomplete: missing alfc.service; no files were changed."
   exit 1
 fi
-if [[ "${SCRIPT_DIR}" == "${INSTALL_DIR}" ]]; then
+physical_install_dir="${INSTALL_DIR}"
+if [[ -d "${INSTALL_DIR}" ]]; then
+  physical_install_dir="$(cd "${INSTALL_DIR}" && pwd -P)"
+fi
+if [[ "${SCRIPT_DIR}" == "${physical_install_dir}" || "${SCRIPT_DIR}" == "${physical_install_dir}/"* ]]; then
   echo "Extract the new release outside ${INSTALL_DIR} before installing."
   exit 1
 fi
@@ -216,14 +220,16 @@ if [[ -e /usr/bin/alfc || -L /usr/bin/alfc ]]; then
 fi
 
 if [[ "${INIT_SYSTEM}" == "openrc" ]]; then
-  runlevel_link="/etc/runlevels/default/${SERVICE_NAME}"
-  if [[ -e "${runlevel_link}" || -L "${runlevel_link}" ]]; then
+  # OpenRC services may be registered in boot or user-defined runlevels too.
+  # Check every registration before replacing the shared init script.
+  for runlevel_link in /etc/runlevels/{*,.[!.]*,..?*}/"${SERVICE_NAME}"; do
+    [[ -e "${runlevel_link}" || -L "${runlevel_link}" ]] || continue
     if [[ ! -L "${runlevel_link}" ||
           "$(readlink -f -- "${runlevel_link}" || true)" != "${service_path}" ]]; then
-      echo "Refusing foreign default-runlevel registration ${runlevel_link}; no service changes were made."
+      echo "Refusing foreign runlevel registration ${runlevel_link}; no service changes were made."
       exit 1
     fi
-  fi
+  done
 fi
 
 # The service name is shared with other installations. Verify its declared
@@ -244,19 +250,36 @@ if [[ "${INIT_SYSTEM}" == "systemd" ]]; then
   # Resolve vendor/runtime units as well; absence of the manual unit does not
   # establish that the service name is unused. 'show' is read-only and reports
   # LoadState=not-found for a genuinely absent unit.
-  service_properties="$(systemctl show --property=LoadState --property=FragmentPath "${SERVICE_NAME}")"
+  service_properties="$(systemctl show --property=LoadState --property=FragmentPath --property=ExecStart "${SERVICE_NAME}")"
   load_state=""
   fragment_path=""
+  exec_start=""
+  exec_start_count=0
   while IFS='=' read -r key value; do
     case "${key}" in
       LoadState) load_state="${value}" ;;
       FragmentPath) fragment_path="${value}" ;;
+      ExecStart) exec_start="${value}"; exec_start_count=$((exec_start_count + 1)) ;;
     esac
   done <<<"${service_properties}"
   if [[ "${fragment_path}" != "${service_path}" &&
         ( "${load_state}" != "not-found" || -n "${fragment_path}" ) ]]; then
     echo "Refusing service ${SERVICE_NAME}: systemd does not resolve it to ${service_path}."
     exit 1
+  fi
+  if [[ "${load_state}" != "not-found" || -n "${fragment_path}" ]]; then
+    # A drop-in can replace ExecStart while preserving the owned FragmentPath.
+    # systemctl prints one record per command (systemd v257 systemctl-show.c).
+    # Match this release's one executable and argv, leaving harmless generic
+    # service policy drop-ins usable rather than rejecting all DropInPaths.
+    expected_exec_prefix="{ path=${INSTALL_DIR}/alfc ; argv[]=${INSTALL_DIR}/alfc ; ignore_errors="
+    exec_metadata="${exec_start#"${expected_exec_prefix}"}"
+    exec_metadata="${exec_metadata%" }"}"
+    if [[ "${exec_start_count}" -ne 1 || "${exec_start}" != "${expected_exec_prefix}"*' }' ||
+          "${exec_metadata}" == *'{'* || "${exec_metadata}" == *'}'* ]]; then
+      echo "Refusing service ${SERVICE_NAME}: its effective ExecStart is not this installation's single executable."
+      exit 1
+    fi
   fi
 fi
 

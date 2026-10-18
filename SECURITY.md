@@ -28,6 +28,9 @@ and do not establish current behavior.
 - The elevated backend binds explicitly to `127.0.0.1:5522` and, when available,
   `[::1]:5522`. It does not bind wildcard or LAN addresses. An occupied IPv6
   port fails startup instead of silently leaving clients on different services.
+  Both listeners are acquired before hardware initialization, so a duplicate
+  launch that cannot bind does not take control or restore BIOS mode over the
+  existing service. Requests receive HTTP 503 until initialization completes.
 - WebSocket upgrades validate browser origins against loopback HTTP(S) hosts.
   Requests without Origin remain allowed for native clients. This check is not
   authentication: other local processes and local users can send commands.
