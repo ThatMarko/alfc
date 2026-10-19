@@ -11,6 +11,7 @@ Item {
     property var peer: null
     property var requests: []
     property int subscriptions: 0
+    property int pongReplies: 0
     property bool autoReply: false
     property bool autoState: true
 
@@ -46,6 +47,7 @@ Item {
         target: fixture.peer
         function onTextMessageReceived(message) {
             if (message === "ping") {
+                fixture.pongReplies += 1
                 fixture.peer.sendTextMessage("pong")
                 return
             }
@@ -71,6 +73,13 @@ Item {
         }
     }
 
+    Component {
+        id: tooltipComponent
+        Widget.BackendToolTip {
+            backend: tests.backend
+        }
+    }
+
     SignalSpy {
         id: finished
         signalName: "requestFinished"
@@ -88,6 +97,7 @@ Item {
             fixture.autoState = true
             fixture.requests = []
             fixture.subscriptions = 0
+            fixture.pongReplies = 0
             backend = createTemporaryObject(backendComponent, fixture)
             verify(backend !== null)
             finished.target = backend
@@ -137,6 +147,35 @@ Item {
             fixture.peer.sendTextMessage(JSON.stringify({ kind: "success", requestId: requestId }))
             tryCompare(finished, "count", 1)
             compare(finished.signalArguments[0][1], true)
+        }
+
+        function test_malformedResponseCannotConfirm_data() {
+            return [
+                {tag: "success-method-id", kind: "success", field: "methodId", value: 7},
+                {tag: "success-method-name", kind: "success", field: "methodName", value: null},
+                {tag: "error-method-id", kind: "error", field: "methodId", value: 7},
+                {tag: "error-method-name", kind: "error", field: "methodName", value: null},
+                {tag: "error-data", kind: "error", field: "data", value: {message: "Invalid error"}}
+            ]
+        }
+
+        function test_malformedResponseCannotConfirm(data) {
+            const requestId = backend.sendRequest("get", undefined, "GetDeepFan", "96")
+            tryVerify(function () { return fixture.requests.length === 1 })
+            const reply = {kind: data.kind, requestId: requestId, data: "TEST_ERROR"}
+            reply[data.field] = data.value
+            fixture.peer.sendTextMessage(JSON.stringify(reply))
+            wait(20)
+            compare(finished.count, 0)
+            verify(Object.prototype.hasOwnProperty.call(backend.pendingRequests, requestId))
+            // Legacy optional method metadata may be absent. Packed native
+            // outputs remain exact strings through the validated reply.
+            const packed = "1208925819614629174706175"
+            fixture.peer.sendTextMessage(JSON.stringify({kind: "success", requestId: requestId, data: packed}))
+            tryCompare(finished, "count", 1)
+            compare(finished.signalArguments[0][1], true)
+            compare(finished.signalArguments[0][3].data, packed)
+            compare(Object.keys(backend.pendingRequests).length, 0)
         }
 
         function test_timeout() {
@@ -201,6 +240,61 @@ Item {
             compare(backend.reconnectDelay, 2000)
         }
 
+        function test_silentHandshakeDeadlineAndRecovery() {
+            backend.connectionTimeout = 150
+            const before = alfcSilentHandshakeProbe.connections
+            backend.serverUrl = alfcSilentHandshakeEndpoint
+            tryCompare(backend, "quickReconnect", false, 2000)
+            tryCompare(backend, "isConnecting", true, 2000)
+            tryVerify(function () { return alfcSilentHandshakeProbe.connections > before }, 2000)
+            wait(40)
+            const attempt = alfcSilentHandshakeProbe.connections
+            verify(!backend.ready)
+            // Observe real TCP acceptance through repeated retries. Some Qt
+            // versions coalesce Connecting across cancellation/reactivation.
+            tryVerify(function () { return alfcSilentHandshakeProbe.connections > attempt + 1 }, 2000)
+            backend.serverUrl = String(server.url)
+            tryCompare(backend, "ready", true, 4000)
+            const subscriptions = fixture.subscriptions
+            wait(300)
+            compare(fixture.subscriptions, subscriptions)
+        }
+
+        function test_initialStateDeadlineIgnoresPongsAndRecovers() {
+            backend.connectionTimeout = 150
+            backend.heartbeatInterval = 20
+            fixture.autoState = false
+            backend.reconnect()
+            tryCompare(fixture, "subscriptions", 2, 2000)
+            verify(backend.isConnected)
+            verify(!backend.ready)
+            fixture.pongReplies = 0
+            tryVerify(function () { return fixture.pongReplies >= 2 }, 1000)
+            tryVerify(function () { return fixture.subscriptions >= 3 }, 2000)
+            fixture.autoState = true
+            tryCompare(backend, "ready", true, 4000)
+            const subscriptions = fixture.subscriptions
+            wait(300)
+            compare(fixture.subscriptions, subscriptions)
+        }
+
+        function test_invalidStateDeadlineIsNotExtendedByFurtherInvalidStates() {
+            backend.connectionTimeout = 150
+            fixture.push("state", {})
+            tryCompare(backend, "ready", false)
+            const flood = createTemporaryQmlObject('import QtQuick; Timer { interval: 40; repeat: true }', fixture)
+            flood.triggered.connect(function () {
+                if (backend.isConnected && !backend.ready && fixture.subscriptions === 1)
+                    fixture.push("state", {})
+                else flood.stop()
+            })
+            flood.start()
+            // Restarting the deadline for each invalid packet would keep
+            // this connection unready indefinitely, despite healthy pongs.
+            tryCompare(fixture, "subscriptions", 2, 2000)
+            tryCompare(backend, "ready", true)
+        }
+
         function test_snapshotValidation() {
             fixture.push("state", {})
             tryCompare(backend, "hasState", false)
@@ -239,6 +333,76 @@ Item {
             compare(finished.signalArguments[0][0], rejected)
             compare(finished.signalArguments[0][1], false)
             compare(fixture.requests.length, 0)
+        }
+
+        function test_sensorFailureTooltipUsesAcknowledgedCommandAcrossModeChanges_data() {
+            return [
+                {tag: "fixed-to-auto", fixed: true, applied: 40, target: 40},
+                {tag: "auto-to-fixed", fixed: false, applied: 100, target: 100},
+                {tag: "unconfirmed-fixed-to-auto", fixed: true, applied: null, target: 40},
+                {tag: "unconfirmed-auto-to-fixed", fixed: false, applied: null, target: 100}
+            ]
+        }
+
+        function test_sensorFailureTooltipUsesAcknowledgedCommandAcrossModeChanges(data) {
+            const initial = fixture.state()
+            initial.doFixedSpeed = data.fixed
+            initial.fixedPercentage = 40
+            fixture.push("state", initial)
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 50, avgGPUTemp: 60, appliedSpeed: data.applied,
+                target: data.target, sensorFailure: true
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+            const tooltip = createTemporaryObject(tooltipComponent, fixture)
+            verify(tooltip !== null)
+            const expected = data.applied === null
+                ? "Sensor error — fan output unconfirmed"
+                : "Sensor error — last acknowledged fan command " + data.applied + "%"
+            compare(tooltip.text, expected)
+            const acknowledgedAt = backend.lastActivityAt
+
+            // A state push may precede the next telemetry cycle, which may
+            // itself remain stalled. The new configured mode proves neither
+            // that its target was applied nor that physical fans rotated.
+            const changed = Object.assign({}, initial, {doFixedSpeed: !data.fixed})
+            fixture.push("state", changed)
+            tryVerify(function () {
+                return backend.latestState.doFixedSpeed === !data.fixed
+            })
+            compare(backend.lastActivityAt, acknowledgedAt)
+            compare(tooltip.text, expected)
+
+            backend.lastActivityAt = Date.now() - backend.activityStaleTimeout - 1
+            backend.freshnessTick += 1
+            verify(!backend.hasFreshActivity)
+            compare(tooltip.text, expected)
+        }
+
+        function test_backwardClockChangeRetiresFreshnessAndPendingRequests() {
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 50, avgGPUTemp: 60, appliedSpeed: 30, target: 30
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+            const requestId = backend.setFixedPercentage(60)
+            tryVerify(function () { return fixture.requests.length === 1 })
+            // Model the session timestamps recorded before a backward wall-
+            // clock correction, without changing the host clock or Qt's Date
+            // intrinsic. They now lie one hour ahead of the current time.
+            const beforeCorrection = Date.now() + 3600000
+            backend.lastActivityAt = beforeCorrection
+            backend.lastPongTime = beforeCorrection
+            verify(!backend.hasFreshActivity)
+            backend.lastClockCheckAt = beforeCorrection
+            tryCompare(backend, "ready", false, 2000)
+            compare(Object.keys(backend.pendingRequests).length, 0)
+            compare(finished.count, 1)
+            compare(finished.signalArguments[0][0], requestId)
+            compare(finished.signalArguments[0][1], false)
+            tryCompare(backend, "ready", true)
+            tryCompare(fixture, "subscriptions", 2)
+            compare(fixture.requests.length, 1)
+            verify(!backend.hasActivity)
         }
 
         function test_initialTelemetryDeadlineIgnoresUnrelatedTraffic() {

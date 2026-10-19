@@ -25,22 +25,55 @@ it.runIf(process.platform === "win32")(
   "matches the real Windows effective token without querying network services",
   async () => {
     const execute = promisify(execFile);
-    const { stdout: expected } = await execute("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "$principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()); Write-Output $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
-    ]);
     const moduleUrl = pathToFileURL(
       path.join(import.meta.dirname, "permissions.ts"),
     ).href;
-    const { stdout: actual } = await execute("bun", [
-      "-e",
-      `const { isElevated } = await import(${JSON.stringify(moduleUrl)}); console.log(await isElevated());`,
-    ]);
-    expect(actual.trim().toLowerCase()).toBe(expected.trim().toLowerCase());
+    const controller = new AbortController();
+    async function probe(label: string, command: string, args: string[]) {
+      try {
+        const { stdout } = await execute(command, args, {
+          // Hosted Windows cold starts can exceed 20 seconds while compiled
+          // fixtures are launching. Keep a bounded probe without weakening the
+          // effective-token comparison or changing production startup policy.
+          timeout: 40_000,
+          signal: controller.signal,
+          windowsHide: true,
+        });
+        return stdout.trim().toLowerCase();
+      } catch (error) {
+        throw new Error(
+          `${label} effective-token probe failed: ${String(error)}`,
+          {
+            cause: error,
+          },
+        );
+      }
+    }
+    try {
+      // These independent processes inherit the same effective token. Probe
+      // concurrently so their cold-start costs do not add up while compilation
+      // and worker fixtures also run on a busy hosted Windows runner.
+      const [expected, actual] = await Promise.all([
+        probe("WindowsPrincipal", "powershell.exe", [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "$principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()); Write-Output $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
+        ]),
+        probe("Bun Advapi32", "bun", [
+          "-e",
+          `const { isElevated } = await import(${JSON.stringify(moduleUrl)}); console.log(await isElevated());`,
+        ]),
+      ]);
+      expect(expected).toMatch(/^(?:true|false)$/);
+      expect(actual).toBe(expected);
+    } finally {
+      // Kill the sibling probe too if startup, comparison, or either command
+      // fails; an outer runner timeout must not leave an unbounded child.
+      controller.abort();
+    }
   },
-  15_000,
+  45_000,
 );
 
 describe("effective process privileges", () => {

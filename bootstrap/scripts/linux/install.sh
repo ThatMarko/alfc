@@ -6,7 +6,11 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Service files and optional desktop resources must remain readable by the
+# desktop user even when sudo preserves a restrictive caller umask.
+umask 022
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 SERVICE_NAME="alfc"
 INSTALL_DIR="/opt/alfc"
 
@@ -51,6 +55,7 @@ install_files() {
   esac
 
   mkdir -p "${INSTALL_DIR}"
+  chmod 755 "${INSTALL_DIR}"
 
   # Preserve existing config if present
   local preserve_config=false
@@ -73,11 +78,21 @@ install_files() {
     cp "${SCRIPT_DIR}/alfc.config.json" "${INSTALL_DIR}/alfc.config.json"
   fi
 
-  # Plasmoid (user installs separately via kpackagetool6)
-  if [[ -d "${SCRIPT_DIR}/plasmoid" ]]; then
-    rm -rf "${INSTALL_DIR}/plasmoid"
-    cp -r "${SCRIPT_DIR}/plasmoid" "${INSTALL_DIR}/plasmoid"
-  fi
+  # Optional desktop integrations; users opt in separately. Normalize the
+  # owned resource tree so restrictive archive extraction cannot hide helpers
+  # or QML/JS resources from the unprivileged desktop session.
+  local desktop
+  for desktop in plasmoid omarchy; do
+    # These are owned release resources. An omitted optional integration in
+    # the new release must retire its old installed version as well.
+    rm -rf "${INSTALL_DIR}/${desktop}"
+    if [[ -d "${SCRIPT_DIR}/${desktop}" ]]; then
+      cp -r "${SCRIPT_DIR}/${desktop}" "${INSTALL_DIR}/${desktop}"
+      find "${INSTALL_DIR}/${desktop}" -type d -exec chmod 755 {} +
+      find "${INSTALL_DIR}/${desktop}" -type f -exec chmod 644 {} +
+      find "${INSTALL_DIR}/${desktop}" -type f -name '*.sh' -exec chmod 755 {} +
+    fi
+  done
 
   # Management scripts — so users can uninstall/run from /opt/alfc
   for script in uninstall.sh run.sh; do
@@ -103,6 +118,7 @@ install_systemd() {
   fi
 
   sed "s|@@INSTALL_DIR@@|${INSTALL_DIR}|g" "${template}" >"${service_file}"
+  chmod 644 "${service_file}"
 
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
@@ -142,7 +158,7 @@ start_pre() {
 }
 EOF
 
-  chmod +x "${init_script}"
+  chmod 755 "${init_script}"
   rc-update add "${SERVICE_NAME}" default
   rc-service "${SERVICE_NAME}" restart
   echo "Service installed via OpenRC and started."
@@ -155,24 +171,115 @@ if [[ "${INIT_SYSTEM}" == "unknown" ]]; then
   exit 1
 fi
 
-for required in frontend alfc.config.json uninstall.sh run.sh; do
-  if [[ ! -e "${SCRIPT_DIR}/${required}" ]]; then
-    echo "Release is incomplete: missing ${required}; no files were changed."
+for required in alfc.config.json uninstall.sh run.sh frontend/index.html; do
+  if [[ ! -f "${SCRIPT_DIR}/${required}" ]]; then
+    echo "Release is incomplete: missing regular file ${required}; no files were changed."
     exit 1
   fi
 done
+if [[ ! -d "${SCRIPT_DIR}/frontend" ]]; then
+  echo "Release is incomplete: frontend must be a directory; no files were changed."
+  exit 1
+fi
 if [[ "${INIT_SYSTEM}" == "systemd" && ! -f "${SCRIPT_DIR}/alfc.service" ]]; then
   echo "Release is incomplete: missing alfc.service; no files were changed."
   exit 1
 fi
-if [[ "${SCRIPT_DIR}" == "${INSTALL_DIR}" ]]; then
+physical_install_dir="${INSTALL_DIR}"
+if [[ -d "${INSTALL_DIR}" ]]; then
+  physical_install_dir="$(cd "${INSTALL_DIR}" && pwd -P)"
+fi
+if [[ "${SCRIPT_DIR}" == "${physical_install_dir}" || "${SCRIPT_DIR}" == "${physical_install_dir}/"* ]]; then
   echo "Extract the new release outside ${INSTALL_DIR} before installing."
   exit 1
 fi
+
+# A command link alone cannot establish ownership of files reached through
+# another symlink. Refuse redirected destinations before stopping services,
+# copying/chmodding executables, or truncating the service definition.
+if [[ -L "${INSTALL_DIR}" || ( -e "${INSTALL_DIR}" && ! -d "${INSTALL_DIR}" ) ]]; then
+  echo "${INSTALL_DIR} must be a real installation directory; no files were changed."
+  exit 1
+fi
+case "${INIT_SYSTEM}" in
+  systemd) service_path="/etc/systemd/system/${SERVICE_NAME}.service" ;;
+  openrc) service_path="/etc/init.d/${SERVICE_NAME}" ;;
+esac
+for destination in "${INSTALL_DIR}/alfc" "${INSTALL_DIR}/alfc.config.json" \
+  "${INSTALL_DIR}/run.sh" "${INSTALL_DIR}/uninstall.sh" "${service_path}"; do
+  if [[ -L "${destination}" || ( -e "${destination}" && ! -f "${destination}" ) ]]; then
+    echo "Refusing redirected or non-file destination ${destination}; no files were changed."
+    exit 1
+  fi
+done
 if [[ -e /usr/bin/alfc || -L /usr/bin/alfc ]]; then
   if [[ "$(readlink /usr/bin/alfc || true)" != "${INSTALL_DIR}/alfc" ]]; then
     echo "/usr/bin/alfc belongs to another installation; remove it with its package manager first."
     exit 1
+  fi
+fi
+
+if [[ "${INIT_SYSTEM}" == "openrc" ]]; then
+  # OpenRC services may be registered in boot or user-defined runlevels too.
+  # Check every registration before replacing the shared init script.
+  for runlevel_link in /etc/runlevels/{*,.[!.]*,..?*}/"${SERVICE_NAME}"; do
+    [[ -e "${runlevel_link}" || -L "${runlevel_link}" ]] || continue
+    if [[ ! -L "${runlevel_link}" ||
+          "$(readlink -f -- "${runlevel_link}" || true)" != "${service_path}" ]]; then
+      echo "Refusing foreign runlevel registration ${runlevel_link}; no service changes were made."
+      exit 1
+    fi
+  done
+fi
+
+# The service name is shared with other installations. Verify its declared
+# executable independently of the launcher symlink before stopping/replacing it.
+if [[ -n "${service_path}" && -f "${service_path}" ]]; then
+  case "${INIT_SYSTEM}" in
+    systemd) declared_command="$(sed -n 's/^[[:space:]]*ExecStart[[:space:]]*=[[:space:]]*//p' "${service_path}")" ;;
+    openrc) declared_command="$(sed -n 's/^[[:space:]]*command[[:space:]]*=[[:space:]]*//p' "${service_path}")" ;;
+  esac
+  if [[ "${declared_command}" != "${INSTALL_DIR}/alfc" &&
+        "${declared_command}" != "\"${INSTALL_DIR}/alfc\"" &&
+        "${declared_command}" != "'${INSTALL_DIR}/alfc'" ]]; then
+    echo "Refusing service definition ${service_path}: it does not name this installation's executable."
+    exit 1
+  fi
+fi
+if [[ "${INIT_SYSTEM}" == "systemd" ]]; then
+  # Resolve vendor/runtime units as well; absence of the manual unit does not
+  # establish that the service name is unused. 'show' is read-only and reports
+  # LoadState=not-found for a genuinely absent unit.
+  service_properties="$(systemctl show --property=LoadState --property=FragmentPath --property=ExecStart "${SERVICE_NAME}")"
+  load_state=""
+  fragment_path=""
+  exec_start=""
+  exec_start_count=0
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      LoadState) load_state="${value}" ;;
+      FragmentPath) fragment_path="${value}" ;;
+      ExecStart) exec_start="${value}"; exec_start_count=$((exec_start_count + 1)) ;;
+    esac
+  done <<<"${service_properties}"
+  if [[ "${fragment_path}" != "${service_path}" &&
+        ( "${load_state}" != "not-found" || -n "${fragment_path}" ) ]]; then
+    echo "Refusing service ${SERVICE_NAME}: systemd does not resolve it to ${service_path}."
+    exit 1
+  fi
+  if [[ "${load_state}" != "not-found" || -n "${fragment_path}" ]]; then
+    # A drop-in can replace ExecStart while preserving the owned FragmentPath.
+    # systemctl prints one record per command (systemd v257 systemctl-show.c).
+    # Match this release's one executable and argv, leaving harmless generic
+    # service policy drop-ins usable rather than rejecting all DropInPaths.
+    expected_exec_prefix="{ path=${INSTALL_DIR}/alfc ; argv[]=${INSTALL_DIR}/alfc ; ignore_errors="
+    exec_metadata="${exec_start#"${expected_exec_prefix}"}"
+    exec_metadata="${exec_metadata%" }"}"
+    if [[ "${exec_start_count}" -ne 1 || "${exec_start}" != "${expected_exec_prefix}"*' }' ||
+          "${exec_metadata}" == *'{'* || "${exec_metadata}" == *'}'* ]]; then
+      echo "Refusing service ${SERVICE_NAME}: its effective ExecStart is not this installation's single executable."
+      exit 1
+    fi
   fi
 fi
 
@@ -193,4 +300,9 @@ if [[ -d "${INSTALL_DIR}/plasmoid" ]]; then
   echo ""
   echo "  KDE Plasma 6 widget (optional):"
   echo "    ${INSTALL_DIR}/plasmoid/install.sh"
+fi
+if [[ -d "${INSTALL_DIR}/omarchy" ]]; then
+  echo ""
+  echo "  Omarchy status/launcher module (optional, run as desktop user):"
+  echo "    ${INSTALL_DIR}/omarchy/install.sh"
 fi

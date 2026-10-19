@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
+import "TextFormatting.js" as TextFormatting
 
 import org.kde.kirigami as Kirigami
 
@@ -14,7 +15,7 @@ Kirigami.InlineMessage {
     Layout.fillWidth: true
     visible: messageText.length > 0
     showCloseButton: false
-    text: messageText
+    text: TextFormatting.literalText(messageText)
     type: tone === "error"
         ? Kirigami.MessageType.Error
         : (tone === "success"

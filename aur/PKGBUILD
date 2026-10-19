@@ -6,17 +6,22 @@ pkgdesc="Cross-platform fan control for Aorus laptops — web UI + backend servi
 arch=('x86_64')
 url="https://github.com/ThatMarko/alfc"
 license=('MIT')
-depends=('glibc' 'gcc-libs' 'icu')
+depends=('glibc' 'gcc-libs' 'icu' 'systemd')
 optdepends=(
-  'acpi_call: Required for fan control (kernel module)'
-  'acpi_call-dkms: Alternative DKMS-based acpi_call'
+  'acpi_call: Fan control module for the Arch linux kernel'
+  'acpi_call-lts: Fan control module for the Arch linux-lts kernel'
+  'acpi_call-dkms: Fan control module sources; requires target kernel headers'
 )
 provides=('alfc')
 conflicts=('alfc')
 backup=('usr/lib/alfc/alfc.config.json')
 install=alfc.install
-source=("${pkgname}-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/alfc-v${pkgver}-linux-x64.tar.gz")
-sha256sums=('SKIP')
+source=(
+  "${pkgname}-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/alfc-v${pkgver}-linux-x64.tar.gz"
+  'alfc-stop-service.hook'
+  'alfc-package-stop'
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP')
 
 package() {
   local _srcdir="alfc-v${pkgver}-linux-x64"
@@ -42,9 +47,22 @@ package() {
     find "${pkgdir}/usr/lib/alfc/plasmoid" -type f -name '*.sh' -exec chmod 755 {} +
   fi
 
+  # Omarchy helpers and Quickshell module (optional, installed per user).
+  if [[ -d "${_srcdir}/omarchy" ]]; then
+    cp -r "${_srcdir}/omarchy" "${pkgdir}/usr/lib/alfc/omarchy"
+    find "${pkgdir}/usr/lib/alfc/omarchy" -type f -exec chmod 644 {} +
+    find "${pkgdir}/usr/lib/alfc/omarchy" -type d -exec chmod 755 {} +
+    find "${pkgdir}/usr/lib/alfc/omarchy" -type f -name '*.sh' -exec chmod 755 {} +
+  fi
+
   # systemd service — generated from shared template
   install -Dm644 "${_srcdir}/alfc.service" "${pkgdir}/usr/lib/systemd/system/alfc.service"
   sed -i "s|@@INSTALL_DIR@@|/usr/lib/alfc|g" "${pkgdir}/usr/lib/systemd/system/alfc.service"
+
+  # A failed scriptlet does not abort an ALPM transaction. Stop before files
+  # change, and let AbortOnFail retain the package when shutdown cannot finish.
+  install -Dm755 "${srcdir}/alfc-package-stop" "${pkgdir}/usr/lib/alfc/alfc-package-stop"
+  install -Dm644 "${srcdir}/alfc-stop-service.hook" "${pkgdir}/usr/share/libalpm/hooks/alfc-stop-service.hook"
 
   # License
   install -Dm644 "${_srcdir}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"

@@ -24,6 +24,10 @@ permission checks use Advapi32 directly and do not require the LanmanServer serv
 
 - Both loopback listeners share one mutation queue and publish the same confirmed
   state and telemetry. Never bind a privileged control endpoint to a wildcard.
+- Acquire all loopback listeners before native initialization. An occupied
+  endpoint must reject a second start without changing hardware or restoring
+  BIOS control over the existing controller. Until initialization finishes,
+  HTTP requests and WebSocket upgrade attempts receive 503.
 - IPv6 absence permits IPv4 fallback only for `EAFNOSUPPORT`, `EADDRNOTAVAIL`, or
   `ENODEV`. An occupied IPv6 port fails startup and closes the owned IPv4 listener.
 - Browser WebSocket Origins must be HTTP(S) loopback origins. Native clients,
@@ -56,9 +60,10 @@ their source locations. `isCompiledBinary` selects filesystem/worker paths;
 Run packaged production builds with their `run.sh`/`run.bat`, or run source with
 `NODE_ENV=production bun server/index.ts` after building the frontend. These are the supported production entry points.
 
-Run root `bun run all-checks`. The listener integration suite launches real Bun
+Run root `bun run all-checks`. The listener/startup integration suites launch real Bun
 subprocesses and sockets with hardware fixtures; it covers IPv4/IPv6 mutation and
-telemetry parity, partial bind rollback, and synchronous listener-stop failures.
+telemetry parity, partial bind rollback, duplicate-start hardware isolation,
+startup readiness, and synchronous listener-stop failures.
 Keep tests colocated, avoid `any`, and use `node:` prefixes for Node built-ins.
 Hardware tests require a supported machine; a green mocked suite is not firmware
 or Windows SDK compatibility evidence.

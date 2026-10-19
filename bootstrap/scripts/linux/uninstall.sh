@@ -18,6 +18,16 @@ for arg in "$@"; do
   esac
 done
 
+# The service name is shared with packaged installations. A foreign command
+# means this manual uninstaller cannot safely claim ownership of that service.
+# Check before stopping/disabling it or removing any installation files.
+if [[ -e /usr/bin/alfc || -L /usr/bin/alfc ]]; then
+  if [[ "$(readlink /usr/bin/alfc || true)" != "${INSTALL_DIR}/alfc" ]]; then
+    echo "/usr/bin/alfc belongs to another installation; remove it with its package manager first."
+    exit 1
+  fi
+fi
+
 detect_init() {
   if [[ -d /run/systemd/system ]]; then
     echo "systemd"
@@ -34,7 +44,15 @@ uninstall_systemd() {
   if [[ -f "${service_file}" ]] || systemctl is-active --quiet "${SERVICE_NAME}"; then
     systemctl stop "${SERVICE_NAME}"
   fi
-  systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
+  if [[ -f "${service_file}" ]] || systemctl is-enabled --quiet "${SERVICE_NAME}"; then
+    if systemctl disable "${SERVICE_NAME}"; then
+      :
+    else
+      local disable_status=$?
+      echo "ALFC was stopped, but disabling its service failed; installation files were kept for retry." >&2
+      return "${disable_status}"
+    fi
+  fi
   rm -f "${service_file}"
   systemctl daemon-reload
   systemctl reset-failed "${SERVICE_NAME}" 2>/dev/null || true
@@ -47,13 +65,100 @@ uninstall_openrc() {
   if [[ -f "${init_script}" ]]; then
     rc-service "${SERVICE_NAME}" stop
   fi
-  rc-update del "${SERVICE_NAME}" default 2>/dev/null || true
+  local runlevel_link runlevel
+  for runlevel_link in /etc/runlevels/{*,.[!.]*,..?*}/"${SERVICE_NAME}"; do
+    [[ -e "${runlevel_link}" || -L "${runlevel_link}" ]] || continue
+    runlevel="$(basename "$(dirname "${runlevel_link}")")"
+    if rc-update del "${SERVICE_NAME}" "${runlevel}"; then
+      :
+    else
+      local disable_status=$?
+      echo "ALFC was stopped, but removing its ${runlevel} runlevel registration failed; installation files were kept for retry." >&2
+      return "${disable_status}"
+    fi
+  done
   rm -f "${init_script}"
   echo "Service removed (OpenRC)."
 }
 
 # Remove service
 INIT_SYSTEM="$(detect_init)"
+
+# A symlinked installation root or service definition can refer to another
+# installation even when /usr/bin/alfc still has the expected literal target.
+if [[ -L "${INSTALL_DIR}" || ( -e "${INSTALL_DIR}" && ! -d "${INSTALL_DIR}" ) ]]; then
+  echo "Refusing redirected or non-directory installation ${INSTALL_DIR}; no files were removed."
+  exit 1
+fi
+case "${INIT_SYSTEM}" in
+  systemd) service_path="/etc/systemd/system/${SERVICE_NAME}.service" ;;
+  openrc) service_path="/etc/init.d/${SERVICE_NAME}" ;;
+  *) service_path="" ;;
+esac
+if [[ -n "${service_path}" && ( -L "${service_path}" || ( -e "${service_path}" && ! -f "${service_path}" ) ) ]]; then
+  echo "Refusing redirected or non-file service definition ${service_path}; no files were removed."
+  exit 1
+fi
+
+if [[ "${INIT_SYSTEM}" == "openrc" ]]; then
+  for runlevel_link in /etc/runlevels/{*,.[!.]*,..?*}/"${SERVICE_NAME}"; do
+    [[ -e "${runlevel_link}" || -L "${runlevel_link}" ]] || continue
+    if [[ ! -L "${runlevel_link}" ||
+          "$(readlink -f -- "${runlevel_link}" || true)" != "${service_path}" ]]; then
+      echo "Refusing foreign runlevel registration ${runlevel_link}; no service changes were made."
+      exit 1
+    fi
+  done
+fi
+
+# The service name is shared with other installations. Verify its declared
+# executable independently of the launcher symlink before stopping/replacing it.
+if [[ -n "${service_path}" && -f "${service_path}" ]]; then
+  case "${INIT_SYSTEM}" in
+    systemd) declared_command="$(sed -n 's/^[[:space:]]*ExecStart[[:space:]]*=[[:space:]]*//p' "${service_path}")" ;;
+    openrc) declared_command="$(sed -n 's/^[[:space:]]*command[[:space:]]*=[[:space:]]*//p' "${service_path}")" ;;
+  esac
+  if [[ "${declared_command}" != "${INSTALL_DIR}/alfc" &&
+        "${declared_command}" != "\"${INSTALL_DIR}/alfc\"" &&
+        "${declared_command}" != "'${INSTALL_DIR}/alfc'" ]]; then
+    echo "Refusing service definition ${service_path}: it does not name this installation's executable."
+    exit 1
+  fi
+fi
+if [[ "${INIT_SYSTEM}" == "systemd" ]]; then
+  # Resolve vendor/runtime units as well; absence of the manual unit does not
+  # establish that the service name is unused. 'show' is read-only and reports
+  # LoadState=not-found for a genuinely absent unit.
+  service_properties="$(systemctl show --property=LoadState --property=FragmentPath --property=ExecStart "${SERVICE_NAME}")"
+  load_state=""
+  fragment_path=""
+  exec_start=""
+  exec_start_count=0
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      LoadState) load_state="${value}" ;;
+      FragmentPath) fragment_path="${value}" ;;
+      ExecStart) exec_start="${value}"; exec_start_count=$((exec_start_count + 1)) ;;
+    esac
+  done <<<"${service_properties}"
+  if [[ "${fragment_path}" != "${service_path}" &&
+        ( "${load_state}" != "not-found" || -n "${fragment_path}" ) ]]; then
+    echo "Refusing service ${SERVICE_NAME}: systemd does not resolve it to ${service_path}."
+    exit 1
+  fi
+  if [[ "${load_state}" != "not-found" || -n "${fragment_path}" ]]; then
+    # A drop-in can replace ExecStart while preserving the owned FragmentPath.
+    # systemctl prints one record per command (systemd v257 systemctl-show.c).
+    expected_exec_prefix="{ path=${INSTALL_DIR}/alfc ; argv[]=${INSTALL_DIR}/alfc ; ignore_errors="
+    exec_metadata="${exec_start#"${expected_exec_prefix}"}"
+    exec_metadata="${exec_metadata%" }"}"
+    if [[ "${exec_start_count}" -ne 1 || "${exec_start}" != "${expected_exec_prefix}"*' }' ||
+          "${exec_metadata}" == *'{'* || "${exec_metadata}" == *'}'* ]]; then
+      echo "Refusing service ${SERVICE_NAME}: its effective ExecStart is not this installation's single executable."
+      exit 1
+    fi
+  fi
+fi
 
 case "${INIT_SYSTEM}" in
   systemd) uninstall_systemd ;;

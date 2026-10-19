@@ -1,11 +1,12 @@
 # ALFC Roadmap
 
-This distinguishes code present on `feat/wmi-ffi` (PR #1) from proposed work.
+This distinguishes code on the merged default branch, `master`, from proposed work.
 It does not certify hardware compatibility or announce a stable release.
-Use [issues](https://github.com/ThatMarko/alfc/issues) for current priorities and
+Use [pull requests](https://github.com/ThatMarko/alfc/pulls) for current changes
+(the fork’s issue tracker was disabled on 2026-10-15) and
 [PORTING_REVIEW.md](PORTING_REVIEW.md) for actual validation evidence.
 
-## Implemented on this branch
+## Implemented on mainline
 
 - Bun 1.4.3 workspaces and compiled Linux/Windows server outputs; no separate
   Node runtime is needed by packaged production executables.
@@ -26,8 +27,12 @@ Use [issues](https://github.com/ThatMarko/alfc/issues) for current priorities an
 - Explicit IPv4/IPv6 loopback serving, validated HTTP paths and browser origins,
   bounded WebSocket work, serialized persistence, and bounded shutdown/BIOS
   restoration attempts.
-- Linux/Windows CI, Chromium scenarios, native export/packing checks, and Qt
-  runtime tests. Headless tests supplement physical validation.
+- Linux/Windows CI, Chromium scenarios, native export/packing checks, Qt-only
+  tests, a required matching Qt/KDE component tier, and production-protocol
+  cross-client integration with fake hardware. Headless tests supplement
+  physical validation.
+- Optional read-only Omarchy 4.0.4 status/launcher module using the existing
+  validated protocol and unprivileged local web UI launch.
 
 ## Before a production release
 
@@ -76,8 +81,9 @@ handling. Avoid promising power savings before measurements.
 - Structured log levels, redacted diagnostic export, and a documented read-only
   health endpoint. No HTTP diagnostics API currently exists.
 - Optional desktop temperature/failure notifications with user-set thresholds.
-- Investigate a Windows tray client and non-KDE Linux desktop integrations using
-  the same documented backend protocol.
+- Investigate a Windows tray client and additional non-KDE desktop integrations
+  using the same documented backend protocol. The initial Omarchy integration
+  is described in [OMARCHY.md](OMARCHY.md).
 
 ## Longer-term investigations
 

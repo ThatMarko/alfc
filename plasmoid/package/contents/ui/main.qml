@@ -26,13 +26,9 @@ PlasmoidItem {
     readonly property int warningTemp: widgetSettings.warningTemp
     readonly property bool hasState: backendConnection.hasState
     readonly property bool protocolCompatible: backendConnection.protocolCompatible
-    readonly property string protocolVersion: backendConnection.protocolVersion
     readonly property bool hasActivity: backendConnection.hasFreshActivity
     readonly property bool hasTelemetrySnapshot: backendConnection.hasActivity
     readonly property bool telemetryUnavailable: backendConnection.initialActivityTimedOut
-    readonly property int telemetryAgeSeconds: hasTelemetrySnapshot
-        ? Math.ceil(backendConnection.activityAgeMs / 1000)
-        : 0
     readonly property var backendState: hasState ? backendConnection.latestState : null
     readonly property bool restartRequired: backendState != null && backendState.restartRequired === true
     readonly property var activity: hasActivity ? backendConnection.latestActivity : null
@@ -117,81 +113,12 @@ PlasmoidItem {
     preferredRepresentation: root.isPlanar ? fullRepresentation : null
 
     toolTipMainText: Plasmoid.title
-    toolTipSubText: {
-        if (backendConnection.isConnecting) {
-            return i18n("Connecting")
-        }
-
-        if (!backendConnection.isConnected) {
-            return backendConnection.lastError.length > 0
-                ? i18n("Disconnected: %1", backendConnection.lastError)
-                : i18n("Disconnected")
-        }
-
-        if (!root.protocolCompatible) {
-            return i18n("Unsupported backend protocol %1",
-                root.protocolVersion)
-        }
-
-        if (!backendConnection.hasState) {
-            return backendConnection.lastError.length > 0
-                ? backendConnection.lastError : i18n("Connected, waiting for state")
-        }
-
-        if (root.restartRequired) {
-            return i18n("A native service stopped responding. Restart ALFC to restore unavailable features.")
-        }
-
-        if (root.sensorFailure) {
-            if (root.telemetryActivity.appliedSpeed === null) {
-                return i18n("Sensor error — fan output unconfirmed")
-            }
-            return root.isFixedMode
-                ? i18n("Sensor error — fixed fan speed active")
-                : i18n("Sensor error — fans at fail-safe maximum")
-        }
-
-        if (backendConnection.lastRequestError.length > 0) {
-            return i18n("Last action failed: %1", backendConnection.lastRequestError)
-        }
-
-        if (!root.fanControlAvailable) {
-            return i18n("Fan control unavailable")
-        }
-
-        if (root.telemetryUnavailable) {
-            return i18n("Telemetry unavailable")
-        }
-
-        if (!backendConnection.hasFreshActivity) {
-            if (root.telemetryActivity != null) {
-                const staleFanText = telemetryActivity.appliedSpeed != null
-                    ? i18n("%1%", Math.round(telemetryActivity.appliedSpeed))
-                    : "--"
-
-                return i18n("Last update %1s ago: CPU %2\u00B0C | GPU %3\u00B0C | Fan %4",
-                    root.telemetryAgeSeconds,
-                    Math.round(telemetryActivity.avgCPUTemp),
-                    Math.round(telemetryActivity.avgGPUTemp),
-                    staleFanText)
-            }
-
-            return i18n("Connected, waiting for telemetry")
-        }
-
-        if (activity == null) {
-            return i18n("Connected, waiting for telemetry")
-        }
-
-        const fanText = activity.appliedSpeed != null
-            ? i18n("%1%", Math.round(activity.appliedSpeed))
-            : "--"
-
-        return i18n("CPU: %1\u00B0C | GPU: %2\u00B0C | Fan: %3",
-            Math.round(activity.avgCPUTemp),
-            Math.round(activity.avgGPUTemp),
-            fanText)
+    BackendToolTip {
+        id: backendToolTip
+        backend: backendConnection
     }
+
+    toolTipSubText: backendToolTip.text
 
     toolTipItem: Item {
         implicitWidth: tipLayout.implicitWidth
@@ -266,6 +193,7 @@ PlasmoidItem {
                 visible: !root.hasActivity || root.sensorFailure || root.restartRequired
                     || backendConnection.lastRequestError.length > 0
                 text: root.toolTipSubText
+                textFormat: Text.PlainText
                 color: root.sensorFailure || root.restartRequired
                     ? Kirigami.Theme.negativeTextColor
                     : Kirigami.Theme.disabledTextColor

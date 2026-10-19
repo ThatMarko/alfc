@@ -16,7 +16,7 @@ import {
   restoreAutoFanControl,
   startFanControlShutdown,
 } from "./fan-control/index";
-import { handleWebSocketRequest, serveFrontendAsset } from "./http";
+import { createHttpHandler } from "./http";
 import { isElevated } from "./permissions";
 import { listenOnLoopback } from "./listeners";
 
@@ -46,6 +46,7 @@ const exitWithError = () => {
 
 const servers: Bun.Server<undefined>[] = [];
 let nativeInitialization: Promise<void> | undefined;
+let isReady = false;
 let isShuttingDown = false;
 let shutdownPromise: Promise<void> | undefined;
 let shutdownExitCode = 0;
@@ -189,38 +190,17 @@ async function runServer() {
   }
   if (isShuttingDown) return;
 
-  console.log("[Server] Initializing fan control...");
-  nativeInitialization = initNativeServices(() => isShuttingDown);
-  await nativeInitialization;
-  if (isShuttingDown) return;
-
   console.log("[Server] Starting server...");
 
   const options = {
     port: PORT,
 
-    fetch(req: Request, server: Bun.Server<undefined>) {
-      if (isShuttingDown) {
-        return new Response("Service Unavailable", { status: 503 });
-      }
-      const url = new URL(req.url);
-
-      const webSocketResponse = handleWebSocketRequest(req, server);
-      if (webSocketResponse !== null) return webSocketResponse;
-
-      if (req.method !== "GET" && req.method !== "HEAD") {
-        return new Response("Method Not Allowed", {
-          status: 405,
-          headers: { Allow: "GET, HEAD" },
-        });
-      }
-
-      if (!isDev) {
-        return serveFrontendAsset(frontendDir, url.pathname);
-      }
-
-      return new Response("Nothing to see here.");
-    },
+    fetch: createHttpHandler({
+      frontendDir,
+      isDev,
+      isReady: () => isReady,
+      isShuttingDown: () => isShuttingDown,
+    }),
 
     websocket: websocketHandlers,
   } satisfies Bun.Serve.Options<undefined>;
@@ -234,6 +214,15 @@ async function runServer() {
     return;
   }
 
+  // Acquire every control endpoint before touching hardware. A second manual
+  // start beside an installed service must fail without changing its fan mode
+  // or restoring BIOS control over the existing controller during rollback.
+  console.log("[Server] Initializing fan control...");
+  nativeInitialization = initNativeServices(() => isShuttingDown);
+  await nativeInitialization;
+  if (isShuttingDown) return;
+
+  isReady = true;
   setServers(servers);
 
   console.log(

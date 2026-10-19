@@ -12,13 +12,32 @@ scripts are included; an OpenRC machine still needs a compatible binary.
 Musl-only distributions such as a default Alpine installation need a separately
 validated musl build or compatible runtime; the glibc archive is not universal.
 
-Install the `acpi_call` kernel module and headers matching your running kernel.
-On Arch-based systems:
+Install an `acpi_call` module built for the kernel you boot. On Arch-based
+systems, choose a matching prebuilt package or DKMS with the target kernel's
+headers:
+
+| Kernel                                            | Prebuilt module              | DKMS alternative                         |
+| ------------------------------------------------- | ---------------------------- | ---------------------------------------- |
+| `linux`                                           | `acpi_call`                  | `acpi_call-dkms` + `linux-headers`       |
+| `linux-lts`                                       | `acpi_call-lts`              | `acpi_call-dkms` + `linux-lts-headers`   |
+| `linux-zen`, `linux-hardened`, or a custom kernel | Check for a matching package | `acpi_call-dkms` + that kernel's headers |
+
+For example, with the standard `linux` kernel:
 
 ```sh
-sudo pacman -S acpi_call-dkms
+sudo pacman -Syu acpi_call-dkms linux-headers
 sudo modprobe acpi_call
 ```
+
+Use `uname -r` and `pacman -Q` to identify the running and installed kernels;
+install headers for every kernel you intend to boot. A kernel upgrade may need
+a reboot before its newly built module can load. Check `dkms status` and pacman
+build output after upgrades. The prebuilt and DKMS module packages conflict;
+choose one approach. See the current Arch package pages for
+[`acpi_call`](https://archlinux.org/packages/extra/x86_64/acpi_call/),
+[`acpi_call-lts`](https://archlinux.org/packages/extra/x86_64/acpi_call-lts/), and
+[`acpi_call-dkms`](https://archlinux.org/packages/extra/any/acpi_call-dkms/), and
+the [DKMS instructions](https://wiki.archlinux.org/title/Dynamic_Kernel_Module_Support).
 
 For other distributions, use their matching kernel-module packages or follow
 [nix-community/acpi_call](https://github.com/nix-community/acpi_call). Secure Boot
@@ -54,9 +73,27 @@ sudo ./install.sh
 The installer validates required files and service-manager support before making
 changes, stops an existing service before replacing files, installs under
 `/opt/alfc`, and creates `/usr/bin/alfc`. It preserves existing
-`/opt/alfc/alfc.config.json` on upgrades and removes obsolete frontend assets.
+`/opt/alfc/alfc.config.json` on upgrades and removes obsolete frontend assets
+and optional desktop resources omitted from the new release. Required source
+paths must have the expected file or directory type. Installation also rejects
+symlinked destination roots, executables, helpers, configuration and service
+definitions before stopping services or replacing files.
+The release must include a regular `frontend/index.html`; an empty frontend
+directory cannot replace a working installation.
+The source release must be outside the installation tree, including when reached
+through a directory symlink, so retiring old resources cannot delete its source.
+Subsequent production settings saves retain the configuration's POSIX permission
+bits; creating a missing configuration uses mode `0600`.
 Run the installer again from a newly extracted release to upgrade. It refuses to
 overwrite `/usr/bin/alfc` if that command belongs to another installation.
+Both installation and removal also verify the service's declared executable.
+They refuse foreign systemd units and OpenRC startup registrations even when
+the launcher symlink is missing. Systemd must resolve the service to the manual
+unit, and its effective `ExecStart` must still be this installation's single
+command. A drop-in that redirects the executable or adds another start command
+therefore blocks manual installation or removal, while unrelated service policy
+drop-ins remain supported. Every OpenRC runlevel link must resolve to the owned
+init script.
 
 For a temporary foreground run without installing a service:
 
@@ -88,6 +125,17 @@ sudo /opt/alfc/uninstall.sh
 This stops the service before deleting files and preserves only the top-level
 configuration. To delete it too, run the same command with `--purge`. A failed
 service stop or unknown init system aborts removal, leaving files in place.
+Removal also refuses a foreign `/usr/bin/alfc` command before touching the
+shared `alfc` service name; remove a package installation with its package
+manager instead. Symlinked installation roots and service definitions also
+cause removal to stop before service mutations.
+OpenRC removal deregisters the service from every runlevel, including boot and
+custom runlevels, before removing the init script. If stopping succeeds but
+disabling the systemd unit or removing any OpenRC runlevel registration fails,
+removal returns an error and keeps the installation files and configuration for
+retry. The service has been stopped;
+it has not been fully uninstalled. Inspect the reported registration failure
+and rerun the uninstaller after correcting it.
 Uninstall the per-user widget separately.
 
 ## Troubleshooting
@@ -108,6 +156,18 @@ If ALFC started before `acpi_call` was loaded, load the module and restart ALFC
 (`sudo systemctl restart alfc` or `sudo rc-service alfc restart`). Availability is
 cached for the process; loading the module alone does not refresh the capability.
 
+ALFC owns its paired ACPI fan writes and Intel RAPL package limits while running.
+Review other configured controllers before enabling it: for example,
+[`fancontrol` and NBFC](https://wiki.archlinux.org/title/Fan_speed_control) also
+control fans, while RAPL tools can write the same
+[`constraint_*_power_limit_uw` attributes](https://docs.kernel.org/power/powercap/powercap.html).
+Whether they conflict depends on the actual device and configured controls.
+CPU governors, energy preferences, and RAPL limits are different controls; the
+presence of a power-profile service alone is not proof of conflict. ALFC's
+installers do not disable other services or change system power policy. Choose
+one owner for overlapping controls and validate behavior on the laptop,
+including suspend/resume and service restart.
+
 ## KDE Plasma 6 widget
 
 Install QtWebSockets QML support using the package names in
@@ -117,15 +177,25 @@ Install QtWebSockets QML support using the package names in
 /opt/alfc/plasmoid/install.sh
 ```
 
-The helper upgrades an existing installation. Alternatively use
-`kpackagetool6 --type Plasma/Applet --install /opt/alfc/plasmoid/package`, replacing
-`--install` with `--upgrade` for an existing widget. Add the widget through Plasma's
-Add Widgets interface. Remove it with `/opt/alfc/plasmoid/uninstall.sh` before
-removing the backend installation, or with
-`kpackagetool6 --type Plasma/Applet --remove org.kde.alfc` afterward.
+The helper requires Python 3 to validate package metadata and upgrades an
+existing user installation. It explicitly targets the desktop user's data
+directory, leaving system-installed copies to their package manager. Add the
+widget through Plasma's Add Widgets interface. Remove it with
+`/opt/alfc/plasmoid/uninstall.sh` before removing the backend installation, or
+run `plasmoid/uninstall.sh` from an extracted release afterward. The helper
+refuses mismatched metadata that could make KPackage remove another widget.
 
 The widget depends on the running backend and mirrors its capabilities and
 confirmed state. See [plasmoid/README.md](plasmoid/README.md) for supported controls,
 connection settings, and runtime test instructions. For development,
 `plasmoidviewer -a plasmoid/package` requires the Plasma development tools;
 `plasmawindowed org.kde.alfc` opens an installed widget.
+
+## Omarchy desktop integration
+
+Omarchy uses Hyprland and Quickshell rather than Plasma. The optional
+status/launcher module is staged under `/opt/alfc/omarchy` by the manual installer
+and `/usr/lib/alfc/omarchy` by the AUR template. Run its `install.sh` as the desktop
+user and follow [OMARCHY.md](OMARCHY.md) for supported versions, runtime packages,
+configuration, upgrade, removal, and the separate physical-device validation
+requirements. The backend and local web UI operate independently of this module.

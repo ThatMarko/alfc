@@ -79,6 +79,8 @@ async function waitUntilFanPercent(fanPercent: number) {
 }
 
 describe("fan-control", () => {
+  let releaseStalledRead: (() => void) | undefined;
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -100,10 +102,12 @@ describe("fan-control", () => {
 
   afterEach(async () => {
     // Stop the loop first so no new cycles start, then advance past the
-    // sensor-read timeout so a cycle left in flight by the test releases
-    // the shared cycle lock before the next test runs. (Fixed mode is a
-    // served mode now, so switching modes alone no longer stops reads.)
+    // sensor-read timeout so a cycle left in flight releases the shared
+    // cycle lock. Settle any held physical read too: timing out its consumer
+    // does not complete the native operation or free that channel.
     cleanupFanControlIntervals();
+    releaseStalledRead?.();
+    releaseStalledRead = undefined;
     state.doFixedSpeed = true;
     await vi.advanceTimersByTimeAsync(SENSOR_READ_TIMEOUT);
 
@@ -264,7 +268,12 @@ describe("fan-control", () => {
   });
 
   it("does not overlap temperature collection cycles", async () => {
-    mockedGetCall.mockImplementation(() => new Promise(() => undefined));
+    mockedGetCall.mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          releaseStalledRead = () => resolve(30);
+        }),
+    );
 
     fanControl();
     await vi.advanceTimersByTimeAsync(3 * CYCLE_DURATION);
@@ -272,8 +281,13 @@ describe("fan-control", () => {
     expect(mockedGetCall).toHaveBeenCalledTimes(1);
   });
 
-  it("escapes a stalled collection and applies fixed mode after the read timeout", async () => {
-    mockedGetCall.mockImplementation(() => new Promise(() => undefined));
+  it("applies fixed mode after the timed-out native read actually recovers", async () => {
+    mockedGetCall.mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          releaseStalledRead = () => resolve(30);
+        }),
+    );
 
     fanControl();
     await vi.advanceTimersByTimeAsync(CYCLE_DURATION); // cycle starts, stalls
@@ -281,12 +295,15 @@ describe("fan-control", () => {
     state.doFixedSpeed = true;
     state.fixedPercentage = 75;
 
-    // The loop is not torn down on the switch: the stalled read holds the
-    // cycle lock until SENSOR_READ_TIMEOUT fails the collection.
-    await vi.advanceTimersByTimeAsync(SENSOR_READ_TIMEOUT);
+    // The consumer deadline ends the collection, but the physical channel
+    // is still held. New reads must wait rather than queue behind it.
+    await vi.advanceTimersByTimeAsync(SENSOR_READ_TIMEOUT + CYCLE_DURATION);
+    expect(mockedGetCall).toHaveBeenCalledTimes(1);
 
-    // Recovery: the next collected cycle applies the fixed speed.
+    // Once the native call really completes, the next collected cycle
+    // applies fixed speed without replaying old timed-out reads.
     mockTemperatures(30, 30);
+    releaseStalledRead?.();
     await waitUntilFanPercent(state.fixedPercentage);
   });
 

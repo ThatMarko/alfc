@@ -20,8 +20,8 @@ function readQml(fileName: string): string {
 describe("KDE Plasma 6 widget QML contract", () => {
   const qmlFiles = readdirSync(UI_DIR).filter((f) => f.endsWith(".qml"));
 
-  it("includes all 11 pure QML UI files with pragma ComponentBehavior: Bound", () => {
-    expect(qmlFiles.length).toBe(11);
+  it("includes all 12 pure QML UI files with pragma ComponentBehavior: Bound", () => {
+    expect(qmlFiles.length).toBe(12);
     for (const file of qmlFiles) {
       const content = readQml(file);
       expect(content.startsWith("pragma ComponentBehavior: Bound")).toBe(true);
@@ -37,13 +37,19 @@ describe("KDE Plasma 6 widget QML contract", () => {
     expect(backend).toContain("root.responseRequestId(data)");
   });
 
-  it("surfaces sensorFailure across main.qml, CompactRepresentation.qml, and FullRepresentation.qml", () => {
+  it("surfaces sensorFailure through the shared acknowledged-command tooltip and both representations", () => {
     const mainQml = readQml("main.qml");
+    const toolTipQml = readQml("BackendToolTip.qml");
     const compactQml = readQml("CompactRepresentation.qml");
     const fullQml = readQml("FullRepresentation.qml");
 
-    expect(mainQml).toContain("Sensor error — fixed fan speed active");
-    expect(mainQml).toContain("Sensor error — fans at fail-safe maximum");
+    expect(mainQml).toContain("BackendToolTip {");
+    expect(mainQml).toContain("toolTipSubText: backendToolTip.text");
+    expect(toolTipQml).toContain(
+      "Sensor error — last acknowledged fan command %1%",
+    );
+    expect(toolTipQml).toContain("Sensor error — fan output unconfirmed");
+    expect(toolTipQml).not.toContain("fans at fail-safe maximum");
     expect(mainQml).toContain(
       "visible: !root.hasActivity || root.sensorFailure",
     );

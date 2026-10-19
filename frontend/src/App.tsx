@@ -56,7 +56,7 @@ function App() {
               type="button"
               aria-label="Switch to auto mode"
               aria-pressed={!doFixedSpeed}
-              disabled={disabled || !doFixedSpeed}
+              disabled={disabled}
               onClick={() => changeMode(false)}
             >
               Automatic
@@ -65,7 +65,7 @@ function App() {
               type="button"
               aria-label="Switch to fixed mode"
               aria-pressed={doFixedSpeed}
-              disabled={disabled || doFixedSpeed}
+              disabled={disabled}
               onClick={() => changeMode(true)}
             >
               Fixed speed

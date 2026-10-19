@@ -1,9 +1,12 @@
 post_install() {
   echo "==> ALFC installed."
   echo ""
-  echo "  IMPORTANT: alfc requires the acpi_call kernel module."
-  echo "  Install (DKMS version recommended — auto-rebuilds on kernel updates):"
-  echo "    sudo pacman -S acpi_call-dkms"
+  echo "  Fan control requires the acpi_call module for your running kernel."
+  echo "  Use acpi_call for linux, acpi_call-lts for linux-lts, or DKMS with"
+  echo "  matching headers. Example for the standard linux kernel:"
+  echo "    sudo pacman -Syu acpi_call-dkms linux-headers"
+  echo "  For linux-lts use linux-lts-headers; custom kernels need their headers."
+  echo "  Choose one module package; prebuilt and DKMS packages conflict."
   echo "  Then load it:"
   echo "    sudo modprobe acpi_call"
   echo "  Auto-load on boot:"
@@ -15,7 +18,7 @@ post_install() {
   echo "  Web UI: http://localhost:5522"
   echo ""
   echo "  KDE Plasma 6 widget (optional):"
-  echo "    kpackagetool6 --type Plasma/Applet --install /usr/lib/alfc/plasmoid/package"
+  echo "    /usr/lib/alfc/plasmoid/install.sh"
 }
 
 post_upgrade() {
@@ -23,14 +26,15 @@ post_upgrade() {
   echo ""
   echo "  Restart the service: sudo systemctl restart alfc"
   echo ""
-  echo "  Upgrade KDE widget (if installed):"
-  echo "    kpackagetool6 --type Plasma/Applet --upgrade /usr/lib/alfc/plasmoid/package"
+  echo "  Upgrade KDE widget as the desktop user (if installed):"
+  echo "    /usr/lib/alfc/plasmoid/install.sh"
 }
 
 pre_remove() {
-  if systemctl is-active --quiet alfc 2>/dev/null; then
-    systemctl stop alfc
-  fi
+  # The installed AbortOnFail pre-transaction hook is the removal guard. This
+  # fallback also waits for activating/deactivating units; its return alone
+  # cannot abort libalpm's transaction if the hook was unavailable or disabled.
+  systemctl stop alfc || return $?
   if systemctl is-enabled --quiet alfc 2>/dev/null; then
     systemctl disable alfc
   fi
@@ -40,7 +44,7 @@ post_remove() {
   echo "==> ALFC removed."
   echo ""
   echo "  To remove the KDE widget (if installed):"
-  echo "    kpackagetool6 --type Plasma/Applet --remove org.kde.alfc"
+  echo "    Run ./plasmoid/uninstall.sh from an extracted ALFC release as the desktop user."
   echo ""
   echo "  Config file preserved at /usr/lib/alfc/alfc.config.json.pacsave (if modified)"
 }

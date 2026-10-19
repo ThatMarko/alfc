@@ -16,17 +16,21 @@ credentials or unrelated personal information. Community-conduct reports use
 
 ## Version status
 
-`feat/wmi-ffi` is under review in PR #1. Package metadata says `2.0.0`, but the
-published tags inspected during this audit were alpha tags; this document does
-not promise a stable release or a support SLA. Report current-branch issues
-with a commit hash and released issues with their exact tag. Older alpha
-artifacts may use different native helpers and do not establish current behavior.
+PR #1 is merged into `master`. On 2026-10-15, the latest published release
+was `v2.0.0-alpha.7`, marked as a prerelease and built before that merge. Older
+alpha drafts also exist. Package metadata `2.0.0` does not announce a stable
+release or a support SLA. Report mainline issues with a commit hash and released
+issues with their exact tag; alpha artifacts can use different native helpers
+and do not establish current behavior.
 
 ## Trust boundaries
 
 - The elevated backend binds explicitly to `127.0.0.1:5522` and, when available,
   `[::1]:5522`. It does not bind wildcard or LAN addresses. An occupied IPv6
   port fails startup instead of silently leaving clients on different services.
+  Both listeners are acquired before hardware initialization, so a duplicate
+  launch that cannot bind does not take control or restore BIOS mode over the
+  existing service. Requests receive HTTP 503 until initialization completes.
 - WebSocket upgrades validate browser origins against loopback HTTP(S) hosts.
   Requests without Origin remain allowed for native clients. This check is not
   authentication: other local processes and local users can send commands.

@@ -46,6 +46,8 @@ Kirigami.FormLayout {
 
     QQC2.TextField {
         id: serverUrlField
+        objectName: "serverUrlField"
+        Accessible.name: i18n("Server URL")
 
         Kirigami.FormData.label: i18n("Server URL:")
         placeholderText: root.serverUrlDefaultText
@@ -54,6 +56,8 @@ Kirigami.FormLayout {
 
     QQC2.TextField {
         id: webUiUrlField
+        objectName: "webUiUrlField"
+        Accessible.name: i18n("Web interface URL")
 
         Kirigami.FormData.label: i18n("Web interface URL:")
         placeholderText: i18n("Derived automatically")
@@ -62,6 +66,7 @@ Kirigami.FormLayout {
 
     QQC2.SpinBox {
         id: warningTempSpinBox
+        Accessible.name: i18n("Warning temperature in degrees Celsius")
 
         Kirigami.FormData.label: i18n("Warning temperature (\u00B0C):")
         from: 50

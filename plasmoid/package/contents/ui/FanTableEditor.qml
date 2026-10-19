@@ -183,6 +183,7 @@ ColumnLayout {
                             speed: String(index > 0 ? currentTable[index - 1][1] : lastSpeed)
                         })
                         markDirty()
+                        Qt.callLater(root.focusPoint, index)
                         return
                     }
                 }
@@ -198,6 +199,12 @@ ColumnLayout {
             speed: String(newSpeed)
         })
         markDirty()
+        Qt.callLater(root.focusPoint, model.count - 1)
+    }
+
+    function focusPoint(index) {
+        const row = pointRepeater.itemAt(index)
+        if (row) row.temperatureInput.forceActiveFocus(Qt.TabFocusReason)
     }
 
     function removeRow(index) {
@@ -209,6 +216,7 @@ ColumnLayout {
 
         model.remove(index)
         markDirty()
+        Qt.callLater(root.focusPoint, Math.min(index, model.count - 1))
     }
 
     function validateTable(table, label) {
@@ -599,6 +607,7 @@ ColumnLayout {
             spacing: Kirigami.Units.smallSpacing
 
             Repeater {
+                id: pointRepeater
                 model: root.currentTab === 0 ? cpuModel : gpuModel
 
                 delegate: RowLayout {
@@ -607,11 +616,14 @@ ColumnLayout {
                     required property int index
                     required property string temp
                     required property string speed
+                    property alias temperatureInput: temperatureInput
 
                     Layout.fillWidth: true
                     spacing: Kirigami.Units.smallSpacing
 
                     PlasmaComponents.TextField {
+                        id: temperatureInput
+                        objectName: "fanCurveTemperature-" + row.index
                         text: row.temp.toString()
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 5
                         horizontalAlignment: Text.AlignHCenter
@@ -647,6 +659,7 @@ ColumnLayout {
                     }
 
                     PlasmaComponents.Button {
+                        objectName: "fanCurveRemove-" + row.index
                         icon.name: "list-remove"
                         enabled: root.activeModel().count > 1
                         Accessible.name: root.pointRemoveAccessibleName(

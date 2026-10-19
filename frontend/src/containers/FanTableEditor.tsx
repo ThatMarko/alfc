@@ -6,6 +6,7 @@ import {
   faThermometerHalf,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { useRef } from "react";
 import type { FanTableItems } from "./FanTable";
 import { fanTableInsertionTemperature } from "../utils/fanTable";
 
@@ -33,12 +34,17 @@ export function FanTableEditor({
   onChange,
   value,
 }: Props) {
+  const temperatureInputsRef = useRef(new Map<string, HTMLInputElement>());
   const inputs = value.map((tableItem, idx) => {
     const insertionTemperature = fanTableInsertionTemperature(value, idx);
     return (
       <tr key={tableItem[2]}>
         <td>
           <StyledInput
+            ref={(input) => {
+              if (input) temperatureInputsRef.current.set(tableItem[2], input);
+              else temperatureInputsRef.current.delete(tableItem[2]);
+            }}
             type="number"
             name="temperature"
             aria-label={`${label} temperature for row ${idx + 1}`}
@@ -112,6 +118,11 @@ export function FanTableEditor({
                 : {}
             }
             onClick={() => {
+              // Move focus before removing its button. The neighbouring row
+              // keeps its stable key when its displayed row number changes.
+              const nextFocusId = value[idx + 1]?.[2] ?? value[idx - 1]?.[2];
+              if (nextFocusId !== undefined)
+                temperatureInputsRef.current.get(nextFocusId)?.focus();
               const nextValue = value.slice();
               nextValue.splice(idx, 1);
               onChange(nextValue);

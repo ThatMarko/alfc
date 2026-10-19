@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = alfc-bin
+
+[Action]
+Description = Stopping ALFC before changing its installed files...
+When = PreTransaction
+Exec = /usr/lib/alfc/alfc-package-stop
+AbortOnFail

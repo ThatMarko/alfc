@@ -4,11 +4,15 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ALFC controls compatible Gigabyte Aorus/Aero laptop fans through a local Bun
-backend, a React web UI, and an optional KDE Plasma 6 widget. This fork builds
+backend, a React web UI, an optional KDE Plasma 6 widget, and an Omarchy
+status/launcher module. This fork builds
 on [Andreas Opferkuch's original project](https://github.com/s-h-a-d-o-w/alfc).
-The `feat/wmi-ffi` branch is the implementation under review in
-[PR #1](https://github.com/ThatMarko/alfc/pull/1); a package version of `2.0.0`
-is not evidence that a stable release has been published.
+The implementation from [PR #1](https://github.com/ThatMarko/alfc/pull/1) is
+merged into the default branch, `master`. Package metadata says `2.0.0`; the
+latest published release checked on 2026-10-15 is still the
+[v2.0.0-alpha.7 prerelease](https://github.com/ThatMarko/alfc/releases/tag/v2.0.0-alpha.7),
+which predates that merge. No stable release or physical compatibility
+certification follows from the merge.
 
 ## Hardware and platform support
 
@@ -16,12 +20,12 @@ The backend detects fan control, GPU boost, and CPU power tuning separately.
 The web UI and widget use those runtime capabilities; a supported fan controller
 does not establish CPU-tuning or GPU-boost support.
 
-| Function                          | Linux                                          | Windows                                                               |
-| --------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------- |
-| Fan control and temperature reads | `acpi_call`, with compatible firmware methods  | ABI 2 `WmiDll.dll`, with compatible vendor WMI provider               |
-| GPU boost                         | Supported vendor ACPI method, when detected    | Supported vendor WMI method, when detected                            |
-| CPU power limits                  | Writable Intel RAPL constraints, when detected | Optional experimental CPUOC adapter; not included in release archives |
-| Desktop widget                    | KDE Plasma 6                                   | Use the web UI                                                        |
+| Function                          | Linux                                              | Windows                                                               |
+| --------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------- |
+| Fan control and temperature reads | `acpi_call`, with compatible firmware methods      | ABI 2 `WmiDll.dll`, with compatible vendor WMI provider               |
+| GPU boost                         | Supported vendor ACPI method, when detected        | Supported vendor WMI method, when detected                            |
+| CPU power limits                  | Writable Intel RAPL constraints, when detected     | Optional experimental CPUOC adapter; not included in release archives |
+| Desktop integration               | KDE Plasma 6 widget; Omarchy 4.0.4 status/launcher | Use the web UI                                                        |
 
 The bundled Intel SDK is a legacy managed .NET Framework assembly with additional
 XTU/WCF dependencies. Its presence does **not** make the experimental .NET 8
@@ -59,11 +63,12 @@ The example uses simulated readings; it is not a hardware validation result.
   seconds; temperature collection and hardware latency affect actual timing.
   Startup uses the highest configured target until a valid temperature collection
   selects the first curve target. Later ramp-up needs one qualifying cycle and
-  ramp-down needs 30.
-- Both interfaces can save the inactive fixed preset or automatic curves without switching modes. The active mode and the saved settings are shown separately.
+  ramp-down needs 30. Manual fan commands reset that cooling history, including
+  a quick fixed-to-auto switch between samples.
+- The web UI and Plasma widget can save the inactive fixed preset or automatic curves without switching modes. The active mode and the saved settings are shown separately.
 - Fixed mode applies the configured percentage. Telemetry distinguishes the
   target from the last confirmed write; an unknown result is not shown as a
-  confirmed speed. Both interfaces warn after ten seconds without telemetry, including a missing first reading when monitoring is available.
+  confirmed speed. The clients warn after ten seconds without telemetry, including a missing first reading when monitoring is available.
 - Settings change after backend validation and hardware acceptance where a
   hardware call is required. A fan-table acknowledgement means the table was
   accepted (and persisted in production), not that a particular fan speed was
@@ -77,7 +82,7 @@ The example uses simulated readings; it is not a hardware validation result.
   Firmware and driver hangs can prevent that handoff; automated tests cannot
   guarantee restoration on physical hardware.
 
-The web UI checks GitHub for a newer release when opened and every
+The web UI checks GitHub for a newer release when the dashboard connects and every
 12 hours after a completed check. Each check has a ten-second deadline; failed
 checks leave local controls available and retain the last successful result.
 Hardware operation does not require Internet access.
@@ -92,7 +97,8 @@ increase heat and power draw; restrictive limits can reduce performance.
 
 For Linux, follow [LINUX.md](LINUX.md), including kernel-module and service
 requirements. For the optional widget, see [plasmoid/README.md](plasmoid/README.md).
-The web UI works without KDE.
+The web UI works without KDE. For Omarchy’s Hyprland/Quickshell desktop, see
+[OMARCHY.md](OMARCHY.md); the Plasma widget requires Plasma.
 
 For Windows, extract a release archive and run `install.bat` with administrator
 rights. The installer and `run.bat` print the local web address; open it after
@@ -102,6 +108,12 @@ configuration, and WinSW files together. CPUOC is not part of the standard
 archive. Windows logs are `alfc-service.out.log` and `alfc-service.err.log` in
 that directory. Installation and removal wait for an existing service to stop;
 if shutdown fails, they abort before removing or replacing the service.
+The registered service must point to the WinSW executable in the current
+directory. To move an installation, uninstall the service from its original
+directory, copy its retained `alfc.config.json` into the new release directory,
+then install there. Reinstalling in the same directory and uninstalling the
+service retain the configuration and release files. A failed service query or
+an unexpected WinSW service ID aborts without changing the service.
 
 Vendor WMI registration and drivers must already match the laptop. ALFC does
 not install or safely reconstruct them. Avoid applying another model's registry
@@ -110,7 +122,8 @@ runtime capability messages before changing settings.
 
 ## Development and verification
 
-Install Bun 1.4.3 and Node.js 24.11 or newer within major 24 for the checked development toolchain. Bun runs
+Install Bun 1.4.3 and Node.js 24.22.0 LTS for the tested development toolchain
+(the supported Node engine remains 24.11 or newer within major 24). Bun runs
 the backend and manages dependencies; Node runs the current Vite, Vitest, and
 other Node-shebang development CLIs. `bun run` preserves those CLI shebangs.
 Node 24 is the checked version, not a requirement to install both Node 24 and 26.
@@ -137,17 +150,19 @@ release packaging; `bun run build` alone builds workspace outputs.
 
 ## Documentation
 
-| Document                                             | Purpose                                                  |
-| ---------------------------------------------------- | -------------------------------------------------------- |
-| [LINUX.md](LINUX.md)                                 | Linux installation and troubleshooting                   |
-| [RELEASING.md](RELEASING.md)                         | Build targets, artifacts, and release gates              |
-| [common/PROTOCOL.md](common/PROTOCOL.md)             | Wire messages, validation, and errors                    |
-| [common/COMPATIBILITY.md](common/COMPATIBILITY.md)   | Client versions and feature parity                       |
-| [plasmoid/README.md](plasmoid/README.md)             | Widget installation and operation                        |
-| [plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md) | Qt/KDE runtime and test requirements                     |
-| [aur/README.md](aur/README.md)                       | Arch package maintenance                                 |
-| [PORTING_REVIEW.md](PORTING_REVIEW.md)               | Audit evidence, references, and unverified release gates |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Development and contribution workflow                    |
-| [SECURITY.md](SECURITY.md)                           | Vulnerability reporting and trust boundaries             |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)             | Community standards and contact                          |
-| [ROADMAP.md](ROADMAP.md)                             | Implemented scope and proposed work                      |
+| Document                                             | Purpose                                                      |
+| ---------------------------------------------------- | ------------------------------------------------------------ |
+| [OMARCHY.md](OMARCHY.md)                             | Omarchy Hyprland/Quickshell setup and optional status module |
+| [MAINTENANCE_REVIEW.md](MAINTENANCE_REVIEW.md)       | Mainline findings, fresh checks, and manual validation gates |
+| [LINUX.md](LINUX.md)                                 | Linux installation and troubleshooting                       |
+| [RELEASING.md](RELEASING.md)                         | Build targets, artifacts, and release gates                  |
+| [common/PROTOCOL.md](common/PROTOCOL.md)             | Wire messages, validation, and errors                        |
+| [common/COMPATIBILITY.md](common/COMPATIBILITY.md)   | Client versions and feature parity                           |
+| [plasmoid/README.md](plasmoid/README.md)             | Widget installation and operation                            |
+| [plasmoid/DEPENDENCIES.md](plasmoid/DEPENDENCIES.md) | Qt/KDE runtime and test requirements                         |
+| [aur/README.md](aur/README.md)                       | Arch package maintenance                                     |
+| [PORTING_REVIEW.md](PORTING_REVIEW.md)               | Audit evidence, references, and unverified release gates     |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Development and contribution workflow                        |
+| [SECURITY.md](SECURITY.md)                           | Vulnerability reporting and trust boundaries                 |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)             | Community standards and contact                              |
+| [ROADMAP.md](ROADMAP.md)                             | Implemented scope and proposed work                          |

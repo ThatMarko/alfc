@@ -54,12 +54,21 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [activity, setActivity] = useState<FanControlActivity | null>(null);
   const [isActivityStale, setIsActivityStale] = useState(false);
   const activityTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialStateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [requests] = useState(() => new BackendRequests());
   const activeSocketRef = useRef<WebSocket | null>(null);
   const connectedRef = useRef(false);
   const activityExpectedRef = useRef(false);
   const mountedRef = useRef(true);
+
+  const clearInitialStateTimeout = useCallback(() => {
+    if (initialStateTimeoutRef.current !== null)
+      clearTimeout(initialStateTimeoutRef.current);
+    initialStateTimeoutRef.current = null;
+  }, []);
 
   const clearActivityTimeout = useCallback(() => {
     if (activityTimeoutRef.current !== null)
@@ -82,9 +91,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     setIsConnected(false);
     setActivity(null);
     setIsActivityStale(false);
+    clearInitialStateTimeout();
     clearActivityTimeout();
     requests.disconnect();
-  }, [clearActivityTimeout, requests]);
+  }, [clearActivityTimeout, clearInitialStateTimeout, requests]);
 
   const onOpen = useCallback(
     (event: Event) => {
@@ -100,6 +110,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       resetConnection();
       activeSocketRef.current = socket;
       setConnectionError(null);
+      // An open transport can still fail to supply its initial settings.
+      // Retire it before closing so late messages cannot authorize writes.
+      initialStateTimeoutRef.current = setTimeout(() => {
+        if (activeSocketRef.current !== socket) return;
+        resetConnection();
+        socket.close(1000, "ALFC initial state timed out");
+      }, 10000);
       // Subscribe once per actual socket rather than after a render effect.
       sendBackendMessage(socket, {
         kind: MessageToServerKind.RegisterActivitySocket,
@@ -125,6 +142,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       if (!message) return;
       if (message.kind === MessageToClientKind.State) {
         if (isState(message.data)) {
+          clearInitialStateTimeout();
           // Monitoring is intentionally off when fan control is unavailable.
           // Its return starts a new grace period; unrelated snapshots do not
           // extend an existing collector deadline.
@@ -171,7 +189,12 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         requests.receive(message);
       }
     },
-    [clearActivityTimeout, requests, startActivityTimeout],
+    [
+      clearActivityTimeout,
+      clearInitialStateTimeout,
+      requests,
+      startActivityTimeout,
+    ],
   );
 
   const shouldReconnect = useCallback(
@@ -209,10 +232,11 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       activeSocketRef.current = null;
       connectedRef.current = false;
       activityExpectedRef.current = false;
+      clearInitialStateTimeout();
       clearActivityTimeout();
       currentRequests.disconnect();
     };
-  }, [clearActivityTimeout, requests]);
+  }, [clearActivityTimeout, clearInitialStateTimeout, requests]);
 
   const sendRequest = useCallback(
     async (message: Command, notify = true) => {
