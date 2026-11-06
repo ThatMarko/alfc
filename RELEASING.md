@@ -2,7 +2,7 @@
 
 ## Validate the source revision
 
-Use the pinned Bun 1.4.3 and tested Node 24.22.0 LTS (minimum Node 24.11 within major 24). Run `bun install --frozen-lockfile`,
+Use the pinned Bun 1.4.4 and tested Node 24.22.0 LTS (minimum Node 24.11 within major 24). Run `bun install --frozen-lockfile`,
 `bun run all-checks`, and the documented browser and Qt runtime checks before
 creating a tag. CI runs the shared checks on Linux and Windows, browser/Qt checks
 on Linux, and builds the Windows WMI DLL with MSVC. Native SDK substitute tests
@@ -80,6 +80,7 @@ service and abort if shutdown fails. The pinned wrapper's `stop` command only
 requests shutdown; [its v2.12.0 implementation](https://github.com/winsw/winsw/blob/v2.12.0/src/WinSW/Program.cs#L406)
 waits for `Stopped` only with `stopwait`. Waiting prevents removal/reinstallation
 from racing the backend's shutdown and pending service deletion.
+User-facing install, upgrade and removal steps are in [WINDOWS.md](WINDOWS.md).
 Before either operation, the scripts verify the WinSW XML service ID and the
 registered service's executable path. A service registered from another release
 directory must be removed using that installation's uninstaller first. Copy the

@@ -10,18 +10,18 @@ and follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Toolchain and development
 
-The tested toolchain is Bun 1.4.3 and Node.js 24.22.0 LTS. Node 24.11 remains
+The tested toolchain is Bun 1.4.4 and Node.js 24.22.0 LTS. Node 24.11 remains
 the minimum supported patch within major 24; testing a newer patch does not
 raise that minimum:
 
 | Runtime                         | Current uses                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------- |
-| Bun 1.4.3                       | Dependency installation, workspace scripts, backend, native FFI/workers, server compilation |
+| Bun 1.4.4                       | Dependency installation, workspace scripts, backend, native FFI/workers, server compilation |
 | Node.js 24.22.0 (minimum 24.11) | Vite, Vitest, ESLint, TypeScript, Playwright, Husky, and lint-staged CLIs                   |
 
 `bun run` and `bunx` honor a CLI's `#!/usr/bin/env node` shebang unless explicitly
 forced to use Bun with `--bun`; invoking them through Bun does not switch every
-tool's JavaScript runtime. See the [versioned Bun documentation](https://github.com/oven-sh/bun/blob/bun-v1.4.3/docs/runtime/index.mdx#L134-L147).
+tool's JavaScript runtime. See the [versioned Bun documentation](https://github.com/oven-sh/bun/blob/bun-v1.4.4/docs/runtime/index.mdx#L134-L147).
 The official [Node release index](https://nodejs.org/dist/index.json), rechecked
 on 2026-10-15, lists 24.22.0 as Krypton LTS and 26.12.0 as Current. ALFC
 declares major 24 and pins the tested patch in Linux/Windows CI and release jobs.
@@ -35,6 +35,15 @@ compilers below 6.1; TypeScript 7's native compiler is not yet supported by this
 parser. Recheck that constraint before changing the compiler pin, and do not
 force incompatible peer dependencies.
 
+The root `overrides` entry raises the lint-only transitive `minimatch`
+dependency to `^11.0.1`, the first release fixing
+[GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+The installed `eslint` 10.12.0, `@eslint/config-array` 0.23.5 and
+`@typescript-eslint/typescript-estree` 8.71.2 (and their latest releases)
+still declare `^10`, and no fixed 10.x release exists. They use only
+`Minimatch#match`, `pattern`, and the `dot`/`flipNegate` options, which 11.x
+keeps. Remove the override once those packages accept 11.x.
+
 This is a development/build requirement. Packaged executables embed Bun and need
 neither a separate Node installation nor a separate Bun installation.
 
@@ -43,7 +52,7 @@ the global `Bun` object, which is read-only in the actual Bun runtime. Some Vite
 tests can run under Bun; removing Node requires a deliberate mock-boundary and
 tool-launch migration with the same Windows/Linux coverage, not just `--bun`.
 
-Cloud setup must activate Bun 1.4.3 and Node 24.22.0 in every setup, run and
+Cloud setup must activate Bun 1.4.4 and Node 24.22.0 in every setup, run and
 check shell, or use an image containing those versions. The tracked Hoplite
 configuration preserves privileged APT/Git LFS provisioning, then runs
 `sh tools/check-cloud-runtime.sh` before the frozen install. This script
@@ -127,6 +136,10 @@ uses Qt syntax and is checked by the Qt runner instead of ESLint.
 
 ## Source map and conventions
 
+Start with [ARCHITECTURE.md](ARCHITECTURE.md): it shows how the backend,
+clients and native layers cooperate and traces one setting from a client
+through validation, the ordered queue, hardware, persistence and the reply.
+
 | Area                          | Location                                                   | Contract                                               |
 | ----------------------------- | ---------------------------------------------------------- | ------------------------------------------------------ |
 | Shared catalog and validation | `common/`                                                  | Canonical method names, IDs, widths, protocol guards   |
@@ -136,7 +149,50 @@ uses Qt syntax and is checked by the Qt runner instead of ESLint.
 | HTTP and lifecycle            | `server/index.ts`, `server/http.ts`, `server/listeners.ts` | Loopback-only serving and bounded shutdown             |
 | React UI                      | `frontend/`                                                | Backend snapshots, request IDs, per-field drafts       |
 | Plasma widget                 | `plasmoid/`                                                | QML/JS client with the same validated primary controls |
+| Omarchy module                | `omarchy/`                                                 | Read-only QML status/launcher and per-user installer   |
+| Cross-client tests            | `integration/`                                             | Production handlers with explicit fake Linux hardware  |
 | Deployment                    | `bootstrap/`, `aur/`, `.github/workflows/`                 | Service management and artifact contents               |
+| Documentation tooling         | `tools/check_docs.py`                                      | Local Markdown links and anchors, source or staged     |
+
+Read the nested notes before editing those areas: `server/AGENTS.md`,
+`server/native/AGENTS.md` and `bootstrap/AGENTS.md`.
+
+### Where common changes go
+
+| Change                                   | Files to touch                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A validation limit for a setting         | `common/validation.ts` (config loading, fan-table requests and snapshot guards), the range checks in `server/websocket/index.ts`, `plasmoid/package/contents/ui/Protocol.js`, the native CPU limit checks in `server/native/linux/cpuoc.ts`, `server/native/windows/cpuoc.ts` and `server/native/windows/cpuoc-dotnet/CPUOC.cs`, the web inputs in `frontend/src/containers/` (`CPUTuning.tsx`, `FixedSpeed.tsx`) and `frontend/src/utils/fanTable.ts`, the widget inputs in `plasmoid/package/contents/ui/` (`FullRepresentation.qml`, `FanTableEditor.qml`), `common/PROTOCOL.md`, and [OPERATIONS.md](OPERATIONS.md#configuration) |
+| A new saved setting                      | `common/types.ts`, `common/protocol.ts` and `plasmoid/package/contents/ui/Protocol.js` (snapshot guards), `server/state/index.ts` (defaults and load check), `alfc.config.json`, a handler in `server/websocket/index.ts`, both clients, and both protocol documents                                                                                                                                                                                                                                                                                                                                                                  |
+| A new message kind or reply field        | `common/types.ts`, `common/protocol.ts`, `plasmoid/package/contents/ui/Protocol.js`, `server/websocket/index.ts`, `common/PROTOCOL.md`, `common/COMPATIBILITY.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Fan curve, ramping or telemetry behavior | `server/fan-control/index.ts` and its tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| A firmware method                        | `common/methods.ts` (canonical catalog), then the caller; never hand-write IDs or argument orders                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Linux or Windows hardware transport      | `server/native/linux/` or `server/native/windows/`, through `server/native/index.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Web dashboard UI                         | `frontend/src/containers/` and `frontend/src/components/`; connection logic in `frontend/src/utils/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Plasma widget UI                         | `plasmoid/package/contents/ui/`; tests beside `plasmoid/run_qml_tests.py`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Service install/remove behavior          | `bootstrap/scripts/`, with regressions in `bootstrap/*.test.ts`; Arch packaging in `aur/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Release contents                         | `build.sh`, `build.bat`, `.github/workflows/release.yml` and `aur/PKGBUILD` together; see [RELEASING.md](RELEASING.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+Root-level, `common/` and `plasmoid/` Markdown files are copied into both
+release archives and the Arch package documentation automatically; from
+`aur/` only `README.md` is copied, and other directories (such as a new
+`docs/`) are not copied at all. Link to source code with code spans or absolute
+GitHub URLs, because staged documentation roots do not contain the source
+tree. Check a staged root with `python3 tools/check_docs.py PATH`.
+
+### Safe hardware-free testing
+
+Never start the real backend without elevation and never weaken
+`server/permissions.ts` in production code. Tests replace the hardware
+boundary instead: Vitest mocks `server/native/`, the listener/startup/build
+subprocess suites bundle a disposable entry point that stubs the native,
+state and permission modules in a temporary directory, and
+`integration/protocol-fixture.ts` substitutes only Linux's ACPI and CPU
+adapters. Service-script tests redirect
+every privileged path and service command into temporary directories. Do not
+run `install.sh`, `install.bat` or the AUR package on your development
+machine to test a change. The table in
+[ARCHITECTURE.md](ARCHITECTURE.md#testing-without-hardware) lists what each
+tier can and cannot show.
 
 Use extensionless relative ESM imports and `node:` for built-ins. TypeScript
 uses `strict` and `noUncheckedIndexedAccess`; explicit `any` is an ESLint error.
