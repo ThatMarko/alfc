@@ -35,6 +35,14 @@ compilers below 6.1; TypeScript 7's native compiler is not yet supported by this
 parser. Recheck that constraint before changing the compiler pin, and do not
 force incompatible peer dependencies.
 
+The root `overrides` entry raises the lint-only transitive `minimatch`
+dependency to `^11.0.1`, the first release fixing
+[GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+ESLint 10.14, `@eslint/config-array` 0.23.5 and `typescript-eslint` 8.72 still
+declare `^10`, and no fixed 10.x release exists. They use only
+`Minimatch#match`, `pattern`, and the `dot`/`flipNegate` options, which 11.x
+keeps. Remove the override once those packages accept 11.x.
+
 This is a development/build requirement. Packaged executables embed Bun and need
 neither a separate Node installation nor a separate Bun installation.
 
