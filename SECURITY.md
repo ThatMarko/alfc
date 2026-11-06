@@ -16,12 +16,13 @@ credentials or unrelated personal information. Community-conduct reports use
 
 ## Version status
 
-PR #1 is merged into `master`. On 2026-10-15, the latest published release
+PR #1 is merged into `master`. On 2026-11-06, the latest published release
 was `v2.0.0-alpha.7`, marked as a prerelease and built before that merge. Older
-alpha drafts also exist. Package metadata `2.0.0` does not announce a stable
-release or a support SLA. Report mainline issues with a commit hash and released
-issues with their exact tag; alpha artifacts can use different native helpers
-and do not establish current behavior.
+alpha drafts also exist. Package metadata `2.0.0-alpha.8` on `master` names the
+next prerelease and does not announce a stable release or a support SLA.
+`v2.0.0-alpha.7` artifacts report their version as `2.0.0`. Report mainline
+issues with a commit hash and released issues with their exact tag; alpha
+artifacts can use different native helpers and do not establish current behavior.
 
 ## Trust boundaries
 

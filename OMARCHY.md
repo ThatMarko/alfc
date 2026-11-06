@@ -7,11 +7,19 @@ it does not install Plasma, access ACPI/RAPL, or control hardware itself.
 
 ## Supported desktop and prerequisites
 
-The official latest-release redirect was checked on **2026-10-15** and resolved
-to **Omarchy v4.0.4**, tag commit `c668141e9c42b13c80c9ca4ea108e11708c5e8a5`.
-This module targets that release's Hyprland/Quickshell stack and custom QML
-module API. Rolling Arch package versions remain those of the user's installed
-system; an Omarchy tag does not pin every Qt or Hyprland binary.
+The module was written against **Omarchy v4.0.4** (tag commit
+`c668141e9c42b13c80c9ca4ea108e11708c5e8a5`). On **2026-11-06** the official
+latest-release redirect resolved to **Omarchy v4.5.0** (tag commit
+`ac2690cd7be4f47e4a255f5e2e78d904d436b068`, released 2026-11-05). A
+documentation review of v4.5.0 found the custom QML module contract this module
+uses unchanged: a `"type": "qml"` layout entry with `source` and inline settings,
+and the injected `bar.foreground`, `fontFamily`, `vertical`, `barSize`,
+`showTooltip`, and `hideTooltip` members. The module does not import the
+`qs.Commons` palette, so v4.5.0's Qt 6.12 `Commons.Color` qualification does not
+apply. No full v4.5.0 session result is recorded yet; see
+[Automated and manual validation](#automated-and-manual-validation). Rolling Arch package versions remain
+those of the user's installed system; an Omarchy tag does not pin every Qt or
+Hyprland binary.
 
 Check the installed desktop before choosing this integration:
 
@@ -22,12 +30,12 @@ quickshell --version
 hyprctl version
 ```
 
-`omarchy-version` is the v4.0.4 upstream version command: it reads the installed
-`omarchy`/`omarchy-dev` package version for `/usr/share/omarchy`, and reports
-`dev` with a Git hash for a source checkout selected by `OMARCHY_PATH`. A `dev`
-result or a different stable release requires checking its shell API before
-assuming the v4.0.4 support scope applies; the repository's `version` file alone
-is not an installed-release check.
+`omarchy-version` is the upstream version command (unchanged between v4.0.4 and
+v4.5.0): it reads the installed `omarchy`/`omarchy-dev` package version for
+`/usr/share/omarchy`, and reports `dev` with a Git hash for a source checkout
+selected by `OMARCHY_PATH`. A `dev` result or a stable release other than v4.0.4
+or v4.5.0 requires checking its shell API before assuming this support scope
+applies; the repository's `version` file alone is not an installed-release check.
 
 The module needs Quickshell with matching system **Qt 6 QtQuick and QtWebSockets**
 QML modules. Arch supplies QtWebSockets in `qt6-websockets`; install that package
@@ -64,8 +72,10 @@ bash omarchy/install.sh
 The installer copies three files into
 `${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/bar/modules/alfc/` and prints **one JSON
 entry** with the correctly escaped absolute `source` path. Add that entry to one
-existing `bar.layout.left`, `center`, or `right` array in your user-owned
-`~/.config/omarchy/shell.json`, for example:
+existing `bar.layout` section array in your user-owned
+`~/.config/omarchy/shell.json`: `left`, `center`, or `right` on v4.0.4; on
+v4.5.0 also `centerBegin`, `centerEnd`, or `tray` (v4.5.0 removed
+`centerAnchor`). For example:
 
 ```json
 {
@@ -197,7 +207,8 @@ backend, not a full Omarchy shell or physical-device result.
 
 Before declaring full desktop validation on the supported release, record:
 
-1. Real Omarchy v4.0.4 package versions and successful module load using system Qt.
+1. Real Omarchy package versions (v4.5.0 or the then-current release, plus
+   v4.0.4 if still claimed) and successful module load using system Qt.
 2. Login without the service, late service startup, sleep/resume, service restart,
    shell configuration reload, and repeated removal/reinstallation.
 3. Horizontal/vertical bars, multiple monitors, keyboard focus, font scaling,
@@ -210,7 +221,8 @@ Full Omarchy-session and physical-device evidence remains a manual release gate.
 
 ## Version-matched official sources
 
-- [Omarchy latest release](https://github.com/omacom/omarchy/releases/latest), checked against [v4.0.4](https://github.com/omacom/omarchy/releases/tag/v4.0.4).
+- [Omarchy latest release](https://github.com/omacom/omarchy/releases/latest), checked against [v4.0.4](https://github.com/omacom/omarchy/releases/tag/v4.0.4) and [v4.5.0](https://github.com/omacom/omarchy/releases/tag/v4.5.0).
+- [v4.5.0 shell API](https://github.com/omacom/omarchy/blob/v4.5.0/docs/omarchy-shell.md), [custom module documentation](https://github.com/omacom/omarchy/blob/v4.5.0/shell/plugins/bar/README.md), and [top-bar manual](https://github.com/omacom/omarchy/blob/v4.5.0/manual/05-the-top-bar.md).
 - [v4.0.4 top-bar manual](https://github.com/omacom/omarchy/blob/v4.0.4/manual/05-the-top-bar.md).
 - [v4.0.4 shell API](https://github.com/omacom/omarchy/blob/v4.0.4/docs/omarchy-shell.md) and [custom module implementation/documentation](https://github.com/omacom/omarchy/blob/v4.0.4/shell/plugins/bar/README.md).
 - [v4.0.4 user-owned dotfiles](https://github.com/omacom/omarchy/blob/v4.0.4/manual/31-dotfiles.md) and [desktop package list](https://github.com/omacom/omarchy/blob/v4.0.4/install/omarchy-base.packages).

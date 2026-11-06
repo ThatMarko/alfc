@@ -11,8 +11,9 @@ KDE Plasma 6 widget and an Omarchy status-bar module.
 This fork builds on
 [Andreas Opferkuch's original project](https://github.com/s-h-a-d-o-w/alfc).
 The current implementation from [PR #1](https://github.com/ThatMarko/alfc/pull/1)
-is merged into the default branch, `master`. Package metadata says `2.0.0`;
-the latest published release, checked on 2026-11-06, is still the
+is merged into the default branch, `master`. Package metadata on `master` says
+`2.0.0-alpha.8`, the next prerelease being prepared; the latest published
+release, checked on 2026-11-06, is still the
 [v2.0.0-alpha.7 prerelease](https://github.com/ThatMarko/alfc/releases/tag/v2.0.0-alpha.7),
 which predates that merge. There is no stable release yet, and no laptop model
 is certified.
@@ -47,12 +48,12 @@ The backend detects fan control, GPU boost, and CPU power tuning separately.
 The web UI and widget use those runtime capabilities; a supported fan controller
 does not establish CPU-tuning or GPU-boost support.
 
-| Function                          | Linux                                              | Windows                                                               |
-| --------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------- |
-| Fan control and temperature reads | `acpi_call`, with compatible firmware methods      | ABI 2 `WmiDll.dll`, with compatible vendor WMI provider               |
-| GPU boost                         | Supported vendor ACPI method, when detected        | Supported vendor WMI method, when detected                            |
-| CPU power limits                  | Writable Intel RAPL constraints, when detected     | Optional experimental CPUOC adapter; not included in release archives |
-| Desktop integration               | KDE Plasma 6 widget; Omarchy 4.0.4 status/launcher | Use the web UI                                                        |
+| Function                          | Linux                                                    | Windows                                                               |
+| --------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------- |
+| Fan control and temperature reads | `acpi_call`, with compatible firmware methods            | ABI 2 `WmiDll.dll`, with compatible vendor WMI provider               |
+| GPU boost                         | Supported vendor ACPI method, when detected              | Supported vendor WMI method, when detected                            |
+| CPU power limits                  | Writable Intel RAPL constraints, when detected           | Optional experimental CPUOC adapter; not included in release archives |
+| Desktop integration               | KDE Plasma 6 widget; Omarchy 4.0.4/4.5.0 status/launcher | Use the web UI                                                        |
 
 The bundled Intel SDK is a legacy managed .NET Framework assembly with additional
 XTU/WCF dependencies. Its presence does **not** make the experimental .NET 8
@@ -79,11 +80,11 @@ support. GPU boost methods are particularly model-dependent.
 
 Every setup needs the service. The interfaces are optional and can be combined.
 
-| Interface           | Use it when                                                            | Can change settings?      | Guide                                    |
-| ------------------- | ---------------------------------------------------------------------- | ------------------------- | ---------------------------------------- |
-| Web UI              | Always available, on any desktop, including Windows                    | Yes, plus raw diagnostics | [OPERATIONS.md](OPERATIONS.md)           |
-| KDE Plasma 6 widget | You use KDE Plasma 6 on Linux and want controls in the panel or tray   | Yes                       | [plasmoid/README.md](plasmoid/README.md) |
-| Omarchy bar module  | You use Omarchy 4.0.4 (Hyprland/Quickshell) and want status in the bar | No, opens the web UI      | [OMARCHY.md](OMARCHY.md)                 |
+| Interface           | Use it when                                                                  | Can change settings?      | Guide                                    |
+| ------------------- | ---------------------------------------------------------------------------- | ------------------------- | ---------------------------------------- |
+| Web UI              | Always available, on any desktop, including Windows                          | Yes, plus raw diagnostics | [OPERATIONS.md](OPERATIONS.md)           |
+| KDE Plasma 6 widget | You use KDE Plasma 6 on Linux and want controls in the panel or tray         | Yes                       | [plasmoid/README.md](plasmoid/README.md) |
+| Omarchy bar module  | You use Omarchy 4.0.4/4.5.0 (Hyprland/Quickshell) and want status in the bar | No, opens the web UI      | [OMARCHY.md](OMARCHY.md)                 |
 
 ## Get started
 

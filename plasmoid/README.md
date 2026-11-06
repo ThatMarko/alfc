@@ -57,6 +57,8 @@ kpackagetool6 --type Plasma/Applet --upgrade plasmoid/package
 
 Add **Aorus Laptop Fan Control** through Plasma's **Add Widgets** dialog. For the tray, enable its entry in **Configure System Tray → Entries**. After an upgrade, an existing applet may need to be removed and re-added, or the Plasma session restarted, to reload its QML.
 
+KPackage upgrades only to a numerically greater `KPlugin.Version`: it compares versions with `QVersionNumber`, which ignores a SemVer prerelease suffix ([KPackage `isVersionNewer`](https://invent.kde.org/frameworks/kpackage/-/blob/v6.31.0/src/kpackage/private/utils.h), unchanged since KF 6.0). Moving between releases with the same numeric version, such as from `v2.0.0-alpha.7` (`2.0.0`) to `v2.0.0-alpha.8` or from a `2.0.0` release candidate to stable `2.0.0`, is refused as already installed and leaves the working copy in place. Run `./plasmoid/uninstall.sh` and then `./plasmoid/install.sh` instead; Plasma's applet configuration is preserved.
+
 Remove widget instances and uninstall the user package:
 
 ```bash

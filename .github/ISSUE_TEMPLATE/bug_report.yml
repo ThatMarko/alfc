@@ -39,6 +39,19 @@ body:
         - Built from source
     validations:
       required: true
+  - type: dropdown
+    id: clients
+    attributes:
+      label: Affected client
+      description: Where you see the problem. The Plasma widget and Omarchy module need the separately installed ALFC service.
+      multiple: true
+      options:
+        - Web UI
+        - KDE Plasma widget (release asset or KDE Store)
+        - Omarchy bar module
+        - Backend service only
+    validations:
+      required: true
   - type: textarea
     id: what-happened
     attributes:

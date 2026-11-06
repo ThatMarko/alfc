@@ -26,9 +26,16 @@ declared engine and checked patch have different purposes. Release users install
 neither development runtime: the compiled executable embeds Bun.
 
 Update the version in root `package.json`, `frontend/package.json`,
-`server/package.json`, `bootstrap/package.json`, `plasmoid/package/metadata.json`,
-and `aur/PKGBUILD` (`pkgver`). Stage the intended files, commit the release change,
-then create and push the specific tag from the reviewed revision:
+`server/package.json`, `bootstrap/package.json`, and
+`plasmoid/package/metadata.json`; run `bun install` so `bun.lock` records the
+workspace versions. Use a SemVer prerelease suffix (for example `2.0.0-alpha.8`
+or `2.0.0-rc.1`) for prereleases. KPackage ignores that suffix when deciding
+whether a widget upgrade is newer, so when the widget's numeric version does not
+increase, release notes must tell widget users to uninstall and reinstall it (see
+[the widget README](plasmoid/README.md#installation-and-removal)). Change `aur/PKGBUILD` (`pkgver`) only for a
+stable release: `pkgver` cannot contain a hyphen, and the AUR package tracks
+stable assets. Stage the intended files, commit the release change, then create
+and push the specific tag from the reviewed revision:
 
 ```sh
 git tag vX.Y.Z
@@ -38,16 +45,24 @@ git push origin vX.Y.Z
 Avoid publishing every local tag with `--tags`. The workflow validates that the
 release tag is a version-shaped `v...` value matching root `package.json`.
 
-No release is authorized by merging a maintenance PR. As checked on 2026-10-15,
+No release is authorized by merging a maintenance PR. As checked on 2026-11-06,
 `v2.0.0-alpha.7` is the latest published prerelease and predates PR #1’s merge;
-older alpha drafts are not stable releases. Complete the physical gates below
-and inspect the final revision’s CI before preparing a new tag.
+older alpha drafts are not stable releases. A prerelease tag may be cut before
+the physical gates below to give testers fresh artifacts; its release notes must
+state that hardware validation is pending. Complete the physical gates and
+inspect the final revision’s CI before preparing a stable tag.
+
+The web UI's update check compares the latest stable GitHub release with its
+build's package version. `v2.0.0-alpha.7` was built with version `2.0.0`, so it
+will not report a stable `v2.0.0` as newer; say so in the stable release notes.
 
 ## Automated artifacts
 
 `.github/workflows/release.yml` builds Linux x64 and Windows x64 independently,
 runs lint/type/tests/build checks on both, builds `WmiDll.dll` on Windows, and
-assembles these assets into a **draft** GitHub Release:
+assembles these assets into a **draft** GitHub Release. Tags with a SemVer
+prerelease suffix (any `-` in the tag) create a draft already marked as a
+prerelease, so publishing it does not make it the repository's latest release:
 
 | Asset                          | Contents                                                                                                                                                                         |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
