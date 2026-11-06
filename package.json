@@ -48,5 +48,8 @@
     "typescript-eslint": "^8.71.2",
     "vitest": "^5.0.5"
   },
-  "packageManager": "bun@1.4.3"
+  "packageManager": "bun@1.4.3",
+  "overrides": {
+    "minimatch": "^11.0.1"
+  }
 }
