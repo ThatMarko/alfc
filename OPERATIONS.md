@@ -205,7 +205,7 @@ them does not affect fan control.
 | Integration              | Guide                                    | Can change settings?  |
 | ------------------------ | ---------------------------------------- | --------------------- |
 | KDE Plasma 6 widget      | [plasmoid/README.md](plasmoid/README.md) | Yes                   |
-| Omarchy 4.0.4 bar module | [OMARCHY.md](OMARCHY.md)                 | No (opens the web UI) |
+| Omarchy 4.0.4/4.5.0 bar module | [OMARCHY.md](OMARCHY.md)                 | No (opens the web UI) |
 
 Both installers use Python 3 for ownership checks so they never overwrite or
 remove another package's files.

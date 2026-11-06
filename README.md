@@ -52,7 +52,7 @@ does not establish CPU-tuning or GPU-boost support.
 | Fan control and temperature reads | `acpi_call`, with compatible firmware methods      | ABI 2 `WmiDll.dll`, with compatible vendor WMI provider               |
 | GPU boost                         | Supported vendor ACPI method, when detected        | Supported vendor WMI method, when detected                            |
 | CPU power limits                  | Writable Intel RAPL constraints, when detected     | Optional experimental CPUOC adapter; not included in release archives |
-| Desktop integration               | KDE Plasma 6 widget; Omarchy 4.0.4 status/launcher | Use the web UI                                                        |
+| Desktop integration               | KDE Plasma 6 widget; Omarchy 4.0.4/4.5.0 status/launcher | Use the web UI                                                        |
 
 The bundled Intel SDK is a legacy managed .NET Framework assembly with additional
 XTU/WCF dependencies. Its presence does **not** make the experimental .NET 8
@@ -83,7 +83,7 @@ Every setup needs the service. The interfaces are optional and can be combined.
 | ------------------- | ---------------------------------------------------------------------- | ------------------------- | ---------------------------------------- |
 | Web UI              | Always available, on any desktop, including Windows                    | Yes, plus raw diagnostics | [OPERATIONS.md](OPERATIONS.md)           |
 | KDE Plasma 6 widget | You use KDE Plasma 6 on Linux and want controls in the panel or tray   | Yes                       | [plasmoid/README.md](plasmoid/README.md) |
-| Omarchy bar module  | You use Omarchy 4.0.4 (Hyprland/Quickshell) and want status in the bar | No, opens the web UI      | [OMARCHY.md](OMARCHY.md)                 |
+| Omarchy bar module  | You use Omarchy 4.0.4/4.5.0 (Hyprland/Quickshell) and want status in the bar | No, opens the web UI      | [OMARCHY.md](OMARCHY.md)                 |
 
 ## Get started
 

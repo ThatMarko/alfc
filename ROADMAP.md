@@ -31,7 +31,7 @@ Use [pull requests](https://github.com/ThatMarko/alfc/pulls) for current changes
   tests, a required matching Qt/KDE component tier, and production-protocol
   cross-client integration with fake hardware. Headless tests supplement
   physical validation.
-- Optional read-only Omarchy 4.0.4 status/launcher module using the existing
+- Optional read-only Omarchy 4.0.4/4.5.0 status/launcher module using the existing
   validated protocol and unprivileged local web UI launch.
 
 ## Before a production release
