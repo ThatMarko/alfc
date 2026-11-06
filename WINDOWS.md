@@ -66,8 +66,8 @@ fan mode and GPU boost setting automatically.
 
 ## Try it without installing a service
 
-Double-click `run.bat`, or run it from a terminal. It asks for administrator
-rights, then runs ALFC in that window:
+Run `run.bat` from an administrator terminal (or double-click it and approve
+UAC, which opens a separate elevated window that closes when `alfc.exe` exits):
 
 ```text
 Starting ALFC fan control (temporary, non-service mode)...
@@ -83,10 +83,12 @@ hardware.
 
 ## Install the service
 
-Double-click `install.bat` (or run it from a terminal) and approve the UAC
-prompt. The installer:
+Run `install.bat` from an administrator terminal so all messages stay visible
+(double-clicking opens an elevated window that closes on completion and on
+early preflight errors). The installer:
 
-1. checks that the required files are present;
+1. checks that the required files are present and that `alfc-service.xml` uses
+   service ID `alfc`;
 2. checks whether an `alfc` service already exists and, if so, that it was
    installed from **this** folder;
 3. stops an existing service and waits until it has stopped, then removes
@@ -161,10 +163,12 @@ the service is never deleted while ALFC might still be controlling the fans.
 The service writes the backend's output beside `alfc.exe`:
 
 - `alfc-service.out.log`: normal progress, including `Start finished`;
-- `alfc-service.err.log`: errors and warnings.
+- `alfc-service.err.log`: errors and warnings;
+- `alfc-service.wrapper.log`: WinSW service-wrapper events and stop/start status.
 
-WinSW rotates them at about 10 MB and keeps eight files. A temporary
-`run.bat` session prints to its own window instead.
+WinSW rotates `out.log` and `err.log` at 10 MiB and keeps eight rolled files
+for each; `wrapper.log` is not rotated. A temporary `run.bat` session prints
+to its own window instead.
 
 ## Troubleshooting
 
@@ -173,8 +177,10 @@ WinSW rotates them at about 10 MB and keeps eight files. A temporary
 | `Missing required release file: ...` or `Required release file is a directory: ...`    | The folder is incomplete. Extract the whole zip again.                                                                                                                                                                                                  |
 | `The existing alfc service belongs to another executable. Use its own uninstaller ...` | The service was installed from a different folder. Run `uninstall.bat` in that folder first, then follow [Upgrade or move](#upgrade-or-move-to-a-new-release).                                                                                          |
 | `Unable to query the ALFC service. No service was changed.`                            | `sc.exe query alfc` failed for a reason other than "service does not exist". Check the service in `services.msc`, then retry.                                                                                                                           |
-| The installer or uninstaller stops after "Stopping ..."                                | The running service did not stop. Nothing was removed. Check `alfc-service.err.log`, then retry.                                                                                                                                                        |
-| The log stops at `[Native] Initializing WMI...`                                        | Windows Management Instrumentation is not responding. A reboot often clears it.                                                                                                                                                                         |
+| `The WinSW configuration must use service ID alfc.`                                    | `alfc-service.xml` was edited or replaced. Restore the file from the release zip.                                                                                                                                                                       |
+| `Failed to install service.` or `Failed to start service.`                             | Check `alfc-service.wrapper.log` and `alfc-service.err.log`. If `services.msc` is open while reinstalling, close it so Windows can finish deleting the previous service registration, then retry.                                                       |
+| The installer or uninstaller stops after "Stopping ..."                                | The running service did not stop. Nothing was removed. Check `alfc-service.wrapper.log` and `alfc-service.err.log`, then retry.                                                                                                                         |
+| Startup pauses at `[Native] Initializing WMI...` or logs `wmiInit timed out`           | WMI did not respond within the 20-second startup limit; ALFC then finishes starting with fan control unavailable and shows the restart warning. A reboot often clears a wedged WMI service.                                                             |
 | `WMI init attempt ... failed` or "Fan control is not available on this system"         | Check that the vendor WMI classes exist. In PowerShell, run `Get-CimClass -Namespace root/WMI -ClassName GB_WMIACPI_Get`. An error means the provider is missing; it comes from the laptop vendor's drivers and software. Restart ALFC after fixing it. |
 | CPU tuning is shown as unavailable                                                     | Expected with the standard archive.                                                                                                                                                                                                                     |
 | "This needs to be run with elevated privileges."                                       | `alfc.exe` was started directly without administrator rights. Use `run.bat` or the service.                                                                                                                                                             |
