@@ -5,7 +5,7 @@ import QtQuick
 FocusScope {
     id: root
 
-    // Omarchy v4.0.4 custom-QML-module injection contract.
+    // Omarchy v4.0.4/v4.5.0 custom-QML-module injection contract.
     property var bar: null
     property string moduleName: "alfc"
     property var settings: ({})

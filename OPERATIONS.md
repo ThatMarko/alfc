@@ -202,10 +202,10 @@ desktop session. Install them **as your normal desktop user, without `sudo`**.
 They need a running backend but do not start, stop or elevate it, and removing
 them does not affect fan control.
 
-| Integration              | Guide                                    | Can change settings?  |
-| ------------------------ | ---------------------------------------- | --------------------- |
-| KDE Plasma 6 widget      | [plasmoid/README.md](plasmoid/README.md) | Yes                   |
-| Omarchy 4.0.4 bar module | [OMARCHY.md](OMARCHY.md)                 | No (opens the web UI) |
+| Integration                    | Guide                                    | Can change settings?  |
+| ------------------------------ | ---------------------------------------- | --------------------- |
+| KDE Plasma 6 widget            | [plasmoid/README.md](plasmoid/README.md) | Yes                   |
+| Omarchy 4.0.4/4.5.0 bar module | [OMARCHY.md](OMARCHY.md)                 | No (opens the web UI) |
 
 Both installers use Python 3 for ownership checks so they never overwrite or
 remove another package's files.

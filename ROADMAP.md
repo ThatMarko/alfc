@@ -2,8 +2,9 @@
 
 This distinguishes code on the merged default branch, `master`, from proposed work.
 It does not certify hardware compatibility or announce a stable release.
-Use [pull requests](https://github.com/ThatMarko/alfc/pulls) for current changes
-(the fork’s issue tracker was disabled on 2026-10-15) and
+Use [issues](https://github.com/ThatMarko/alfc/issues) for bug reports and
+feature requests, [pull requests](https://github.com/ThatMarko/alfc/pulls) for
+current changes, and
 [PORTING_REVIEW.md](PORTING_REVIEW.md) for actual validation evidence.
 
 ## Implemented on mainline
@@ -31,7 +32,7 @@ Use [pull requests](https://github.com/ThatMarko/alfc/pulls) for current changes
   tests, a required matching Qt/KDE component tier, and production-protocol
   cross-client integration with fake hardware. Headless tests supplement
   physical validation.
-- Optional read-only Omarchy 4.0.4 status/launcher module using the existing
+- Optional read-only Omarchy 4.0.4/4.5.0 status/launcher module using the existing
   validated protocol and unprivileged local web UI launch.
 
 ## Before a production release

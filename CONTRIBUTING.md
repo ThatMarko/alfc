@@ -2,10 +2,10 @@
 
 ALFC changes hardware state with elevated privileges. Describe the behavior you
 changed, how you verified it, and which physical platforms remain untested.
-The fork’s issue tracker was disabled when checked on 2026-10-15. Submit a
-focused pull request for a concrete fix; if issues are enabled later, use
-[the issue templates](https://github.com/ThatMarko/alfc/issues/new/choose) for
-reproducible bugs and feature requests. An issue is not a prerequisite for a fix. Report vulnerabilities through [SECURITY.md](SECURITY.md)
+Use [the issue templates](https://github.com/ThatMarko/alfc/issues/new/choose)
+for reproducible bugs and feature requests, including reports from AUR and KDE
+Store users. Submit a focused pull request for a concrete fix; an issue is not a
+prerequisite for a fix. Report vulnerabilities through [SECURITY.md](SECURITY.md)
 and follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Toolchain and development
