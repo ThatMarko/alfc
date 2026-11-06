@@ -29,7 +29,10 @@ Update the version in root `package.json`, `frontend/package.json`,
 `server/package.json`, `bootstrap/package.json`, and
 `plasmoid/package/metadata.json`; run `bun install` so `bun.lock` records the
 workspace versions. Use a SemVer prerelease suffix (for example `2.0.0-alpha.8`
-or `2.0.0-rc.1`) for prereleases. Change `aur/PKGBUILD` (`pkgver`) only for a
+or `2.0.0-rc.1`) for prereleases. KPackage ignores that suffix when deciding
+whether a widget upgrade is newer, so when the widget's numeric version does not
+increase, release notes must tell widget users to uninstall and reinstall it (see
+[the widget README](plasmoid/README.md#installation-and-removal)). Change `aur/PKGBUILD` (`pkgver`) only for a
 stable release: `pkgver` cannot contain a hyphen, and the AUR package tracks
 stable assets. Stage the intended files, commit the release change, then create
 and push the specific tag from the reviewed revision:
