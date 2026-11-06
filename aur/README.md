@@ -5,7 +5,7 @@ release. A stable, published release and its verified archive digest are require
 before submitting it to the AUR. The current `SKIP` checksums are development
 placeholders and must never be shipped as a published package.
 The [AUR RPC lookup](https://aur.archlinux.org/rpc/v5/info?arg%5B%5D=alfc-bin)
-returned no `alfc-bin` package on 2026-10-15; recheck before claiming publication.
+returned no `alfc-bin` package on 2026-11-06; recheck before claiming publication.
 
 ## Package sources and service
 
