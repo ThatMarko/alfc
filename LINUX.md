@@ -5,6 +5,20 @@ Use ALFC on a laptop whose firmware interface has been verified against the
 outlive the process. Cloud tests cannot establish that another laptop uses
 the same firmware methods.
 
+On Linux, ALFC is one root service plus optional per-user desktop clients:
+
+1. Install and load the `acpi_call` kernel module ([Requirements](#requirements)).
+2. Install the service from a release archive, or try it in the foreground
+   first ([Install, upgrade, or run temporarily](#install-upgrade-or-run-temporarily)).
+3. Confirm it started and open `http://localhost:5522`
+   ([Check that it works](#check-that-it-works)).
+4. Optionally add the [Plasma widget](#kde-plasma-6-widget) or the
+   [Omarchy module](#omarchy-desktop-integration) as your desktop user.
+
+Configuration, dashboard states and cross-platform troubleshooting are in
+[OPERATIONS.md](OPERATIONS.md). [ARCHITECTURE.md](ARCHITECTURE.md) explains how
+the parts fit together.
+
 ## Requirements
 
 Published Linux archives target x86_64 with glibc. systemd and OpenRC service
@@ -72,7 +86,10 @@ sudo ./install.sh
 
 The installer validates required files and service-manager support before making
 changes, stops an existing service before replacing files, installs under
-`/opt/alfc`, and creates `/usr/bin/alfc`. It preserves existing
+`/opt/alfc`, and creates `/usr/bin/alfc`. It then enables and starts the
+service with systemd or OpenRC. If `/proc/acpi/call` is missing it prints a
+warning and still installs; fan control stays unavailable until the module is
+loaded and ALFC is restarted. It preserves existing
 `/opt/alfc/alfc.config.json` on upgrades and removes obsolete frontend assets
 and optional desktop resources omitted from the new release. Required source
 paths must have the expected file or directory type. Installation also rejects
@@ -110,6 +127,41 @@ privileged backend deliberately listens only on loopback.
 The unpublished AUR package is documented in [aur/README.md](aur/README.md).
 Once published, use its package manager for installation and upgrades rather
 than mixing it with the manual `/opt/alfc` installation.
+
+## Check that it works
+
+```sh
+systemctl status alfc          # OpenRC: rc-service alfc status
+journalctl -u alfc -b          # systemd only; look for "Start finished"
+```
+
+A healthy start ends with
+`[Server] Start finished - UI available @ http://localhost:5522`. Warnings
+before it, such as `[Native] CPU tuning is not available.`, mean that one
+feature is missing while the others work. Open `http://localhost:5522` in a
+browser as your normal user. See
+[What a healthy start looks like](OPERATIONS.md#what-a-healthy-start-looks-like)
+for the full log sequence and
+[Reading the dashboard](OPERATIONS.md#reading-the-dashboard) for status labels.
+
+## Configuration
+
+Settings are saved in `/opt/alfc/alfc.config.json` (or
+`/usr/lib/alfc/alfc.config.json` for the Arch package). Change them in the web
+UI or widget. To edit the file by hand, stop the service first, because the
+running service does not reread the file and its next save would replace
+your edit:
+
+```sh
+sudo systemctl stop alfc       # OpenRC: sudo rc-service alfc stop
+sudo cp /opt/alfc/alfc.config.json /opt/alfc/alfc.config.json.bak
+sudoedit /opt/alfc/alfc.config.json
+sudo systemctl start alfc      # OpenRC: sudo rc-service alfc start
+```
+
+The fields and their limits are listed in
+[OPERATIONS.md](OPERATIONS.md#configuration). An invalid file makes ALFC use
+the built-in defaults for every field.
 
 ## Stop and uninstall
 
