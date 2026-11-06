@@ -21,8 +21,9 @@ the parts fit together.
 
 ## Requirements
 
-Published Linux archives target x86_64 with glibc. systemd and OpenRC service
-scripts are included; an OpenRC machine still needs a compatible binary.
+Published Linux archives target x86_64 with glibc. The archive includes a
+systemd unit template, and `install.sh` generates the OpenRC init script
+during installation; an OpenRC machine still needs a compatible binary.
 Musl-only distributions such as a default Alpine installation need a separately
 validated musl build or compatible runtime; the glibc archive is not universal.
 
@@ -100,7 +101,8 @@ directory cannot replace a working installation.
 The source release must be outside the installation tree, including when reached
 through a directory symlink, so retiring old resources cannot delete its source.
 Subsequent production settings saves retain the configuration's POSIX permission
-bits; creating a missing configuration uses mode `0600`.
+bits; if `alfc.config.json` is missing when a setting is saved, it is created
+with mode `0600`.
 Run the installer again from a newly extracted release to upgrade. It refuses to
 overwrite `/usr/bin/alfc` if that command belongs to another installation.
 Both installation and removal also verify the service's declared executable.

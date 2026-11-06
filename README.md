@@ -113,19 +113,21 @@ looks like, how to read the dashboard, and troubleshooting.
   limits are historical defaults, not recommendations for every CPU, and the
   accepted 0–200 W range is input validation, not a hardware safety rating.
 - **Saved, commanded and measured are different.** A confirmed change means
-  ALFC validated, applied and saved it. Fan speeds shown are the commanded
-  target and the last command the firmware accepted, not measured RPM.
+  ALFC validated it, sent any immediate hardware call (fan curves and an
+  inactive fixed percentage wait until their mode uses them), and saved it in
+  production. Fan speeds shown are the commanded target and the last command
+  the firmware accepted, not measured RPM.
 - **Stopping hands control back to the BIOS, with limits.** ALFC attempts the
   handoff within a bounded time. A hung firmware call or a forced kill can
   prevent it; check the log if fans behave unexpectedly after stopping.
 - **Local only.** The WebSocket API has no authentication. Remote access and
   reverse proxies are unsupported.
-- **Update check.** The web UI asks GitHub for a newer release when it
-  connects and every 12 hours. Hardware control never needs Internet access.
+- **Update check.** The web UI asks GitHub for a newer release when the page
+  loads and every 12 hours. Hardware control never needs Internet access.
 
 ## Development
 
-Source development uses Bun 1.4.3 and Node.js 24.22.0 LTS (Node 24.11 or newer
+Source development uses Bun 1.4.4 and Node.js 24.22.0 LTS (Node 24.11 or newer
 within major 24 is the minimum). Bun runs the backend and manages
 dependencies; Node runs Vite, Vitest and the other development tools. Release
 executables embed Bun, so users install neither.

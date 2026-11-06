@@ -65,7 +65,9 @@ flowchart LR
   listeners --> http
   listeners --> ws
   ws --> state
+  ws --> fan
   ws --> native
+  fan --> ws
   fan --> native
   native --> acpi
   native --> rapl
@@ -87,18 +89,18 @@ described under [Trust boundary](#trust-boundary) is not authentication.
 
 ## Components
 
-| Component                 | Responsibility                                                                                            | Inputs → outputs                                                                            | Depends on                                                                     | State and configuration                                             | When it fails                                                                                                                                                  |
-| ------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Entry point and lifecycle | Permission check, listener startup, hardware initialization, readiness, signal handling, bounded shutdown | Process start and signals → ready listeners, exit code                                      | Every backend module                                                           | Readiness and shutdown flags in memory                              | Missing elevation exits before listening. Startup errors trigger the normal shutdown path, which still attempts BIOS restoration.                              |
-| Listeners and HTTP        | Bind `127.0.0.1:5522` and optionally `[::1]:5522`; serve web UI files; accept `/ws` upgrades              | HTTP requests → static files, WebSocket upgrades, 403/405/503 responses                     | Bun's HTTP server                                                              | None                                                                | A busy port stops startup before any hardware call, so a second copy cannot disturb a running one.                                                             |
-| WebSocket handler         | Validate messages, queue mutations in arrival order, reply to the sender, broadcast state and telemetry   | Client JSON → `success`/`error` replies, `state` broadcasts, `fancontrolactivity` telemetry | Shared validation in `common/`, state module, fan controller, native boundary  | At most 64 queued messages across all clients                       | Invalid input gets an error reply. A full queue answers `BUSY`. A slow client that builds up 1 MiB of unsent output is disconnected.                           |
-| Settings state            | Hold the authoritative settings and save them in order                                                    | Accepted mutations → in-memory state, atomic file write                                     | `common/validation.ts`                                                         | `alfc.config.json`; capability flags are memory-only                | An invalid or unreadable file falls back to built-in defaults. A failed save keeps the new setting active and tells the client it was not saved.               |
-| Fan controller            | Run the automatic curve or fixed speed, publish telemetry, hand control back to the BIOS on shutdown      | Settings and temperature readings → paired fan writes, telemetry                            | Native boundary                                                                | Ramp history and last confirmed output in memory                    | Failed sensor reads in automatic mode command the highest configured speed. A failed write marks output unconfirmed. Losing the native channel stops the loop. |
-| Native boundary           | Serialize hardware calls, detect capabilities independently, isolate Windows FFI in workers               | Method calls → numeric results or errors; capability flags                                  | Linux `acpi_call` and sysfs, or Windows `WmiDll.dll` and an optional CPUOC DLL | Capability flags and `restartRequired` in memory                    | Each capability is probed separately. A permanently failed channel disables only the features it serves and sets `restartRequired`.                            |
-| Web UI                    | Dashboard for all settings, telemetry and raw diagnostics                                                 | Backend snapshots and telemetry → user commands with request IDs                            | A running backend; a modern browser                                            | Last validated snapshot and unsaved edits in the browser tab        | Shows connecting, reconnecting, stale or invalid states. Disables writes until a fresh snapshot arrives. Never resends interrupted commands.                   |
-| Plasma widget             | Panel, tray and desktop client with the primary controls                                                  | Same protocol as the web UI                                                                 | Plasma 6, Qt WebSockets QML, a running backend                                 | Widget settings in the user's Plasma configuration                  | Same rules as the web UI. Removing or breaking the widget does not affect the backend.                                                                         |
-| Omarchy module            | Read-only status in the Omarchy bar, plus a launcher for the web UI                                       | Snapshots and telemetry → status label; click → browser                                     | Omarchy 4.0.4 Quickshell, Qt WebSockets QML, a running backend                 | Inline entry in the user's `~/.config/omarchy/shell.json`           | Shows offline, stale or error states. It sends no hardware commands, so its failure cannot change fan behavior.                                                |
-| Service wrappers          | Start the backend at boot and stop it within a time limit                                                 | Service manager events → process start/stop                                                 | systemd or OpenRC on Linux; WinSW and the Windows Service Control Manager      | Unit/registration files; Windows wrapper logs beside the executable | A failed stop makes install or uninstall abort without replacing files.                                                                                        |
+| Component                 | Responsibility                                                                                            | Inputs → outputs                                                                            | Depends on                                                                     | State and configuration                                                          | When it fails                                                                                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Entry point and lifecycle | Permission check, listener startup, hardware initialization, readiness, signal handling, bounded shutdown | Process start and signals → ready listeners, exit code                                      | Every backend module                                                           | Readiness and shutdown flags in memory                                           | Missing elevation exits before listening. Startup errors trigger the normal shutdown path, which attempts BIOS restoration once hardware setup has begun.      |
+| Listeners and HTTP        | Bind `127.0.0.1:5522` and optionally `[::1]:5522`; serve web UI files; accept `/ws` upgrades              | HTTP requests → static files, WebSocket upgrades, 403/405/503 responses                     | Bun's HTTP server                                                              | None                                                                             | A busy port stops startup before any hardware call, so a second copy cannot disturb a running one.                                                             |
+| WebSocket handler         | Decode JSON, queue requests in arrival order, validate kinds and payloads, reply and broadcast            | Client JSON → `success`/`error` replies, `state` broadcasts, `fancontrolactivity` telemetry | Shared validation in `common/`, state module, fan controller, native boundary  | At most 64 requests queued or executing across all clients                       | Messages over 64 KiB close the socket; invalid input gets an error reply. A full queue answers `BUSY`. A client with 1 MiB of unsent output is disconnected.   |
+| Settings state            | Hold the authoritative settings and save them in order                                                    | Accepted mutations → in-memory state, atomic file write                                     | `common/validation.ts`                                                         | `alfc.config.json`; capability flags are memory-only                             | An invalid or unreadable file falls back to built-in defaults. A failed save keeps the new setting active and tells the client it was not saved.               |
+| Fan controller            | Run the automatic curve or fixed speed, publish telemetry, hand control back to the BIOS on shutdown      | Settings and temperature readings → paired fan writes, telemetry                            | Native boundary                                                                | Ramp history and last confirmed output in memory                                 | Failed sensor reads in automatic mode command the highest configured speed. A failed write marks output unconfirmed. Losing the native channel stops the loop. |
+| Native boundary           | Serialize hardware calls, detect capabilities independently, isolate Windows FFI in workers               | Method calls → numeric results or errors; capability flags                                  | Linux `acpi_call` and sysfs, or Windows `WmiDll.dll` and an optional CPUOC DLL | Capability flags and `restartRequired` in memory                                 | Each capability is probed separately. A permanently failed channel disables only the features it serves and sets `restartRequired`.                            |
+| Web UI                    | Dashboard for all settings, telemetry and raw diagnostics                                                 | Backend snapshots and telemetry → user commands with request IDs                            | A running backend; a modern browser                                            | Last validated snapshot and unsaved edits in the browser tab                     | Shows connecting, reconnecting, stale or invalid states. Disables writes until a fresh snapshot arrives. Never resends interrupted commands.                   |
+| Plasma widget             | Panel, tray and desktop client with the primary controls                                                  | Same protocol as the web UI                                                                 | Plasma 6, Qt WebSockets QML, a running backend                                 | Widget settings in the user's Plasma configuration                               | Same rules as the web UI. Removing or breaking the widget does not affect the backend.                                                                         |
+| Omarchy module            | Read-only status in the Omarchy bar, plus a launcher for the web UI                                       | Snapshots and telemetry → status label; click → browser                                     | Omarchy 4.0.4 Quickshell, Qt WebSockets QML, a running backend                 | Files in `~/.config/omarchy/bar/modules/alfc/`; user-added entry in `shell.json` | Shows offline, stale or error states. It sends no hardware commands, so its failure cannot change fan behavior.                                                |
+| Service wrappers          | Start the backend at boot and stop it within a time limit                                                 | Service manager events → process start/stop                                                 | systemd or OpenRC on Linux; WinSW and the Windows Service Control Manager      | Unit/registration files; Windows wrapper logs beside the executable              | A failed stop makes install or uninstall abort without replacing files.                                                                                        |
 
 ### Where the code lives
 
@@ -161,10 +163,10 @@ sequenceDiagram
   participant A as All connected clients
 
   C->>H: kind tune, pl1 45, pl2 90, requestId tune-7
-  H->>H: Size limit, JSON parse, kind and payload validation
-  H->>Q: Enqueue (BUSY error if 64 already waiting)
-  Q->>H: Run after earlier mutations finish
-  H->>H: Check capability flag and value ranges
+  H->>H: 64 KiB frame limit, UTF-8 decode, JSON parse
+  H->>Q: Enqueue (BUSY error if 64 already queued or running)
+  Q->>H: Run after earlier requests finish
+  H->>H: Validate kind, payload, capability flag and value ranges
   H->>N: tune(45, 90)
   N->>F: Write limits, read back, confirm zone enabled
   alt Hardware rejects or readback differs
@@ -182,19 +184,21 @@ Step by step:
 1. **Client.** The web UI (`frontend/src/utils/backendRequests.ts`) or widget
    (`BackendConnection.qml`) sends JSON with a unique `requestId`. It refuses to
    send unless its current connection has delivered a validated snapshot.
-2. **Validation.** `server/websocket/index.ts` rejects messages over 64 KiB,
-   invalid JSON, unknown kinds and malformed payloads before they reach the
-   queue. Fan tables are checked with `common/validation.ts`; the whole-number
-   ranges for fixed percentage (0–100) and power limits (0–200) are checked in
-   the handler itself. `common/validation.ts` also checks the saved file at
-   startup and, through `common/protocol.ts` and the widget's `Protocol.js`
-   copy, every incoming snapshot in the clients. The editors check input
-   before sending.
-3. **Ordering.** One queue serves both listeners and all clients, so two
-   clients cannot interleave hardware writes. Plain `ping` and the telemetry
-   subscription bypass the queue.
-4. **Capability and range checks.** A request for a capability the backend
-   marked unavailable is rejected without touching hardware.
+2. **Pre-queue checks.** Bun closes the socket on a frame over 64 KiB.
+   `server/websocket/index.ts` decodes UTF-8, handles plain `ping`, parses
+   JSON, rejects requests during shutdown, and handles the telemetry
+   subscription before the queue.
+3. **Ordering.** Every other message enters one queue shared across both
+   listeners and all clients (up to 64 queued or running), so two clients
+   cannot interleave hardware writes.
+4. **Validation, capability and range checks.** Inside the queue,
+   `handleMessage` checks the message kind, payload shape, capability flag
+   and value ranges before touching hardware. Fan tables use
+   `common/validation.ts`; the whole-number ranges for fixed percentage
+   (0–100) and power limits (0–200) are checked in the handler itself.
+   `common/validation.ts` also checks the saved file at startup and, through
+   `common/protocol.ts` and the widget's `Protocol.js` copy, every incoming
+   snapshot in the clients. The editors check input before sending.
 5. **Hardware.** `server/native/index.ts` runs the call on the correct queue.
    Fan and WMI calls share one serialized queue; CPU tuning has its own, so a
    stuck CPU call cannot block fan control. Method IDs, argument order and
@@ -259,8 +263,10 @@ Key points:
   ready.
 
 If fan initialization fails partway, ALFC first tries to give control back to
-the BIOS. If that handoff also fails, startup is aborted so the shutdown path
-retries it, rather than leaving fans in an unmonitored manual mode.
+the BIOS. When that handoff succeeds, fan control is marked unavailable for
+the session and startup continues to CPU and GPU setup. When the handoff
+also fails, startup is aborted so the shutdown path retries it, rather than
+leaving fans in an unmonitored manual mode.
 
 ## Shutdown and BIOS handoff
 
@@ -292,9 +298,11 @@ flowchart TD
 - Curves are threshold steps, not interpolation: each point's speed applies
   from its temperature up to the next point. Temperatures below the first
   point use the first point's speed.
-- An increase starts on the next qualifying cycle. A decrease waits for about
-  30 qualifying cycles (roughly a minute). Each change moves halfway toward the
-  target and jumps straight to it once within five percentage points.
+- An increase takes a step on the first qualifying cycle; each downward step
+  waits for 30 qualifying cycles (roughly a minute). Each step moves halfway
+  toward the target and jumps straight to it when the remaining gap is nine
+  percentage points or less. Saving a new fan table while in automatic mode
+  applies the new curve target on the next cycle without ramping.
 - Until the first valid reading arrives, automatic mode uses the highest speed
   in the curves. If sensor reads fail, automatic mode commands the highest
   configured speed and fixed mode keeps its configured speed.
@@ -321,9 +329,8 @@ running as a compiled Bun executable (`server/utils/consts.ts`), not from
 Only the seven settings fields are saved. Capability flags
 (`isFanControlAvailable`, `isGpuBoostAvailable`, `isCpuTuningAvailable`) and
 `restartRequired` describe the running machine; they are recomputed at every
-start and ignored if present in the file. On Linux, a missing configuration
-file is created with mode `0600`; later saves keep the existing file's
-permissions.
+start and ignored if present in the file. On Linux, if `alfc.config.json` is missing when a setting is saved, it is
+created with mode `0600`; saves to an existing file keep its permissions.
 
 Typical installed locations:
 
@@ -383,8 +390,9 @@ A separate `org.kde.alfc.plasmoid` release asset packages the widget alone.
 | Windows WMI DLL                               | Output-packing tests anywhere; MSVC build and COM tests in Windows CI                                                 | Vendor WMI provider on a laptop      |
 | Service scripts                               | Real scripts with filesystem targets and service commands redirected to temporary fixtures                            | Real systemd/OpenRC/SCM/UAC behavior |
 
-The production permission check is never bypassed in tests. Fixtures replace
-the hardware boundary instead. [CONTRIBUTING.md](CONTRIBUTING.md) lists the
+Production `server/permissions.ts` is never weakened. Unit tests mock the
+native boundary; subprocess suites that run without root bundle a disposable
+copy that stubs the permission, state and native modules together. [CONTRIBUTING.md](CONTRIBUTING.md) lists the
 commands, and [integration/README.md](https://github.com/ThatMarko/alfc/blob/master/integration/README.md)
 describes the cross-client tier.
 

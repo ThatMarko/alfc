@@ -8,7 +8,7 @@ Use [pull requests](https://github.com/ThatMarko/alfc/pulls) for current changes
 
 ## Implemented on mainline
 
-- Bun 1.4.3 workspaces and compiled Linux/Windows server outputs; no separate
+- Bun 1.4.4 workspaces and compiled Linux/Windows server outputs; no separate
   Node runtime is needed by packaged production executables.
 - Windows WMI through ABI 2 C++/COM FFI on one dedicated worker, with bounded
   waits for method completion, typed input, declared output widths, and exact
