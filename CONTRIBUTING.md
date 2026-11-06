@@ -10,18 +10,18 @@ and follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Toolchain and development
 
-The tested toolchain is Bun 1.4.3 and Node.js 24.22.0 LTS. Node 24.11 remains
+The tested toolchain is Bun 1.4.4 and Node.js 24.22.0 LTS. Node 24.11 remains
 the minimum supported patch within major 24; testing a newer patch does not
 raise that minimum:
 
 | Runtime                         | Current uses                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------- |
-| Bun 1.4.3                       | Dependency installation, workspace scripts, backend, native FFI/workers, server compilation |
+| Bun 1.4.4                       | Dependency installation, workspace scripts, backend, native FFI/workers, server compilation |
 | Node.js 24.22.0 (minimum 24.11) | Vite, Vitest, ESLint, TypeScript, Playwright, Husky, and lint-staged CLIs                   |
 
 `bun run` and `bunx` honor a CLI's `#!/usr/bin/env node` shebang unless explicitly
 forced to use Bun with `--bun`; invoking them through Bun does not switch every
-tool's JavaScript runtime. See the [versioned Bun documentation](https://github.com/oven-sh/bun/blob/bun-v1.4.3/docs/runtime/index.mdx#L134-L147).
+tool's JavaScript runtime. See the [versioned Bun documentation](https://github.com/oven-sh/bun/blob/bun-v1.4.4/docs/runtime/index.mdx#L134-L147).
 The official [Node release index](https://nodejs.org/dist/index.json), rechecked
 on 2026-10-15, lists 24.22.0 as Krypton LTS and 26.12.0 as Current. ALFC
 declares major 24 and pins the tested patch in Linux/Windows CI and release jobs.
@@ -51,7 +51,7 @@ the global `Bun` object, which is read-only in the actual Bun runtime. Some Vite
 tests can run under Bun; removing Node requires a deliberate mock-boundary and
 tool-launch migration with the same Windows/Linux coverage, not just `--bun`.
 
-Cloud setup must activate Bun 1.4.3 and Node 24.22.0 in every setup, run and
+Cloud setup must activate Bun 1.4.4 and Node 24.22.0 in every setup, run and
 check shell, or use an image containing those versions. The tracked Hoplite
 configuration preserves privileged APT/Git LFS provisioning, then runs
 `sh tools/check-cloud-runtime.sh` before the frozen install. This script
