@@ -2,7 +2,7 @@
 
 ## Validate the source revision
 
-Use the pinned Bun 1.4.3 and tested Node 24.22.0 LTS (minimum Node 24.11 within major 24). Run `bun install --frozen-lockfile`,
+Use the pinned Bun 1.4.4 and tested Node 24.22.0 LTS (minimum Node 24.11 within major 24). Run `bun install --frozen-lockfile`,
 `bun run all-checks`, and the documented browser and Qt runtime checks before
 creating a tag. CI runs the shared checks on Linux and Windows, browser/Qt checks
 on Linux, and builds the Windows WMI DLL with MSVC. Native SDK substitute tests
