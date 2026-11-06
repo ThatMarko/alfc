@@ -125,7 +125,7 @@ looks like, how to read the dashboard, and troubleshooting.
 
 ## Development
 
-Source development uses Bun 1.4.3 and Node.js 24.22.0 LTS (Node 24.11 or newer
+Source development uses Bun 1.4.4 and Node.js 24.22.0 LTS (Node 24.11 or newer
 within major 24 is the minimum). Bun runs the backend and manages
 dependencies; Node runs Vite, Vitest and the other development tools. Release
 executables embed Bun, so users install neither.

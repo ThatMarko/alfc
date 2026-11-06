@@ -28,7 +28,7 @@ current default branch and respect its protections and review process.
 
 ## Toolchain and commands
 
-Use Bun 1.4.3 (the package-manager and workflow pin) and Node.js 24.11 or newer within major 24 for the
+Use Bun 1.4.4 (the package-manager and workflow pin) and Node.js 24.11 or newer within major 24 for the
 checked development tools. Node 24.22.0 is the recommended and CI-tested LTS
 patch; 24.11 remains the minimum. Node 26 is Current, not the supported LTS major. `bun run`/`bunx` preserve Node shebangs for CLIs such as Vite, Vitest, ESLint,
 TypeScript, Playwright, Husky, and lint-staged. Packaged production embeds Bun and
