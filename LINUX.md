@@ -5,6 +5,20 @@ Use ALFC on a laptop whose firmware interface has been verified against the
 outlive the process. Cloud tests cannot establish that another laptop uses
 the same firmware methods.
 
+On Linux, ALFC is one root service plus optional per-user desktop clients:
+
+1. Install and load the `acpi_call` kernel module ([Requirements](#requirements)).
+2. Install the service from a release archive, or try it in the foreground
+   first ([Install, upgrade, or run temporarily](#install-upgrade-or-run-temporarily)).
+3. Confirm it started and open `http://localhost:5522`
+   ([Check that it works](#check-that-it-works)).
+4. Optionally add the [Plasma widget](#kde-plasma-6-widget) or the
+   [Omarchy module](#omarchy-desktop-integration) as your desktop user.
+
+Configuration, dashboard states and cross-platform troubleshooting are in
+[OPERATIONS.md](OPERATIONS.md). [ARCHITECTURE.md](ARCHITECTURE.md) explains how
+the parts fit together.
+
 ## Requirements
 
 Published Linux archives target x86_64 with glibc. systemd and OpenRC service
