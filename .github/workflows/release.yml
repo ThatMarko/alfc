@@ -262,6 +262,8 @@ jobs:
         with:
           name: "ALFC ${{ steps.meta.outputs.version }}"
           draft: true
+          # Hyphenated SemVer tags must not become the repository's latest release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: |
             artifacts/linux-release/alfc-*-linux-x64.tar.gz

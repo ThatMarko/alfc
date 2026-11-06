@@ -58,7 +58,9 @@ or update the AUR package instead.
 
 ## Prepare and verify a release
 
-1. Set `pkgver` to the release version without the `v` prefix and reset `pkgrel` to 1.
+1. Package stable releases only: `pkgver` cannot contain a hyphen, so prerelease
+   tags such as `v2.0.0-alpha.8` are tested from their archives instead. Set
+   `pkgver` to the release version without the `v` prefix and reset `pkgrel` to 1.
 2. Download the published archive and `SHA256SUMS`. Verify the release asset digest,
    then run `updpkgsums` to replace `SKIP` with that pinned digest.
 3. Generate `.SRCINFO` with `makepkg --printsrcinfo > .SRCINFO`.
