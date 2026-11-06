@@ -7,16 +7,15 @@ and troubleshooting shared with Linux is in [OPERATIONS.md](OPERATIONS.md).
 
 ## Requirements
 
-| Requirement                             | Why                                                                                                                                                                        |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 64-bit (x64) Windows                    | Releases contain only an x64 build.                                                                                                                                        |
-| A compatible Gigabyte Aorus/Aero laptop | ALFC uses the laptop's vendor WMI interface (`GB_WMIACPI_Get` / `GB_WMIACPI_Set` in the `root\WMI` namespace).                                                             |
-| The vendor WMI provider and drivers     | They come with the laptop's own Gigabyte software and drivers. ALFC does not install or repair them. Do not apply registry or driver instructions meant for another model. |
-| Administrator rights                    | The backend talks to firmware. The scripts ask for elevation through User Account Control (UAC) when needed.                                                               |
-| A modern browser                        | For the web UI at `http://localhost:5522`.                                                                                                                                 |
+| Requirement                                   | Why                                                                                                                                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 64-bit (x64) Windows 10 version 1809 or later | Releases contain only an x64 build, and the embedded Bun runtime requires Windows 10 version 1809 or later.                                                                |
+| A compatible Gigabyte Aorus/Aero laptop       | ALFC uses the laptop's vendor WMI interface (`GB_WMIACPI_Get` / `GB_WMIACPI_Set` in the `root\WMI` namespace).                                                             |
+| The vendor WMI provider and drivers           | They come with the laptop's own Gigabyte software and drivers. ALFC does not install or repair them. Do not apply registry or driver instructions meant for another model. |
+| Administrator rights                          | The backend talks to firmware. The scripts ask for elevation through User Account Control (UAC) when needed.                                                               |
+| A modern browser                              | For the web UI at `http://localhost:5522`.                                                                                                                                 |
 
-You do **not** need Bun, Node.js or a Visual C++ runtime: `alfc.exe` embeds
-Bun, and `WmiDll.dll` is statically linked.
+You do **not** need to install Bun or Node.js: `alfc.exe` embeds Bun.
 
 CPU power-limit tuning is **not** available in the standard Windows archive.
 The optional CPU-tuning component (CPUOC) and the proprietary Intel SDK it
