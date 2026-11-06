@@ -23,6 +23,8 @@ current default branch and respect its protections and review process.
 | `bootstrap/`, `aur/`                    | Windows WinSW and Linux service/package integration                                   |
 | `.github/workflows/`                    | CI and tag-driven release packaging                                                   |
 | `PORTING_REVIEW.md`                     | Audit evidence, authoritative sources, and physical release gates                     |
+| `ARCHITECTURE.md`, `OPERATIONS.md`      | Component/request-flow guide; cross-platform configuration and troubleshooting        |
+| `LINUX.md`, `WINDOWS.md`                | Platform install, upgrade, removal, logs, and platform troubleshooting                |
 
 ## Toolchain and commands
 
