@@ -184,9 +184,12 @@ Step by step:
    send unless its current connection has delivered a validated snapshot.
 2. **Validation.** `server/websocket/index.ts` rejects messages over 64 KiB,
    invalid JSON, unknown kinds and malformed payloads before they reach the
-   queue. Value rules come from `common/validation.ts`. The same rules check
-   incoming snapshots in the web UI (through `common/protocol.ts`) and in the
-   widget's `Protocol.js` copy; the editors also check input before sending.
+   queue. Fan tables are checked with `common/validation.ts`; the whole-number
+   ranges for fixed percentage (0–100) and power limits (0–200) are checked in
+   the handler itself. `common/validation.ts` also checks the saved file at
+   startup and, through `common/protocol.ts` and the widget's `Protocol.js`
+   copy, every incoming snapshot in the clients. The editors check input
+   before sending.
 3. **Ordering.** One queue serves both listeners and all clients, so two
    clients cannot interleave hardware writes. Plain `ping` and the telemetry
    subscription bypass the queue.

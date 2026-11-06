@@ -87,9 +87,9 @@ one feature is missing; the others still work. Only the final
 `503 Service Unavailable` and the clients keep retrying.
 
 Then open `http://localhost:5522` (or `http://127.0.0.1:5522`;
-`http://[::1]:5522` works when IPv6 is available). The header should show the
-connection as live, and the **Live telemetry** panel should show temperatures
-within a few seconds.
+`http://[::1]:5522` works when IPv6 is available). The header badge should read
+**Connected**, and within a few seconds the **Live telemetry** panel should
+show **Live** with current temperatures.
 
 ## Reading the dashboard
 
