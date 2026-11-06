@@ -127,6 +127,10 @@ uses Qt syntax and is checked by the Qt runner instead of ESLint.
 
 ## Source map and conventions
 
+Start with [ARCHITECTURE.md](ARCHITECTURE.md): it shows how the backend,
+clients and native layers cooperate and traces one setting from a client
+through validation, the ordered queue, hardware, persistence and the reply.
+
 | Area                          | Location                                                   | Contract                                               |
 | ----------------------------- | ---------------------------------------------------------- | ------------------------------------------------------ |
 | Shared catalog and validation | `common/`                                                  | Canonical method names, IDs, widths, protocol guards   |
@@ -136,7 +140,48 @@ uses Qt syntax and is checked by the Qt runner instead of ESLint.
 | HTTP and lifecycle            | `server/index.ts`, `server/http.ts`, `server/listeners.ts` | Loopback-only serving and bounded shutdown             |
 | React UI                      | `frontend/`                                                | Backend snapshots, request IDs, per-field drafts       |
 | Plasma widget                 | `plasmoid/`                                                | QML/JS client with the same validated primary controls |
+| Omarchy module                | `omarchy/`                                                 | Read-only QML status/launcher and per-user installer   |
+| Cross-client tests            | `integration/`                                             | Production handlers with explicit fake Linux hardware  |
 | Deployment                    | `bootstrap/`, `aur/`, `.github/workflows/`                 | Service management and artifact contents               |
+| Documentation tooling         | `tools/check_docs.py`                                      | Local Markdown links and anchors, source or staged     |
+
+Read the nested notes before editing those areas: `server/AGENTS.md`,
+`server/native/AGENTS.md` and `bootstrap/AGENTS.md`.
+
+### Where common changes go
+
+| Change                                   | Files to touch                                                                                                                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A validation limit for a setting         | `common/validation.ts` (server and shared snapshot guards), `plasmoid/package/contents/ui/Protocol.js`, the web editors in `frontend/src/utils/`, the widget editors, `common/PROTOCOL.md`, and [OPERATIONS.md](OPERATIONS.md#configuration) |
+| A new saved setting                      | `common/types.ts`, `server/state/index.ts` (defaults and load check), `alfc.config.json`, a handler in `server/websocket/index.ts`, both clients, and both protocol documents                       |
+| A new message kind or reply field        | `common/types.ts`, `common/protocol.ts`, `plasmoid/package/contents/ui/Protocol.js`, `server/websocket/index.ts`, `common/PROTOCOL.md`, `common/COMPATIBILITY.md`                                  |
+| Fan curve, ramping or telemetry behavior | `server/fan-control/index.ts` and its tests                                                                                                                                                       |
+| A firmware method                        | `common/methods.ts` (canonical catalog), then the caller; never hand-write IDs or argument orders                                                                                               |
+| Linux or Windows hardware transport      | `server/native/linux/` or `server/native/windows/`, through `server/native/index.ts`                                                                                                              |
+| Web dashboard UI                         | `frontend/src/containers/` and `frontend/src/components/`; connection logic in `frontend/src/utils/`                                                                                              |
+| Plasma widget UI                         | `plasmoid/package/contents/ui/`; tests beside `plasmoid/run_qml_tests.py`                                                                                                                         |
+| Service install/remove behavior          | `bootstrap/scripts/`, with regressions in `bootstrap/*.test.ts`; Arch packaging in `aur/`                                                                                                         |
+| Release contents                         | `build.sh`, `build.bat`, `.github/workflows/release.yml` and `aur/PKGBUILD` together; see [RELEASING.md](RELEASING.md)                                                                            |
+
+Root-level, `common/` and `plasmoid/` Markdown files are copied into both
+release archives and the Arch package documentation automatically; from
+`aur/` only `README.md` is copied, and other directories (such as a new
+`docs/`) are not copied at all. Link to source code with code spans or absolute
+GitHub URLs, because staged documentation roots do not contain the source
+tree. Check a staged root with `python3 tools/check_docs.py PATH`.
+
+### Safe hardware-free testing
+
+Never start the real backend without elevation and never weaken
+`server/permissions.ts` for a test. Tests replace the hardware boundary
+instead: Vitest mocks `server/native/`, the listener suites run real Bun
+subprocesses with hardware fixtures, and `integration/protocol-fixture.ts`
+substitutes only Linux's ACPI and CPU adapters. Service-script tests redirect
+every privileged path and service command into temporary directories. Do not
+run `install.sh`, `install.bat` or the AUR package on your development
+machine to test a change. The table in
+[ARCHITECTURE.md](ARCHITECTURE.md#testing-without-hardware) lists what each
+tier can and cannot show.
 
 Use extensionless relative ESM imports and `node:` for built-ins. TypeScript
 uses `strict` and `noUncheckedIndexedAccess`; explicit `any` is an ESLint error.
