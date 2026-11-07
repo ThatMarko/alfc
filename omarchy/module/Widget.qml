@@ -38,6 +38,9 @@ FocusScope {
         if (backend.status === "online") {
             text += "\n" + qsTr("CPU %1 °C · GPU %2 °C")
                 .arg(Math.round(backend.activity.avgCPUTemp)).arg(Math.round(backend.activity.avgGPUTemp))
+            if (backend.activity != null
+                    && Math.max(backend.activity.avgCPUTemp, backend.activity.avgGPUTemp) >= 95)
+                text += "\n" + qsTr("Critical temperature: fans at 100% emergency speed.")
             text += "\n" + qsTr("Last acknowledged fan command; physical rotation is not measured.")
         } else if (backend.status === "restart") {
             text += "\n" + qsTr("Restart the ALFC service to retry the failed native channel.")

@@ -97,6 +97,12 @@ PlasmaExtras.Representation {
     // sensorFailure is absent on protocol 1.0 servers — treated as false
     readonly property bool sensorFailure: hasTelemetrySnapshot
         && safeActivity.sensorFailure === true
+    // The backend commands 100% in both modes at or above 95°C, so the
+    // displayed target can differ from the configured mode. Surface that
+    // instead of letting the tiles claim the preset is in effect.
+    readonly property bool criticalThermalOverride: hasTelemetrySnapshot
+        && !sensorFailure
+        && Math.max(safeActivity.avgCPUTemp, safeActivity.avgGPUTemp) >= 95
     readonly property bool restartRequired: hasState && safeState.restartRequired === true
     readonly property bool fixedModeEnabled: hasState
         && safeState.doFixedSpeed === true
@@ -119,8 +125,7 @@ PlasmaExtras.Representation {
         && Protocol.isIntegerInRange(Number(draftFixedPercentage), 0, 100)
     readonly property bool tuneDraftValid: /^\d+$/.test(draftPl1)
         && /^\d+$/.test(draftPl2)
-        && Protocol.isIntegerInRange(Number(draftPl1), 0, 200)
-        && Protocol.isIntegerInRange(Number(draftPl2), 0, 200)
+        && Protocol.isPowerLimits(Number(draftPl1), Number(draftPl2))
     readonly property string selectedMode: modeSelectionOverride.length > 0
         ? modeSelectionOverride
         : (fixedModeEnabled ? "fixed" : "auto")
@@ -550,6 +555,7 @@ PlasmaExtras.Representation {
                     }
 
                     MetricTile {
+                        objectName: "fanMetricTile"
                         label: i18n("Fan")
                         value: fullRoot.hasTelemetrySnapshot
                             ? (fullRoot.safeActivity.appliedSpeed != null
@@ -558,11 +564,13 @@ PlasmaExtras.Representation {
                             : "--"
                         valueColor: fullRoot.hasActivity
                             ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor
-                        subtitle: fullRoot.hasTelemetrySnapshot
-                            ? i18n("Target %1%", Math.round(fullRoot.safeActivity.target))
-                            : (fullRoot.telemetryUnavailable
-                                ? i18n("Telemetry unavailable")
-                                : i18n("Waiting for fan telemetry"))
+                        subtitle: fullRoot.criticalThermalOverride
+                            ? i18n("Emergency 100% — critical temperature")
+                            : (fullRoot.hasTelemetrySnapshot
+                                ? i18n("Target %1%", Math.round(fullRoot.safeActivity.target))
+                                : (fullRoot.telemetryUnavailable
+                                    ? i18n("Telemetry unavailable")
+                                    : i18n("Waiting for fan telemetry")))
                     }
 
                     MetricTile {
@@ -810,6 +818,12 @@ PlasmaExtras.Representation {
                         Layout.fillWidth: true
                     }
 
+                    PlasmaComponents.Label {
+                        text: i18n("PL1 from 15 to 115 W and PL2 from 15 to 150 W, with PL1 no higher than PL2.")
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+
                     GridLayout {
                         columns: 2
                         Layout.fillWidth: true
@@ -826,10 +840,10 @@ PlasmaExtras.Representation {
 
                             Layout.fillWidth: true
                             Accessible.name: i18n("PL1 power limit")
-                            Accessible.description: i18n("Enter the long-duration CPU power limit in watts.")
+                            Accessible.description: i18n("Enter the long-duration CPU power limit in watts, from 15 to 115 watts.")
                             validator: IntValidator {
-                                bottom: 0
-                                top: 200
+                                bottom: 15
+                                top: 115
                                 locale: "C"
                             }
                             inputMethodHints: Qt.ImhDigitsOnly
@@ -858,10 +872,10 @@ PlasmaExtras.Representation {
 
                             Layout.fillWidth: true
                             Accessible.name: i18n("PL2 power limit")
-                            Accessible.description: i18n("Enter the short-duration CPU power limit in watts.")
+                            Accessible.description: i18n("Enter the short-duration CPU power limit in watts, from 15 to 150 watts, at least PL1.")
                             validator: IntValidator {
-                                bottom: 0
-                                top: 200
+                                bottom: 15
+                                top: 150
                                 locale: "C"
                             }
                             inputMethodHints: Qt.ImhDigitsOnly
@@ -881,6 +895,7 @@ PlasmaExtras.Representation {
                         }
 
                         PlasmaComponents.Button {
+                            objectName: "applyTuneButton"
                             Layout.columnSpan: 2
                             Layout.fillWidth: true
                             text: fullRoot.tuningBusy

@@ -214,6 +214,57 @@ Item {
             compare(Object.keys(backend.pendingRequests).length, backend.maximumPendingRequests)
         }
 
+        function test_applyTuneRejectsOutOfRangeLimits_data() {
+            return [
+                {tag: "zero-pl1", pl1: 0, pl2: 106},
+                {tag: "below-floor-pl1", pl1: 14, pl2: 106},
+                {tag: "above-ceiling-pl1", pl1: 116, pl2: 120},
+                {tag: "above-ceiling-pl2", pl1: 37, pl2: 151},
+                {tag: "pl1-above-pl2", pl1: 100, pl2: 90}
+            ]
+        }
+
+        function test_applyTuneRejectsOutOfRangeLimits(data) {
+            const requestId = backend.applyTune(data.pl1, data.pl2)
+            tryCompare(finished, "count", 1)
+            compare(finished.signalArguments[0][0], requestId)
+            compare(finished.signalArguments[0][1], false)
+            verify(finished.signalArguments[0][2].indexOf("PL1 from 15 to 115") >= 0)
+            compare(fixture.requests.length, 0)
+        }
+
+        function test_applyTuneAcceptsBoundaryLimits_data() {
+            return [
+                {tag: "floors", pl1: 15, pl2: 15},
+                {tag: "ceilings", pl1: 115, pl2: 150}
+            ]
+        }
+
+        function test_applyTuneAcceptsBoundaryLimits(data) {
+            const requestId = backend.applyTune(data.pl1, data.pl2)
+            tryVerify(function() { return fixture.requests.length === 1 })
+            compare(fixture.requests[0].kind, "tune")
+            compare(fixture.requests[0].data.pl1, data.pl1)
+            compare(fixture.requests[0].data.pl2, data.pl2)
+            compare(fixture.requests[0].requestId, requestId)
+            compare(finished.count, 0)
+        }
+
+        function test_criticalTemperatureTooltipNamesEmergencyOverride() {
+            const initial = fixture.state()
+            initial.doFixedSpeed = true
+            initial.fixedPercentage = 40
+            fixture.push("state", initial)
+            fixture.push("fancontrolactivity", {
+                avgCPUTemp: 96, avgGPUTemp: 70, appliedSpeed: 100,
+                target: 100, sensorFailure: false
+            })
+            tryCompare(backend, "hasFreshActivity", true)
+            const tooltip = createTemporaryObject(tooltipComponent, fixture)
+            verify(tooltip !== null)
+            compare(tooltip.text, "CPU: 96°C | GPU: 70°C | Fan: 100% — critical temperature emergency override")
+        }
+
         function test_disconnectAndReconnect() {
             const requestId = backend.setFixedPercentage(60)
             tryVerify(function () { return fixture.requests.length === 1 })

@@ -291,9 +291,8 @@ Item {
 
     function applyTune(pl1, pl2) {
         if (!root.ready || root.latestState.isCpuTuningAvailable !== true
-                || !Protocol.isIntegerInRange(pl1, 0, 200)
-                || !Protocol.isIntegerInRange(pl2, 0, 200)) {
-            return root.rejectRequest("tune", i18n("Enter whole CPU power limits from 0 to 200 watts."))
+                || !Protocol.isPowerLimits(pl1, pl2)) {
+            return root.rejectRequest("tune", i18n("Enter whole CPU power limits: PL1 from 15 to 115 W and PL2 from 15 to 150 W, with PL1 no higher than PL2."))
         }
         return sendRequest("tune", {
             pl1: pl1,

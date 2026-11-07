@@ -7,6 +7,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { useRef } from "react";
+import { MAX_FAN_TABLE_ENTRIES } from "../../../common/validation";
 import type { FanTableItems } from "./FanTable";
 import { fanTableInsertionTemperature } from "../utils/fanTable";
 
@@ -85,7 +86,11 @@ export function FanTableEditor({
           <StyledButton
             type="button"
             aria-label={`Add ${label} row before row ${idx + 1}`}
-            disabled={disabled || insertionTemperature === null}
+            disabled={
+              disabled ||
+              value.length >= MAX_FAN_TABLE_ENTRIES ||
+              insertionTemperature === null
+            }
             onClick={() => {
               const nextValue = value.slice();
               if (insertionTemperature === null) return;
@@ -157,7 +162,11 @@ export function FanTableEditor({
       <button
         type="button"
         aria-label={`Append ${label} fan curve row`}
-        disabled={disabled || Number(value.at(-1)?.[0] ?? 0) >= 110}
+        disabled={
+          disabled ||
+          value.length >= MAX_FAN_TABLE_ENTRIES ||
+          Number(value.at(-1)?.[0] ?? 0) >= 110
+        }
         onClick={() => {
           const last = value.at(-1);
           const previousTemperature = Number(last?.[0] ?? 0);

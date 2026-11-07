@@ -147,8 +147,9 @@ The module validates snapshots and activity with the exact existing
 [QML protocol guards](https://github.com/ThatMarko/alfc/blob/master/plasmoid/package/contents/ui/Protocol.js), copied at install
 time; it imports no Plasma UI modules. It discards messages longer than 1,048,576
 UTF-16 code units before JSON parsing. This separate response budget accommodates
-state snapshots larger than the server's 64 KiB request limit, including added
-settings/capability fields and numeric serialization. Every message within the
+state snapshots larger than the server's 64 KiB inbound-request limit: the
+envelope adds settings/capability fields to the curve data, and additive 1.x
+state fields can grow it further. Every message within the
 server's 1 MiB UTF-8 outbound budget fits this ceiling because UTF-16 code-unit
 counts never exceed UTF-8 byte counts. Dynamic labels contain validated numbers, backend error
 strings are not inserted into labels/tooltips, and text is displayed as plain

@@ -101,6 +101,15 @@ QtObject {
             ? i18n("%1%", Math.round(activity.appliedSpeed))
             : "--"
 
+        // Sensor failure returns above, so reaching here with a hot reading
+        // means the 95°C emergency override is commanding the fans.
+        if (Math.max(activity.avgCPUTemp, activity.avgGPUTemp) >= 95) {
+            return i18n("CPU: %1\u00B0C | GPU: %2\u00B0C | Fan: %3 — critical temperature emergency override",
+                Math.round(activity.avgCPUTemp),
+                Math.round(activity.avgGPUTemp),
+                fanText)
+        }
+
         return i18n("CPU: %1\u00B0C | GPU: %2\u00B0C | Fan: %3",
             Math.round(activity.avgCPUTemp),
             Math.round(activity.avgGPUTemp),

@@ -94,8 +94,9 @@ Item {
             root.pongAt = Date.now()
             return
         }
-        // State envelopes add fields to an admitted 64 KiB curve request, and
-        // serializing numbers can expand its representation. Keep a separate
+        // Inbound requests are capped at 64 KiB, but a state response may
+        // exceed that: the envelope adds settings/capability fields, and
+        // additive 1.x state fields can grow it further. Keep a separate
         // bounded response budget, measured in JS UTF-16 code units. It accepts
         // every message within the server's 1 MiB UTF-8 outbound budget because
         // a string's UTF-16 unit count never exceeds its UTF-8 byte count.

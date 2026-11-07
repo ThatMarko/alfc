@@ -71,6 +71,7 @@ Item {
         when: windowShown
         property var backend: null
         property var extra: null
+        property var tooltipServer: null
         property var launched: []
 
         function init() {
@@ -90,8 +91,10 @@ Item {
         function cleanup() {
             if (backend) backend.destroy()
             if (extra) extra.destroy()
+            if (tooltipServer) tooltipServer.destroy()
             backend = null
             extra = null
+            tooltipServer = null
             wait(10)
             compare(fixture.writes, 0)
             for (const connection of fixture.handlers) connection.destroy()
@@ -152,25 +155,36 @@ Item {
         }
         function test_largeValidProductionSnapshot() {
             const state = fixture.snapshot()
-            state.cpuFanTable = []
             state.gpuFanTable = [[40,15],[83,100]]
             state.gpuBoost = true
             state.fixedPercentage = 67
-            for (let index = 0; index < 6110; index++)
-                state.cpuFanTable.push([index / 100, 50])
+            // A valid 16-point CPU curve: non-decreasing speeds, reaching
+            // 100% by 90°C. The old 6,110-entry table is invalid under the
+            // current fan-table rules, so it can no longer stand in for a
+            // large payload.
+            state.cpuFanTable = []
+            for (let index = 0; index < 16; index++)
+                state.cpuFanTable.push([index * 6, Math.min(100, index * 7)])
+            // The state envelope exceeds the 64 KiB inbound-request cap only
+            // through additive forward-compatible fields: protocol 1.x state
+            // may gain fields, and isState ignores unknown ones by design.
+            // This padding stands in for those fields at a fixed total size.
+            const targetLength = 65734
+            const unpadded = JSON.stringify({kind: "state", data: state})
+            state.padding = "x".repeat(targetLength - unpadded.length - ",\"padding\":\"\"".length)
             verify(Protocol.isState(state))
-            // This exact request is valid at the production server's input
-            // boundary. The production-shaped snapshot adds envelope/settings/
-            // capability fields, so it exceeds that request's input budget.
+            // A valid curve request (at most 16 points per table) is far
+            // below the 64 KiB inbound cap; the cap binds invalid or
+            // oversized requests, not state responses.
             const request = JSON.stringify({kind: "fantable",
                 data: {cpu: state.cpuFanTable, gpu: state.gpuFanTable}})
             const utf8Bytes = encodeURIComponent(request).replace(/%[A-F0-9]{2}/g, "x").length
-            compare(utf8Bytes, 65536)
+            verify(utf8Bytes < 65536)
             const snapshot = JSON.stringify({kind: "state", data: state})
-            compare(snapshot.length, 65734)
+            compare(snapshot.length, targetLength)
             verify(snapshot.length < backend.maximumMessageCodeUnits)
             fixture.lastPeer().sendTextMessage(snapshot)
-            tryVerify(function() { return backend.state.cpuFanTable.length === 6110 })
+            tryVerify(function() { return backend.state.cpuFanTable.length === 16 })
             compare(backend.state.fixedPercentage, 67)
             verify(backend.ready)
             fixture.push(fixture.lastPeer(), "fancontrolactivity", fixture.activity())
@@ -320,6 +334,38 @@ Item {
             compare(backend.status, "configuration")
             verify(!backend.reconnectPending)
         }
+        function test_widgetTooltipNotesCriticalTemperatureOverride() {
+            // The widget only connects to loopback port 5522, so this test
+            // serves its own endpoint there (the shared fixture uses an
+            // ephemeral port). If 5522 is already in use, the widget never
+            // becomes ready and this test fails instead of silently passing
+            // against a foreign backend.
+            const server5522 = Qt.createQmlObject(
+                'import QtWebSockets; WebSocketServer { host: "127.0.0.1"; port: 5522; listen: true; accept: true }',
+                fixture)
+            tests.tooltipServer = server5522
+            let peer5522 = null
+            server5522.clientConnected.connect(function(peer) {
+                peer5522 = peer
+                fixture.peers = fixture.peers.concat([peer])
+                fixture.handlers = fixture.handlers.concat([handler.createObject(fixture, { peer: peer })])
+                fixture.push(peer, "state", fixture.snapshot())
+            })
+            const widget = createTemporaryObject(widgetComponent, fixture, {
+                width: 200, height: 28,
+                settings: { serverUrl: "ws://127.0.0.1:5522/ws" }
+            })
+            verify(widget !== null)
+            tests.extra = widget
+            tryCompare(widget.connection, "ready", true)
+            verify(peer5522 !== null)
+            peer5522.sendTextMessage(JSON.stringify({ kind: "fancontrolactivity",
+                data: { avgCPUTemp: 96, avgGPUTemp: 70, appliedSpeed: 100, target: 100 } }))
+            tryCompare(widget.connection, "status", "online")
+            verify(widget.tooltipText.indexOf("Critical temperature") >= 0)
+            verify(widget.tooltipText.indexOf("100% emergency speed") >= 0)
+        }
+
         function test_widgetLaunchKeyboardLayoutAndEscaping() {
             extra = createTemporaryObject(widgetComponent, fixture, {
                 width: 200, height: 28,

@@ -65,6 +65,7 @@ const networkFixture = `
 import assert from 'node:assert/strict';
 import { listenOnLoopback } from ${JSON.stringify(path.join(repositoryRoot, "server/listeners.ts"))};
 import { handleWebSocketRequest } from ${JSON.stringify(path.join(repositoryRoot, "server/http.ts"))};
+import { createHttpHandler } from ${JSON.stringify(path.join(repositoryRoot, "server/http.ts"))};
 import { websocketHandlers, setServers, publishActivity, publishState } from ${JSON.stringify(path.join(repositoryRoot, "server/websocket/index.ts"))};
 import { state } from ${JSON.stringify(path.join(repositoryRoot, "server/state/index.ts"))};
 
@@ -110,6 +111,41 @@ try {
     assert.equal(post.headers.get('allow'), 'GET');
     assert.equal((await fetch(target, { headers: { Origin: 'https://example.com' } })).status, 403,
       'A foreign browser origin must be rejected for ' + pathname);
+    const upgradeHeaders = {
+      Connection: 'Upgrade', Upgrade: 'websocket',
+      'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+    };
+    assert.equal((await fetch(target, { headers: { ...upgradeHeaders, Origin: 'http://localhost:8080' } })).status, 403,
+      'A WebSocket upgrade from an unapproved local port must be rejected for ' + pathname);
+    for (const origin of ['http://localhost:5522', 'http://127.0.0.1:5522', 'http://[::1]:5522']) {
+      assert.equal((await fetch(target, { headers: { ...upgradeHeaders, Origin: origin } })).status, 101,
+        'A WebSocket upgrade from ' + origin + ' must succeed for ' + pathname);
+    }
+  }
+  // The production HTTP handler (createHttpHandler) enforces the Host
+  // loopback check; the fixture's main fetch bypasses it for WebSocket
+  // contract tests, so verify the DNS-rebinding guard on its own server.
+  const httpHandler = createHttpHandler({
+    frontendDir: import.meta.dirname,
+    isDev: false,
+    isShuttingDown: () => false,
+  });
+  const httpServer = Bun.serve({
+    port: 0, hostname: '127.0.0.1',
+    fetch: httpHandler,
+    websocket: websocketHandlers,
+  });
+  try {
+    for (const pathname of ['/', '/ws']) {
+      const target = new URL(pathname, httpServer.url);
+      assert.equal((await fetch(target, { headers: { Host: 'evil.example.com' } })).status, 403,
+        'A foreign Host must be rejected for ' + pathname);
+      const loopback = await fetch(target, { headers: { Host: '127.0.0.1:' + httpServer.port } });
+      assert.notEqual(loopback.status, 403, 'A loopback Host must not be rejected for ' + pathname);
+    }
+    console.log('PASS Host loopback check rejects DNS-rebinding names on / and /ws');
+  } finally {
+    await httpServer.stop(true);
   }
   for (const pathname of ['/ws//', '/ws/extra', '/prefix/ws']) {
     const response = await fetch(new URL(pathname, servers[0].url), {

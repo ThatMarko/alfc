@@ -105,7 +105,9 @@ export function CPUTuning() {
               </div>
               <div className="form-actions">
                 <span className="helper-text">
-                  Use limits appropriate for this CPU.
+                  PL1 from {MIN_POWER_LIMIT_WATTS} to {MAX_PL1_WATTS} W and PL2
+                  from {MIN_POWER_LIMIT_WATTS} to {MAX_PL2_WATTS} W, with PL1 no
+                  higher than PL2.
                 </span>
                 <StyledApplyButton
                   type="submit"

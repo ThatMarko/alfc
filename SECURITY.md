@@ -32,9 +32,12 @@ artifacts can use different native helpers and do not establish current behavior
   Both listeners are acquired before hardware initialization, so a duplicate
   launch that cannot bind does not take control or restore BIOS mode over the
   existing service. Requests receive HTTP 503 until initialization completes.
-- WebSocket upgrades validate browser origins against loopback HTTP(S) hosts.
-  Requests without Origin remain allowed for native clients. This check is not
-  authentication: other local processes and local users can send commands.
+- WebSocket upgrades validate browser origins against loopback HTTP(S) hosts on
+  port `5522` (`5522` or `3000` in development), and every request must carry a
+  loopback `Host` header, which guards against DNS rebinding. Together they
+  isolate ALFC from pages served by other local web servers on different ports.
+  Requests without Origin or Host remain allowed for native clients. This check
+  is not authentication: other local processes and local users can send commands.
   Other services hosted on allowed loopback origins are inside that trust boundary.
 - HTTP serves local static frontend files and validates paths and methods.
   Asset containment checks resolve symlinks and Windows junctions against the

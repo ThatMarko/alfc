@@ -309,6 +309,11 @@ flowchart TD
 - Until the first valid reading arrives, automatic mode uses the highest speed
   in the curves. If sensor reads fail, automatic mode commands the highest
   configured speed and fixed mode keeps its configured speed.
+- Two emergency behaviors override the curves. If temperature sensors fail, a
+  fixed target of 0% fails hot to the highest configured target, at least 80%,
+  instead of holding the fans stopped. At or above 95°C on either sensor, the
+  controller commands full speed immediately in both modes, whatever the active
+  curve or fixed target is.
 - Fixed mode applies the configured percentage. Saving a fixed percentage while
   in automatic mode stores it without switching modes.
 - A manual fan command resets the ramp history, including a quick
@@ -348,10 +353,13 @@ Typical installed locations:
 - The backend runs with full privileges and accepts commands from any local
   process that can reach `127.0.0.1:5522` or `[::1]:5522`.
 - Browser WebSocket connections must come from a loopback `http`/`https`
-  origin (`localhost`, `127.0.0.1` or `[::1]`, any port). This stops ordinary
-  websites from driving the API through your browser. It is **not**
+  origin (`localhost`, `127.0.0.1` or `[::1]`) on port `5522` (`5522` or `3000`
+  in development). Every request must also carry a loopback `Host` header, which
+  blocks DNS-rebinding names that resolve to the loopback address. This stops
+  ordinary websites, and pages served by another local web server on a different
+  port, from driving the API through your browser. It is **not**
   authentication: native programs send no origin and are accepted, and any
-  other service hosted on a loopback origin is trusted too.
+  other service hosted on an allowed loopback origin is trusted too.
 - Protect the installation directory and `alfc.config.json` from unprivileged
   modification; the backend executes and loads them as root/Administrator.
 - Raw diagnostics in the web UI can call firmware methods directly. Setters

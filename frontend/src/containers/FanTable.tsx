@@ -11,33 +11,52 @@ import { FanTableEditor } from "./FanTableEditor";
 
 export type FanTableItems = [temperature: string, speed: string, id: string][];
 
+function toItems(table: readonly (readonly [number, number])[]): FanTableItems {
+  return table.map(
+    ([temperature, speed]) =>
+      [
+        String(temperature),
+        String(speed),
+        String(temperature),
+      ] as FanTableItems[number],
+  );
+}
+
+function draftMatchesState(
+  draft: FanTableItems,
+  table: readonly (readonly [number, number])[],
+): boolean {
+  return (
+    draft.length === table.length &&
+    draft.every(
+      ([temperature, speed], index) =>
+        Number(temperature) === table[index]?.[0] &&
+        Number(speed) === table[index]?.[1],
+    )
+  );
+}
+
 export function FanTable({ disabled }: { disabled: boolean }) {
   const submitRef = useRef<HTMLButtonElement>(null);
   const { isConnected, state } = useWebSocket();
   const { isPending: isApplying, runCommand } = useBackendCommand();
   const [cpuTable, setCPUTable] = useBackendDraft(
-    (state?.cpuFanTable ?? []).map(
-      ([temperature, speed]) =>
-        [
-          String(temperature),
-          String(speed),
-          String(temperature),
-        ] as FanTableItems[number],
-    ),
+    toItems(state?.cpuFanTable ?? []),
   );
   const [gpuTable, setGPUTable] = useBackendDraft(
-    (state?.gpuFanTable ?? []).map(
-      ([temperature, speed]) =>
-        [
-          String(temperature),
-          String(speed),
-          String(temperature),
-        ] as FanTableItems[number],
-    ),
+    toItems(state?.gpuFanTable ?? []),
   );
 
   if (!state) return null;
   const isDisabled = disabled || !isConnected;
+  const hasUnsavedChanges =
+    !draftMatchesState(cpuTable, state.cpuFanTable) ||
+    !draftMatchesState(gpuTable, state.gpuFanTable);
+  const onReset = () => {
+    if (isDisabled || isApplying || !hasUnsavedChanges) return;
+    setCPUTable(toItems(state.cpuFanTable));
+    setGPUTable(toItems(state.gpuFanTable));
+  };
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
     if (isDisabled || isApplying) return;
@@ -121,6 +140,13 @@ export function FanTable({ disabled }: { disabled: boolean }) {
             ? "You can save curves now. They take effect in automatic mode."
             : "Accepted changes update the automatic fan policy."}
         </span>
+        <button
+          type="button"
+          disabled={isDisabled || isApplying || !hasUnsavedChanges}
+          onClick={onReset}
+        >
+          Reload
+        </button>
         <StyledApplyButton
           ref={submitRef}
           type="submit"

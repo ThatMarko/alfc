@@ -53,6 +53,43 @@ TestCase {
         verify(!Protocol.isState(value))
     }
 
+    function test_fanTableBoundary() {
+        verify(Protocol.isFanTable([[40, 15], [90, 85]]))
+        verify(!Protocol.isFanTable([[40, 15], [90, 84.9]]))
+        verify(!Protocol.isFanTable([[40, 15], [90.1, 100]]))
+        verify(!Protocol.isFanTable([[40, 50], [60, 30]]))
+        const sixteen = []
+        for (let index = 0; index < 16; index += 1)
+            sixteen.push([index * 6, Math.min(100, index * 7)])
+        verify(Protocol.isFanTable(sixteen))
+        const seventeen = []
+        for (let index = 0; index < 17; index += 1)
+            seventeen.push([index * 5, Math.min(100, index * 6)])
+        verify(!Protocol.isFanTable(seventeen))
+    }
+
+    function test_powerLimitsBoundary() {
+        const value = state()
+        value.pl1 = 15
+        value.pl2 = 15
+        verify(Protocol.isState(value))
+        value.pl1 = 115
+        value.pl2 = 150
+        verify(Protocol.isState(value))
+        value.pl1 = 14
+        value.pl2 = 106
+        verify(!Protocol.isState(value))
+        value.pl1 = 116
+        value.pl2 = 120
+        verify(!Protocol.isState(value))
+        value.pl1 = 37
+        value.pl2 = 151
+        verify(!Protocol.isState(value))
+        value.pl1 = 80
+        value.pl2 = 70
+        verify(!Protocol.isState(value))
+    }
+
     function test_activityBoundary() {
         const value = { avgCPUTemp: 0, avgGPUTemp: 75.5, appliedSpeed: 0, target: 50 }
         verify(Protocol.isActivity(value))

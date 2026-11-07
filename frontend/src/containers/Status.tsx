@@ -7,6 +7,10 @@ export function Status({ disabled }: { disabled: boolean }) {
   const sensorFailure = readings?.sensorFailure === true;
   const telemetryStale = !disabled && isConnected && isActivityStale;
   const unconfirmed = readings !== null && readings.appliedSpeed === null;
+  const criticalThermalOverride =
+    readings !== null &&
+    !sensorFailure &&
+    Math.max(readings.avgCPUTemp, readings.avgGPUTemp) >= 95;
   const status = !isConnected
     ? "Offline"
     : disabled
@@ -74,7 +78,13 @@ export function Status({ disabled }: { disabled: boolean }) {
       {sensorFailure && (
         <p className="telemetry-notice" role="alert">
           Sensor error. Temperature readings are stale. The backend is applying
-          its sensor failure fan policy.
+          its fail-hot sensor failure policy and commanding a safe fan speed.
+        </p>
+      )}
+      {criticalThermalOverride && (
+        <p className="telemetry-notice" role="alert">
+          Critical temperature reached (≥95°C). Fans are commanded to 100%
+          emergency speed.
         </p>
       )}
       {unconfirmed && (
