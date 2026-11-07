@@ -131,6 +131,14 @@ Item {
         }
 
         if (fixedModeEnabled) {
+            // The backend can override a fixed preset: at or above 95°C, or
+            // a failed sensor with fixed 0%. Show the commanded target
+            // instead of claiming the preset is in effect.
+            if (hasTelemetrySnapshot
+                    && Math.round(safeActivity.target) !== safeState.fixedPercentage) {
+                return i18n("Fixed %1% — override %2%",
+                    safeState.fixedPercentage, Math.round(safeActivity.target))
+            }
             return i18n("Fixed %1%", safeState.fixedPercentage)
         }
 

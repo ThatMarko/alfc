@@ -80,7 +80,7 @@ describe("KDE Plasma 6 widget QML contract", () => {
       cpuFanTable: [
         [0, 0],
         [65.5, 80.25],
-        [110, 100],
+        [90, 100],
       ],
       gpuFanTable: [
         [40, 30],
@@ -92,6 +92,14 @@ describe("KDE Plasma 6 widget QML contract", () => {
       pl1: 37,
       pl2: 106,
     };
+    const sixteenEntryTable = Array.from({ length: 16 }, (_, index) => [
+      index * 6,
+      Math.min(100, index * 7),
+    ]);
+    const seventeenEntryTable = Array.from({ length: 17 }, (_, index) => [
+      index * 5,
+      Math.min(100, index * 6),
+    ]);
     const malformed = [null, [], {}, 0, "1.1"];
     const states = [
       state,
@@ -111,6 +119,42 @@ describe("KDE Plasma 6 widget QML contract", () => {
           [40, 100],
         ],
       },
+      { ...state, cpuFanTable: sixteenEntryTable },
+      { ...state, cpuFanTable: seventeenEntryTable },
+      {
+        ...state,
+        cpuFanTable: [
+          [40, 50],
+          [60, 30],
+        ],
+      },
+      {
+        ...state,
+        cpuFanTable: [
+          [40, 15],
+          [90, 85],
+        ],
+      },
+      {
+        ...state,
+        cpuFanTable: [
+          [40, 15],
+          [90, 84.9],
+        ],
+      },
+      {
+        ...state,
+        cpuFanTable: [
+          [40, 15],
+          [90.1, 100],
+        ],
+      },
+      { ...state, pl1: 15, pl2: 15 },
+      { ...state, pl1: 115, pl2: 150 },
+      { ...state, pl1: 14, pl2: 106 },
+      { ...state, pl1: 116, pl2: 120 },
+      { ...state, pl1: 37, pl2: 151 },
+      { ...state, pl1: 80, pl2: 70 },
     ];
     for (const value of states) {
       expect(widget.isState(value)).toBe(isState(value));
@@ -138,6 +182,24 @@ describe("KDE Plasma 6 widget QML contract", () => {
       [
         [0, 0],
         [0, 100],
+      ],
+      sixteenEntryTable,
+      seventeenEntryTable,
+      [
+        [40, 50],
+        [60, 30],
+      ],
+      [
+        [40, 15],
+        [90, 85],
+      ],
+      [
+        [40, 15],
+        [90, 84.9],
+      ],
+      [
+        [40, 15],
+        [90.1, 100],
       ],
       ...malformed,
     ]) {

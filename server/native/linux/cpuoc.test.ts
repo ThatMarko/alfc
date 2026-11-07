@@ -209,6 +209,88 @@ describe("linux RAPL CPUOC adapter", () => {
     });
   });
 
+  it("tries the next zone when the first zone is disabled", async () => {
+    const fallback = "/sys/class/powercap/intel-rapl:0";
+    values.set(`${root}/enabled`, "0");
+    for (const [path, value] of [...values]) {
+      values.set(path.replace(root, fallback), value);
+    }
+    values.set(`${fallback}/enabled`, "1");
+    const cpuoc = await import("./cpuoc");
+    await cpuoc.tuneInit();
+    await cpuoc.tune(37, 106);
+    expect(writes).toEqual([
+      {
+        path: `${fallback}/constraint_0_power_limit_uw`,
+        data: "37000000",
+      },
+      {
+        path: `${fallback}/constraint_1_power_limit_uw`,
+        data: "106000000",
+      },
+    ]);
+  });
+
+  it("reports the disabled zone instead of a later generic failure", async () => {
+    const second = "/sys/class/powercap/intel-rapl:0";
+    values.set(`${root}/enabled`, "0");
+    for (const [path, value] of [...values]) {
+      values.set(path.replace(root, second), value);
+    }
+    // The second zone's name file is unreadable: a generic failure that
+    // must not displace the actionable disabled-zone error.
+    unreadablePaths.add(`${second}/constraint_0_name`);
+    const cpuoc = await import("./cpuoc");
+    await expect(cpuoc.tuneInit()).rejects.toThrow(
+      "power limiting is disabled",
+    );
+  });
+
+  it.each([
+    {
+      label: "only long_term at index 0",
+      names: ["long_term", ""],
+      pl1Index: 0,
+      pl2Index: 1,
+    },
+    {
+      label: "only short_term at index 1",
+      names: ["", "short_term"],
+      pl1Index: 0,
+      pl2Index: 1,
+    },
+    {
+      label: "only short_term at index 0",
+      names: ["short_term", ""],
+      pl1Index: 1,
+      pl2Index: 0,
+    },
+    {
+      label: "only long_term at index 1",
+      names: ["", "long_term"],
+      pl1Index: 1,
+      pl2Index: 0,
+    },
+  ])(
+    "resolves the unnamed constraint from the named one when $label",
+    async ({ names, pl1Index, pl2Index }) => {
+      values.set(`${root}/constraint_0_name`, names[0] ?? "");
+      values.set(`${root}/constraint_1_name`, names[1] ?? "");
+      const cpuoc = await import("./cpuoc");
+      await cpuoc.tune(37, 106);
+      expect(writes).toEqual([
+        {
+          path: `${root}/constraint_${pl1Index}_power_limit_uw`,
+          data: "37000000",
+        },
+        {
+          path: `${root}/constraint_${pl2Index}_power_limit_uw`,
+          data: "106000000",
+        },
+      ]);
+    },
+  );
+
   it("rejects unsupported hardware and invalid watt limits without writes", async () => {
     const cpuoc = await import("./cpuoc");
     await expect(cpuoc.tune(NaN, 106)).rejects.toThrow(RangeError);

@@ -60,7 +60,9 @@ backpressure limit remains enabled. A direct reply dropped on an open connection
 also terminates that connection so its client reconnects for a fresh snapshot.
 Backpressured replies are already queued and are never resent. At most **64**
 queued or executing JSON hardware/config
-requests are admitted across all connections. An excess request receives `BUSY`;
+requests are admitted across all connections, at most **4** pending per
+connection, and at most **16** connections at once (a 17th connection is closed
+with code 1013). An excess request receives `BUSY`;
 subscription and heartbeat traffic remain available.
 
 Requests may use text frames or UTF-8 binary frames. Invalid UTF-8 binary input
@@ -121,7 +123,7 @@ not settle a pending request. Omitted optional method metadata remains valid.
 | `fixedpercentage`        | Integer `0..100`                       | Store the fixed percentage. In fixed mode, apply both fan writes before committing the value. In automatic mode, store it for the next fixed-mode activation. |
 | `dofixedspeed`           | Boolean                                | `true` applies the stored fixed percentage before committing the mode. `false` resumes the existing curve loop from the confirmed current speed.              |
 | `fantable`               | `{ "cpu": FanTable, "gpu": FanTable }` | Store both validated curves. The next automatic cycle uses their target at the measured temperature.                                                          |
-| `tune`                   | `{ "pl1": number, "pl2": number }`     | Apply integer watt limits `0..200` through the native backend, then commit both settings on success.                                                          |
+| `tune`                   | `{ "pl1": number, "pl2": number }`     | Apply integer watt limits PL1 `15..115` and PL2 `15..150`, with PL1 no higher than PL2, through the native backend, then commit both settings on success.     |
 | `get`                    | Optional `Args`                        | Read a validated catalog method. Methods with inputs require their complete argument map.                                                                     |
 | `set`                    | `Args`                                 | Write a validated catalog method. GPU boost additionally updates `state.gpuBoost`; other diagnostic setters have no corresponding persisted State field.      |
 
@@ -138,8 +140,10 @@ See [PORTING_REVIEW.md](../PORTING_REVIEW.md) for the Windows gate and limitatio
 
 A `FanTable` is a non-empty array of `[temperature, percentage]` pairs. Both
 numbers must be finite; temperatures are `0..110` degrees Celsius and strictly
-ascending, and percentages are `0..100`. Fractions are valid. Percentages need not
-ascend. Selection is stepwise: choose the highest temperature threshold at or
+ascending, and percentages are `0..100` and must not decrease as temperature
+rises. Fractions are valid. A table holds at most 16 entries, and its last
+entry must reach at least 85% fan speed by 90°C, so the curve can always cool
+a hot machine. Selection is stepwise: choose the highest temperature threshold at or
 below the measured temperature, or the first row below the first threshold. The
 higher CPU/GPU target commands both fans because the heat pipes are shared.
 
@@ -179,10 +183,11 @@ then acknowledges the request. Production saves serialize captured snapshots to
 interleaved temporary-file writes and partial JSON replacement. POSIX permission
 bits are preserved when replacing an existing file; missing settings use mode
 `0600`. The temporary file receives that mode before settings are written.
-Read-only regular staging files are repaired before opening; directories and
-symlinks occupying the staging path are rejected without changing their targets.
-Regular staging files with additional hard links are also rejected before
-chmod or truncation, preserving the configuration and other linked files.
+A leftover staging entry is removed by name and recreated exclusively with
+`O_CREAT | O_EXCL | O_NOFOLLOW`, so a symlink or hard link at the staging path
+never redirects the save or changes its target. A directory at the staging path
+still rejects the save with `PERSISTENCE_ERROR`; fixing the staging path permits
+a later save to recover.
 Windows uses its ordinary writable/read-only semantics; this does not preserve
 or manage Windows ACLs. Atomic replacement does not
 promise persistence across sudden power loss. Development mode intentionally
@@ -283,7 +288,11 @@ or proof that either fan is rotating at the requested duty. Raw `getRpm1` and
 a failed/partial write; this is an unconfirmed command, not zero RPM.
 A sensor failure in automatic mode commands the highest percentage anywhere in
 either configured curve. Fixed mode retains its selected target and retries
-unconfirmed writes even while sensors fail.
+unconfirmed writes even while sensors fail — except a fixed target of 0%,
+which fails hot to the highest configured target (at least 80%) instead of
+holding the fans stopped with unknown temperatures. At or above 95°C on either
+sensor, the controller commands full speed immediately in both modes, whatever
+the active curve or fixed target is.
 
 On a failed collection, `sensorFailure: true` marks the temperatures as the last
 successful averages, not fresh measurements. Until the first successful
@@ -308,9 +317,14 @@ driver or firmware.
 ## Security boundary
 
 Browser upgrades require an `http` or `https` Origin on `localhost`, `127.0.0.1`,
-or `[::1]`; ports may vary. Origins containing credentials, paths, queries, or
-fragments are rejected. Missing Origin is allowed for native clients such as QML.
-Rejected Origins receive HTTP 403 before upgrade. `/ws` and `/ws/` require GET.
+or `[::1]` with port `5522` (or `5522`/`3000` in development mode). Origins
+containing credentials, paths, queries, or fragments are rejected. Missing Origin
+is allowed for native clients such as QML. Rejected Origins receive HTTP 403
+before upgrade. `/ws` and `/ws/` require GET. Every request, including upgrades,
+must also carry a loopback `Host` (`localhost`, `127.0.0.1`, or `[::1]`); a
+foreign Host is rejected with HTTP 403, which blocks DNS-rebinding names that
+resolve to the loopback address. A missing Host is allowed for non-browser
+clients such as the Plasma widget.
 
 This is a privileged local control interface. Loopback binding and the Origin
 check restrict browser access; they are not authentication against another local

@@ -195,6 +195,62 @@ Item {
             compare(fixture.full.connectionSummaryText, "Fan control unavailable")
         }
 
+        function test_tuneDraftRejectsOutOfRangeLimits_data() {
+            return [
+                {tag: "zero-pl1", pl1: "0", pl2: "106"},
+                {tag: "below-floor-pl1", pl1: "14", pl2: "106"},
+                {tag: "above-ceiling-pl1", pl1: "116", pl2: "120"},
+                {tag: "above-ceiling-pl2", pl1: "37", pl2: "151"},
+                {tag: "pl1-above-pl2", pl1: "100", pl2: "90"}
+            ]
+        }
+
+        function test_tuneDraftRejectsOutOfRangeLimits(data) {
+            fixture.full.draftPl1 = data.pl1
+            fixture.full.draftPl2 = data.pl2
+            verify(!fixture.full.tuneDraftValid)
+            fixture.full.requestTune()
+            compare(backend.calls.length, 0)
+            verify(!findChild(fixture.full, "applyTuneButton").enabled)
+        }
+
+        function test_tuneDraftAcceptsBoundaryLimits_data() {
+            return [
+                {tag: "floors", pl1: "15", pl2: "15"},
+                {tag: "ceilings", pl1: "115", pl2: "150"}
+            ]
+        }
+
+        function test_tuneDraftAcceptsBoundaryLimits(data) {
+            fixture.full.draftPl1 = data.pl1
+            fixture.full.draftPl2 = data.pl2
+            verify(fixture.full.tuneDraftValid)
+            verify(findChild(fixture.full, "applyTuneButton").enabled)
+            fixture.full.requestTune()
+            compare(backend.calls.length, 1)
+            compare(backend.calls[0].kind, "tune")
+        }
+
+        function test_criticalThermalOverrideSurfacedOnFanTile() {
+            backend.latestActivity = {avgCPUTemp: 96, avgGPUTemp: 70, appliedSpeed: 100, target: 100}
+            backend.hasActivity = true
+            backend.hasFreshActivity = true
+            verify(fixture.full.criticalThermalOverride)
+            const tile = findChild(fixture.full, "fanMetricTile")
+            verify(tile !== null)
+            verify(tile.subtitle.indexOf("Emergency") >= 0)
+            verify(tile.subtitle.indexOf("100%") >= 0)
+        }
+
+        function test_compactFixedModeShowsOverrideTarget() {
+            backend.latestState = state({doFixedSpeed: true, fixedPercentage: 0})
+            backend.latestActivity = {avgCPUTemp: 96, avgGPUTemp: 70, appliedSpeed: 100, target: 100}
+            backend.hasActivity = true
+            backend.hasFreshActivity = true
+            const item = makeCompact()
+            compare(item.secondaryText, "Fixed 0% — override 100%")
+        }
+
         function test_missingStaleFailedAndUnconfirmedTelemetry() {
             compare(fixture.full.connectionSummaryText, "Connected, waiting for telemetry")
             backend.initialActivityTimedOut = true

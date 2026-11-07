@@ -8,7 +8,7 @@ import {
   MessageToServerKind,
   type State,
 } from "../../common/types";
-import { validateFanTable } from "../../common/validation";
+import { validateFanTable, validatePowerLimits } from "../../common/validation";
 import {
   getMethods,
   managedFanMethods,
@@ -26,6 +26,13 @@ let isShuttingDown = false;
 const MAX_QUEUED_MESSAGES = 64;
 const MAX_BACKPRESSURE_BYTES = 1024 * 1024;
 const openSockets = new Set<ServerWebSocket<unknown>>();
+// One client must not starve the rest: the 64-message queue is shared, so
+// cap both the number of connected clients and the pending messages per
+// client. A client past its own limit gets BUSY instead of queueing work
+// other clients need.
+const MAX_CONNECTIONS = 16;
+const MAX_QUEUED_PER_SOCKET = 4;
+const queuedBySocket = new Map<ServerWebSocket<unknown>, number>();
 let backpressureCheck: ReturnType<typeof setTimeout> | undefined;
 // Binary WebSocket messages are Buffers by default. Buffer.toString() would
 // replace invalid UTF-8 and could execute a corrupted request with a changed ID.
@@ -49,6 +56,7 @@ function clearBackpressureCheck() {
 
 function forgetSocket(ws: ServerWebSocket<unknown>) {
   openSockets.delete(ws);
+  queuedBySocket.delete(ws);
   if (openSockets.size === 0) clearBackpressureCheck();
 }
 
@@ -464,7 +472,7 @@ async function handleMessage(
           return rejectInvalidPayload(
             ws,
             payload,
-            "fantable requires ascending CPU and GPU tables with percentages from 0 to 100",
+            "fantable requires ascending CPU and GPU tables with speeds from 0 to 100 that do not decrease and reach at least 85% by 90°C",
           );
         }
 
@@ -484,21 +492,35 @@ async function handleMessage(
           payload.data && typeof payload.data === "object"
             ? (payload.data as { pl1?: unknown; pl2?: unknown })
             : null;
-        if (
-          !tuneData ||
-          !isIntegerInRange(tuneData.pl1, 0, 200) ||
-          !isIntegerInRange(tuneData.pl2, 0, 200)
-        ) {
+        if (!tuneData) {
           return rejectInvalidRange(
             ws,
             payload,
-            "tune requires integer pl1/pl2 values from 0 to 200",
+            "tune requires pl1/pl2 values",
+          );
+        }
+        const powerLimitsError = validatePowerLimits(
+          tuneData.pl1,
+          tuneData.pl2,
+        );
+        if (powerLimitsError !== null) {
+          return rejectInvalidRange(ws, payload, powerLimitsError);
+        }
+        // validatePowerLimits already proved both are numbers; this is
+        // only so TypeScript narrows them for the hardware call below.
+        const pl1 = tuneData.pl1;
+        const pl2 = tuneData.pl2;
+        if (typeof pl1 !== "number" || typeof pl2 !== "number") {
+          return rejectInvalidRange(
+            ws,
+            payload,
+            "tune requires integer pl1/pl2 values",
           );
         }
 
-        await tune(tuneData.pl1, tuneData.pl2);
-        state.pl1 = tuneData.pl1;
-        state.pl2 = tuneData.pl2;
+        await tune(pl1, pl2);
+        state.pl1 = pl1;
+        state.pl2 = pl2;
         return persistAndPublishState(ws, payload);
       }
       case MessageToServerKind.Get: {
@@ -590,6 +612,11 @@ export const websocketHandlers = {
       ws.terminate();
       return;
     }
+    if (openSockets.size >= MAX_CONNECTIONS) {
+      console.warn("[WebSocket] Connection rejected: too many clients");
+      ws.close(1013, "Too many connections");
+      return;
+    }
     openSockets.add(ws);
     ws.subscribe("state");
     sendState(ws);
@@ -636,6 +663,16 @@ export const websocketHandlers = {
       sendError(ws, payload, "BUSY: Too many pending requests");
       return Promise.resolve();
     }
+    const perSocketQueued = queuedBySocket.get(ws) ?? 0;
+    if (perSocketQueued >= MAX_QUEUED_PER_SOCKET) {
+      sendError(
+        ws,
+        payload,
+        "BUSY: Too many pending requests from this client",
+      );
+      return Promise.resolve();
+    }
+    queuedBySocket.set(ws, perSocketQueued + 1);
     queuedMessages++;
     // One queue across all sockets: an older failed mutation must never
     // roll back or publish over a newer successful mutation from another UI.
@@ -649,6 +686,9 @@ export const websocketHandlers = {
       })
       .finally(() => {
         queuedMessages--;
+        const remaining = (queuedBySocket.get(ws) ?? 1) - 1;
+        if (remaining <= 0) queuedBySocket.delete(ws);
+        else queuedBySocket.set(ws, remaining);
       });
     messageQueue = result.catch((error: unknown) => {
       console.warn("[WebSocket] Failed to handle message:", error);

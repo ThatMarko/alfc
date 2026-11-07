@@ -9,6 +9,16 @@ export const CYCLE_DURATION = 2_000;
 const TEMP_POLL_INTERVAL = 500;
 export const SENSOR_READ_TIMEOUT = 5_000;
 const FIXED_MODE_SAMPLES_PER_CYCLE = 1;
+// At or above this temperature the hardware is in thermal danger: the
+// controller commands full speed no matter what mode or curve is active.
+// 95°C sits above the highest point of the shipped curves (88°C) and
+// close to typical mobile thermal limits, so it never overrides a curve
+// that is still ramping normally at 90°C.
+const CRITICAL_TEMP_C = 95;
+const EMERGENCY_FAN_PERCENT = 100;
+// A fail-hot target must actually move air. Legacy configs can hold tables
+// whose fastest entry is far below this; the emergency path floors it.
+const MIN_EMERGENCY_FAN_PERCENT = 80;
 
 let autoFanInterval: ReturnType<typeof setInterval> | null = null;
 let reinitInterval: ReturnType<typeof setInterval> | null = null;
@@ -35,14 +45,17 @@ export function awaitFanControlIdle(): Promise<void> {
   return fanWriteQueue;
 }
 
-function enqueueFanWrite(operation: () => Promise<void>): Promise<void> {
-  const result = fanWriteQueue.then(async () => {
+function enqueueFanWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const result = fanWriteQueue.then(() => {
     if (isFanControlShuttingDown) {
       throw new Error("Fan control is shutting down");
     }
-    await operation();
+    return operation();
   });
-  fanWriteQueue = result.catch(() => undefined);
+  fanWriteQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
   return result;
 }
 
@@ -107,16 +120,24 @@ export async function applyFixedFan(percent: number) {
   }
 }
 
-function writeFanPercentage(percent: number, expectedVersion?: number) {
+// Returns true when the percentage was actually applied. A cycle write
+// skipped because a newer manual write superseded it, or because one is
+// still pending, returns false: callers must not record a skipped write
+// as the applied target.
+function writeFanPercentage(
+  percent: number,
+  expectedVersion?: number,
+): Promise<boolean> {
   return enqueueFanWrite(async () => {
     if (
       expectedVersion !== undefined &&
       (expectedVersion !== manualWriteVersion || pendingManualWrites > 0)
     )
-      return;
+      return false;
     try {
       await applyFixedFanSpeed(fanPercentToSpeed(percent));
       appliedFanPercentage = percent;
+      return true;
     } catch (error) {
       // One of the two fan writes may have succeeded. Never label the old
       // or requested percentage as confirmed while their state is unknown.
@@ -136,7 +157,12 @@ export function setFixedFan(percent: number) {
 
 // Inverse of initFanControl() — must be updated if initFanControl changes.
 export async function restoreAutoFanControl() {
-  await fanWriteQueue;
+  // Shutdown drains the fan-write queue first, but a hung write must not
+  // consume the whole restore budget. Wait only briefly for ordering,
+  // then attempt the BIOS handoff regardless; the shutdown path bounds
+  // the restore itself, and the init-failure caller fails startup if the
+  // handoff is not confirmed.
+  await Promise.race([fanWriteQueue, Bun.sleep(2_000)]);
   const results = await Promise.allSettled([
     setCall("0x6a", "SetFixedFanStatus", { Data: 0 }),
     setCall("0x71", "SetAutoFanStatus", { Data: 1 }),
@@ -169,6 +195,16 @@ async function readSensor(
 ): Promise<SensorRead> {
   if (isFanControlShuttingDown || runId !== fanControlRunId) {
     return "stale";
+  }
+
+  // A consumer timeout cannot cancel an ACPI operation, and a new read must
+  // never queue behind a wedged one on the shared channel. But the stalled
+  // read must not wedge the control loop either: report the failure at
+  // once so the cycle fails hot, and let the loop keep ticking. If the
+  // wedged operation ever settles, its release clears the marker and
+  // normal reads resume.
+  if (sensorReadInFlight !== null) {
+    return "failed";
   }
 
   try {
@@ -383,8 +419,10 @@ export async function fanControl() {
     // Skip this tick while any collection cycle is still in flight,
     // including one from a previous run — collections must never overlap.
     // A leftover cycle aborts at its next sensor read. A timed-out native
-    // operation still owns the channel, so do not add reads behind it.
-    if (isCycleInFlight || sensorReadInFlight !== null) {
+    // operation still owns the channel: readSensor refuses to issue new
+    // reads behind it and reports failure instead, so the loop keeps
+    // failing hot instead of wedging forever.
+    if (isCycleInFlight) {
       return;
     }
     if (pendingManualWrites > 0) return;
@@ -432,9 +470,17 @@ export async function fanControl() {
           prevGPUFanTable = state.gpuFanTable;
           // A failed/partial write can leave the physical fans inconsistent
           // with the saved fixed target. Recover it even while sensors fail.
-          if (appliedFanPercentage !== state.fixedPercentage) {
-            await writeFanPercentage(state.fixedPercentage, cycleWriteVersion);
-            appliedPercentage = state.fixedPercentage;
+          // The one exception is fans fully stopped: 0% with unknown
+          // temperatures is a thermal risk, so fail hot instead of holding
+          // the stop.
+          const fixedTarget =
+            state.fixedPercentage === 0
+              ? Math.max(highestFanTarget(), MIN_EMERGENCY_FAN_PERCENT)
+              : state.fixedPercentage;
+          if (appliedFanPercentage !== fixedTarget) {
+            if (await writeFanPercentage(fixedTarget, cycleWriteVersion)) {
+              appliedPercentage = fixedTarget;
+            }
           }
           // The user-pinned target stands; telemetry retains the last known
           // measurements instead of inventing new temperatures.
@@ -443,7 +489,7 @@ export async function fanControl() {
               appliedSpeed: appliedFanPercentage,
               avgCPUTemp: lastAverages.avgCPUTemp,
               avgGPUTemp: lastAverages.avgGPUTemp,
-              target: state.fixedPercentage,
+              target: fixedTarget,
               sensorFailure: true,
             });
           }
@@ -452,10 +498,15 @@ export async function fanControl() {
 
         // A failed read means the thermal state is unknown — fail hot with
         // the highest shared target instead of diluting the failure into
-        // the cycle average.
+        // the cycle average. Write once: like the fixed-mode and
+        // critical-temperature branches, a repeated write of the same
+        // target every cycle would spam firmware while sensors are down.
         const target = highestFanTarget();
-        await writeFanPercentage(target, cycleWriteVersion);
-        appliedPercentage = target;
+        if (appliedFanPercentage !== target) {
+          if (await writeFanPercentage(target, cycleWriteVersion)) {
+            appliedPercentage = target;
+          }
+        }
         currRampDownCycle = 1;
         currRampUpCycle = 1;
         // Temps are telemetry, not control input: report the last real
@@ -478,11 +529,38 @@ export async function fanControl() {
       const { avgCPUTemp, avgGPUTemp } = collection;
       lastAverages = { avgCPUTemp, avgGPUTemp };
 
+      // At or above the critical temperature the hardware is in thermal
+      // danger. Command full speed immediately, whatever mode or curve is
+      // active — a fixed 0% or a slow ramp must not hold the fans back
+      // while the machine is hot.
+      if (Math.max(avgCPUTemp, avgGPUTemp) >= CRITICAL_TEMP_C) {
+        if (appliedFanPercentage !== EMERGENCY_FAN_PERCENT) {
+          if (
+            await writeFanPercentage(EMERGENCY_FAN_PERCENT, cycleWriteVersion)
+          ) {
+            appliedPercentage = EMERGENCY_FAN_PERCENT;
+          }
+        }
+        currRampDownCycle = 1;
+        currRampUpCycle = 1;
+        publishActivity({
+          appliedSpeed: appliedFanPercentage,
+          avgCPUTemp,
+          avgGPUTemp,
+          target: EMERGENCY_FAN_PERCENT,
+          sensorFailure: false,
+        });
+        return;
+      }
+
       if (state.doFixedSpeed) {
         needsFirstAutomaticTarget = false;
         if (appliedFanPercentage !== state.fixedPercentage) {
-          await writeFanPercentage(state.fixedPercentage, cycleWriteVersion);
-          appliedPercentage = state.fixedPercentage;
+          if (
+            await writeFanPercentage(state.fixedPercentage, cycleWriteVersion)
+          ) {
+            appliedPercentage = state.fixedPercentage;
+          }
         }
 
         currRampDownCycle = 1;
@@ -520,9 +598,10 @@ export async function fanControl() {
       ) {
         // Apply the new curve at the current temperature. Resetting to its
         // first row can abruptly slow fans while the machine is hot.
-        await writeFanPercentage(target, cycleWriteVersion);
-        needsFirstAutomaticTarget = false;
-        appliedPercentage = target;
+        if (await writeFanPercentage(target, cycleWriteVersion)) {
+          needsFirstAutomaticTarget = false;
+          appliedPercentage = target;
+        }
         prevCPUFanTable = state.cpuFanTable;
         prevGPUFanTable = state.gpuFanTable;
         currRampDownCycle = 1;
@@ -531,11 +610,12 @@ export async function fanControl() {
         currRampDownCycle = 1;
         if (currRampUpCycle === WAIT_RAMP_UP_CYCLES) {
           gradientTarget = getGradientTarget(appliedPercentage, target);
-          await writeFanPercentage(gradientTarget, cycleWriteVersion);
+          if (await writeFanPercentage(gradientTarget, cycleWriteVersion)) {
+            appliedPercentage = gradientTarget;
+          }
 
           currRampDownCycle = 1;
           currRampUpCycle = 1;
-          appliedPercentage = gradientTarget;
         } else {
           currRampUpCycle++;
         }
@@ -545,11 +625,12 @@ export async function fanControl() {
         // ramp down.
         if (currRampDownCycle === WAIT_RAMP_DOWN_CYCLES) {
           gradientTarget = getGradientTarget(appliedPercentage, target);
-          await writeFanPercentage(gradientTarget, cycleWriteVersion);
+          if (await writeFanPercentage(gradientTarget, cycleWriteVersion)) {
+            appliedPercentage = gradientTarget;
+          }
 
           currRampDownCycle = 1;
           currRampUpCycle = 1;
-          appliedPercentage = gradientTarget;
         } else {
           currRampDownCycle++;
         }

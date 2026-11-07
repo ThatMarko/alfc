@@ -10,6 +10,11 @@ let poisonedError: Error | undefined;
 export async function tuneInit() {
   if (poisonedError) throw poisonedError;
   if (limits) return;
+  // A directory whose files exist but cannot be read, or whose power
+  // limiting is disabled, must not abort discovery: later directories may
+  // be healthy. Remember the most informative failure so a machine with
+  // no usable zone still reports why, instead of a generic "unavailable".
+  let lastUsableError: unknown;
   for (const directory of RAPL_DIRECTORIES) {
     const paths = [0, 1].map(
       (index) => `${directory}/constraint_${index}_power_limit_uw`,
@@ -21,27 +26,47 @@ export async function tuneInit() {
     )
       continue;
 
-    // Constraint indices are driver details; names identify the long- and
-    // short-term limits. Older drivers may omit the optional name files.
-    const names = await Promise.all(
-      [0, 1].map(async (index) => {
-        const file = Bun.file(`${directory}/constraint_${index}_name`);
-        return (await file.exists()) ? (await file.text()).trim() : "";
-      }),
-    );
-    const longIndex = names.indexOf("long_term");
-    const shortIndex = names.indexOf("short_term");
-    const pl1 =
-      paths[longIndex < 0 && names.every((name) => !name) ? 0 : longIndex];
-    const pl2 =
-      paths[shortIndex < 0 && names.every((name) => !name) ? 1 : shortIndex];
-    if (pl1 && pl2) {
-      const enabled = `${directory}/enabled`;
-      await requireEnabled(enabled);
-      limits = { pl1, pl2, enabled };
-      return;
+    try {
+      // Constraint indices are driver details; names identify the long- and
+      // short-term limits. Older drivers may omit the optional name files.
+      const names = await Promise.all(
+        [0, 1].map(async (index) => {
+          const file = Bun.file(`${directory}/constraint_${index}_name`);
+          return (await file.exists()) ? (await file.text()).trim() : "";
+        }),
+      );
+      const longIndex = names.indexOf("long_term");
+      const shortIndex = names.indexOf("short_term");
+      // A directory may name only one constraint. Resolve the known one
+      // and take the remaining index for the other instead of discarding
+      // the whole directory.
+      const pl1Index =
+        longIndex >= 0 ? longIndex : shortIndex >= 0 ? 1 - shortIndex : 0;
+      const pl2Index =
+        shortIndex >= 0 ? shortIndex : longIndex >= 0 ? 1 - longIndex : 1;
+      const pl1 = paths[pl1Index];
+      const pl2 = paths[pl2Index];
+      if (pl1 && pl2) {
+        const enabled = `${directory}/enabled`;
+        await requireEnabled(enabled);
+        limits = { pl1, pl2, enabled };
+        return;
+      }
+    } catch (error) {
+      // Prefer an actionable failure (a disabled zone, an invalid
+      // enabled state) over a generic filesystem error from a later
+      // directory: the comment above promises the most informative
+      // failure, not merely the last one.
+      if (
+        lastUsableError === undefined ||
+        (error instanceof Error &&
+          /disabled|Invalid .* enabled state/.test(error.message))
+      ) {
+        lastUsableError = error;
+      }
     }
   }
+  if (lastUsableError !== undefined) throw lastUsableError;
   throw new Error(
     "Intel RAPL long-term and short-term package limits are unavailable",
   );

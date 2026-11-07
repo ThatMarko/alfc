@@ -365,6 +365,43 @@ test("production web and Qt clients share authoritative state, errors, admitted 
     await expect(pl1).toHaveValue("62");
     await expect(curve).toHaveValue("41.5");
 
+    // The validation bounds are enforced at the wire boundary too: 0 W and
+    // 14 W starve the CPU, 200 W exceeds the policy cap, and PL1 above PL2
+    // is meaningless. An invalid curve is rejected as a bad payload.
+    for (const [pl1Value, pl2Value] of [
+      [0, 106],
+      [14, 106],
+      [37, 200],
+      [100, 90],
+    ] as const) {
+      expect(
+        (
+          await qtRequest(qt, {
+            kind: "tune",
+            data: { pl1: pl1Value, pl2: pl2Value },
+          })
+        ).error,
+      ).toMatch(/^INVALID_RANGE:/);
+    }
+    expect(
+      (
+        await qtRequest(qt, {
+          kind: "fantable",
+          data: {
+            cpu: [[30, 10]],
+            gpu: [
+              [40, 15],
+              [83, 100],
+            ],
+          },
+        })
+      ).error,
+    ).toMatch(/^INVALID_PAYLOAD:/);
+    // The boundary itself still applies.
+    expect(
+      (await qtRequest(qt, { kind: "tune", data: { pl1: 15, pl2: 150 } })).ok,
+    ).toBe(true);
+
     await fixture.command({ op: "fail-cpu" });
     expect(
       (await qtRequest(qt, { kind: "tune", data: { pl1: 45, pl2: 100 } }))

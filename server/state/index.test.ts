@@ -4,34 +4,39 @@ import path from "node:path";
 const {
   readConfigMock,
   renameMock,
-  chmodMock,
-  lstatMock,
+  unlinkMock,
   statMock,
   openMock,
   fileMock,
+  fsConstantsMock,
   stateRuntime,
 } = vi.hoisted(() => {
   const fileMock = { chmod: vi.fn(), writeFile: vi.fn(), close: vi.fn() };
   return {
     readConfigMock: vi.fn(),
     renameMock: vi.fn().mockResolvedValue(undefined),
-    chmodMock: vi.fn(),
-    lstatMock: vi.fn(),
+    unlinkMock: vi.fn().mockResolvedValue(undefined),
     statMock: vi.fn(),
     openMock: vi.fn(),
     fileMock,
+    fsConstantsMock: {
+      O_WRONLY: 1,
+      O_CREAT: 64,
+      O_EXCL: 128,
+      O_NOFOLLOW: 131072,
+    },
     stateRuntime: { isDev: true, isCompiledBinary: false },
   };
 });
 
 vi.mock("node:fs", () => ({
   readFileSync: readConfigMock,
+  constants: fsConstantsMock,
 }));
 
 vi.mock("node:fs/promises", () => ({
   rename: renameMock,
-  chmod: chmodMock,
-  lstat: lstatMock,
+  unlink: unlinkMock,
   stat: statMock,
   open: openMock,
 }));
@@ -40,7 +45,7 @@ vi.mock("../utils/consts", () => stateRuntime);
 const VALID_CONFIG = {
   cpuFanTable: [
     [50, 20],
-    [70, 80],
+    [70, 90],
   ],
   gpuFanTable: [
     [45, 15],
@@ -81,8 +86,7 @@ describe("state config loading", () => {
     stateRuntime.isDev = true;
     stateRuntime.isCompiledBinary = false;
     renameMock.mockResolvedValue(undefined);
-    chmodMock.mockResolvedValue(undefined);
-    lstatMock.mockResolvedValue({ isFile: () => true, nlink: 1 });
+    unlinkMock.mockResolvedValue(undefined);
     statMock.mockResolvedValue({ mode: 0o100600 });
     openMock.mockResolvedValue(fileMock);
     fileMock.chmod.mockResolvedValue(undefined);
@@ -164,8 +168,15 @@ describe("state config loading", () => {
         encoding: "utf8",
       });
       await persistState();
-      expect(openMock).toHaveBeenCalledWith(configPath + ".tmp", "w", 0o600);
-      expect(chmodMock).toHaveBeenCalledWith(configPath + ".tmp", 0o600);
+      expect(unlinkMock).toHaveBeenCalledWith(configPath + ".tmp");
+      expect(openMock).toHaveBeenCalledWith(
+        configPath + ".tmp",
+        fsConstantsMock.O_WRONLY |
+          fsConstantsMock.O_CREAT |
+          fsConstantsMock.O_EXCL |
+          fsConstantsMock.O_NOFOLLOW,
+        0o600,
+      );
       expect(write).toHaveBeenCalledWith(expect.any(String));
       expect(fileMock.chmod).toHaveBeenCalledWith(0o600);
       expect(fileMock.close).toHaveBeenCalledOnce();
@@ -197,68 +208,72 @@ describe("state config loading", () => {
     );
     const { persistState } = await importState();
     await expect(persistState()).rejects.toThrow("access denied");
-    expect(chmodMock).not.toHaveBeenCalled();
+    expect(unlinkMock).not.toHaveBeenCalled();
     expect(openMock).not.toHaveBeenCalled();
     expect(renameMock).not.toHaveBeenCalled();
     await persistState();
     expect(renameMock).toHaveBeenCalledOnce();
   });
 
-  it("creates a missing staging file after an ENOENT permission preflight", async () => {
+  it("removes a leftover staging file before creating it exclusively", async () => {
     stateRuntime.isDev = false;
     mockConfigFile(JSON.stringify(VALID_CONFIG));
-    lstatMock.mockRejectedValueOnce(
+    const { persistState } = await importState();
+    await expect(persistState()).resolves.toBeUndefined();
+    expect(unlinkMock).toHaveBeenCalledOnce();
+    expect(openMock).toHaveBeenCalledOnce();
+    // The removal must happen before the exclusive create, or a planted
+    // staging file could survive into the save.
+    expect(unlinkMock.mock.invocationCallOrder[0] as number).toBeLessThan(
+      openMock.mock.invocationCallOrder[0] as number,
+    );
+    expect(fileMock.writeFile).toHaveBeenCalledOnce();
+    expect(renameMock).toHaveBeenCalledOnce();
+  });
+
+  it("creates the staging file when there is nothing to remove", async () => {
+    stateRuntime.isDev = false;
+    mockConfigFile(JSON.stringify(VALID_CONFIG));
+    unlinkMock.mockRejectedValueOnce(
       Object.assign(new Error("missing staging file"), { code: "ENOENT" }),
     );
     const { persistState } = await importState();
     await expect(persistState()).resolves.toBeUndefined();
-    expect(chmodMock).not.toHaveBeenCalled();
     expect(openMock).toHaveBeenCalledOnce();
     expect(fileMock.writeFile).toHaveBeenCalledOnce();
     expect(renameMock).toHaveBeenCalledOnce();
   });
 
-  it("refuses a nonregular staging path before changing permissions or opening it", async () => {
+  it("refuses a staging path that cannot be removed", async () => {
     stateRuntime.isDev = false;
     mockConfigFile(JSON.stringify(VALID_CONFIG));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    lstatMock.mockResolvedValueOnce({ isFile: () => false });
+    unlinkMock.mockRejectedValueOnce(
+      Object.assign(
+        new Error("EISDIR: illegal operation on a directory, unlink"),
+        { code: "EISDIR" },
+      ),
+    );
     const { persistState } = await importState();
-    await expect(persistState()).rejects.toThrow("must be a regular file");
-    expect(chmodMock).not.toHaveBeenCalled();
+    await expect(persistState()).rejects.toThrow(
+      "illegal operation on a directory",
+    );
     expect(openMock).not.toHaveBeenCalled();
     expect(fileMock.writeFile).not.toHaveBeenCalled();
     expect(renameMock).not.toHaveBeenCalled();
   });
 
-  it("refuses a hard-linked staging file before chmod or truncate and lets a later save recover", async () => {
+  it("does not create the staging file after a removal failure and lets the next save recover", async () => {
     stateRuntime.isDev = false;
     mockConfigFile(JSON.stringify(VALID_CONFIG));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    lstatMock.mockResolvedValueOnce({ isFile: () => true, nlink: 2 });
-    const { persistState } = await importState();
-    await expect(persistState()).rejects.toThrow("hard links");
-    expect(chmodMock).not.toHaveBeenCalled();
-    expect(openMock).not.toHaveBeenCalled();
-    expect(fileMock.writeFile).not.toHaveBeenCalled();
-    expect(renameMock).not.toHaveBeenCalled();
-    await expect(persistState()).resolves.toBeUndefined();
-    expect(renameMock).toHaveBeenCalledOnce();
-  });
-
-  it("does not truncate a staging file after a permission preflight failure and lets the next save recover", async () => {
-    stateRuntime.isDev = false;
-    mockConfigFile(JSON.stringify(VALID_CONFIG));
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-    chmodMock.mockRejectedValueOnce(
-      Object.assign(new Error("cannot repair staging permissions"), {
+    unlinkMock.mockRejectedValueOnce(
+      Object.assign(new Error("EPERM: operation not permitted, unlink"), {
         code: "EPERM",
       }),
     );
     const { persistState } = await importState();
-    await expect(persistState()).rejects.toThrow(
-      "cannot repair staging permissions",
-    );
+    await expect(persistState()).rejects.toThrow("operation not permitted");
     expect(openMock).not.toHaveBeenCalled();
     expect(fileMock.writeFile).not.toHaveBeenCalled();
     expect(renameMock).not.toHaveBeenCalled();

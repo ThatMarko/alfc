@@ -659,6 +659,7 @@ test("fan row controls cannot insert duplicate floating-point temperatures", asy
     cpuFanTable: [
       [0, 15],
       [Number.MIN_VALUE, 50],
+      [90, 100],
     ],
   });
   await expect(
@@ -667,16 +668,16 @@ test("fan row controls cannot insert duplicate floating-point temperatures", asy
   await page
     .getByRole("button", { name: "Append CPU fan curve row", exact: true })
     .click();
-  await expect(page.getByLabel("CPU temperature for row 3")).toHaveValue("1");
+  await expect(page.getByLabel("CPU temperature for row 4")).toHaveValue("91");
   await page
-    .getByRole("button", { name: "Add CPU row before row 3", exact: true })
+    .getByRole("button", { name: "Add CPU row before row 4", exact: true })
     .focus();
   await page.keyboard.press("Enter");
   await expect(
-    page.getByRole("button", { name: "Add CPU row before row 4", exact: true }),
+    page.getByRole("button", { name: "Add CPU row before row 5", exact: true }),
   ).toBeFocused();
-  const originalRow = page.getByLabel("CPU temperature for row 4");
-  await expect(originalRow).toHaveValue("1");
+  const originalRow = page.getByLabel("CPU temperature for row 5");
+  await expect(originalRow).toHaveValue("91");
   await originalRow.fill("2");
   await expect(originalRow).toBeFocused();
   await expect(originalRow).toHaveValue("2");
@@ -884,5 +885,95 @@ test("keyboard mode changes retain focus after success or error without resendin
   await expect(autoMode).toBeFocused();
   await expect(fixedMode).toHaveAttribute("aria-pressed", "true");
   expect(server.requests.map((request) => request.data)).toEqual([true, false]);
+  expect(server.errors).toEqual([]);
+});
+
+test("fan curve add-row controls disable at sixteen rows and re-enable after removal", async ({
+  page,
+}) => {
+  const sixteen: [number, number][] = Array.from({ length: 16 }, (_, index) => [
+    index * 6,
+    Math.min(100, index * 7),
+  ]);
+  const server = await backend(page, { cpuFanTable: sixteen });
+  const append = page.getByRole("button", { name: "Append CPU fan curve row" });
+  const insertSecond = page.getByRole("button", {
+    name: "Add CPU row before row 2",
+  });
+  const insertLast = page.getByRole("button", {
+    name: "Add CPU row before row 16",
+  });
+  await expect(append).toBeDisabled();
+  await expect(insertSecond).toBeDisabled();
+  await expect(insertLast).toBeDisabled();
+  await page.getByRole("button", { name: "Remove CPU row 16" }).click();
+  await expect(append).toBeEnabled();
+  await expect(insertSecond).toBeEnabled();
+  expect(server.errors).toEqual([]);
+});
+
+test("critical temperature override is explained in the status panel", async ({
+  page,
+}) => {
+  const server = await backend(page, {
+    doFixedSpeed: true,
+    fixedPercentage: 40,
+  });
+  server.send({
+    kind: "fancontrolactivity",
+    data: {
+      appliedSpeed: 100,
+      avgCPUTemp: 96,
+      avgGPUTemp: 70,
+      target: 100,
+      sensorFailure: false,
+    },
+  });
+  await expect(
+    page.getByText(
+      "Critical temperature reached (≥95°C). Fans are commanded to 100% emergency speed.",
+    ),
+  ).toBeVisible();
+  expect(server.errors).toEqual([]);
+});
+
+test("sensor failure alert names the fail-hot policy", async ({ page }) => {
+  const server = await backend(page);
+  server.send({
+    kind: "fancontrolactivity",
+    data: {
+      appliedSpeed: 80,
+      avgCPUTemp: 60,
+      avgGPUTemp: 55,
+      target: 80,
+      sensorFailure: true,
+    },
+  });
+  await expect(page.getByText(/fail-hot/)).toBeVisible();
+  expect(server.errors).toEqual([]);
+});
+
+test("reloading fan curves discards unsaved edits", async ({ page }) => {
+  const server = await backend(page);
+  const curves = page.getByRole("form", { name: "Automatic fan curves" });
+  const temperature = page.getByLabel("CPU temperature for row 1");
+  const reload = curves.getByRole("button", { name: "Reload" });
+  await expect(reload).toBeDisabled();
+  await temperature.fill("41.5");
+  await expect(reload).toBeEnabled();
+  await reload.click();
+  await expect(temperature).toHaveValue("40");
+  await expect(reload).toBeDisabled();
+  expect(server.requests).toEqual([]);
+  expect(server.errors).toEqual([]);
+});
+
+test("cpu tuning helper states the exact power limits", async ({ page }) => {
+  const server = await backend(page);
+  await expect(
+    page.getByText(
+      "PL1 from 15 to 115 W and PL2 from 15 to 150 W, with PL1 no higher than PL2.",
+    ),
+  ).toBeVisible();
   expect(server.errors).toEqual([]);
 });

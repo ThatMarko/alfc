@@ -38,13 +38,13 @@ service does not reread the file, and its next save would overwrite your edit.
 
 | Field             | Meaning                                                                  | Allowed values                                                                                           | Default                      |
 | ----------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `cpuFanTable`     | Automatic-mode curve driven by CPU temperature                           | Non-empty list of `[temperature °C, fan %]` pairs; temperatures 0–110 and strictly increasing; fan 0–100 | `[[40,15],[83,50],[88,100]]` |
+| `cpuFanTable`     | Automatic-mode curve driven by CPU temperature                           | Non-empty list of `[temperature °C, fan %]` pairs (at most 16); temperatures 0–110 and strictly increasing; fan 0–100, non-decreasing; last entry at least 85% by 90°C | `[[40,15],[83,50],[88,100]]` |
 | `gpuFanTable`     | Automatic-mode curve driven by GPU temperature                           | Same as `cpuFanTable`                                                                                    | `[[40,15],[78,50],[83,100]]` |
 | `doFixedSpeed`    | `true` = fixed mode, `false` = automatic curves                          | `true` or `false`                                                                                        | `false`                      |
 | `fixedPercentage` | Fan speed used in fixed mode                                             | Whole number 0–100                                                                                       | `50`                         |
 | `gpuBoost`        | GPU boost setting applied at startup when the laptop supports it         | `true` or `false`                                                                                        | `true`                       |
-| `pl1`             | Long-term CPU power limit in watts, applied when CPU tuning is available | Whole number 0–200                                                                                       | `37`                         |
-| `pl2`             | Short-term CPU power limit in watts                                      | Whole number 0–200                                                                                       | `106`                        |
+| `pl1`             | Long-term CPU power limit in watts, applied when CPU tuning is available | Whole number 15–115, no higher than PL2                                                                  | `37`                         |
+| `pl2`             | Short-term CPU power limit in watts                                      | Whole number 15–150, no lower than PL1                                                                  | `106`                        |
 
 How curves work: both fans follow whichever curve asks for more. Each point's
 speed applies from its temperature up to the next point (and below the first
@@ -53,6 +53,12 @@ In automatic mode, increases step up immediately and decreases wait roughly a
 minute per step, moving halfway toward the target each time. The accepted ranges are input checks, not safety ratings for
 your hardware. Excessive power limits increase heat and power draw; low limits
 reduce performance.
+
+Two emergency behaviors override the curves. If temperature sensors fail,
+automatic mode commands the highest speed anywhere in either curve, and a
+fixed target of 0% fails hot instead of holding the fans stopped. At or above
+95°C on either sensor, the controller commands full speed immediately in both
+modes, whatever the active curve or fixed target is.
 
 If any field is invalid or the file cannot be parsed, ALFC logs
 `[State] Corrupt or invalid config detected, using defaults.` (or

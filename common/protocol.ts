@@ -2,7 +2,7 @@ import type { FanControlActivity, FanTable, State } from "./types";
 import {
   validateFanTable,
   validateFixedPercentage,
-  validatePowerLimit,
+  validatePowerLimits,
 } from "./validation";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -11,7 +11,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function isSupportedProtocolVersion(value: unknown): value is string {
   if (typeof value !== "string") return false;
-  const version = /^1\.(\d+)$/.exec(value);
+  // Leading-zero minors ("1.01") are not a distinct version and must not
+  // parse as one.
+  const version = /^1\.([1-9]\d*)$/.exec(value);
   // New clients require 1.1 requestId correlation. Future major-1 minors
   // remain additive; the entire value must be a supported version string.
   return version !== null && version[0] === value && Number(version[1]) >= 1;
@@ -31,8 +33,7 @@ export function isState(value: unknown): value is State {
     typeof value.doFixedSpeed === "boolean" &&
     validateFixedPercentage(value.fixedPercentage) === null &&
     typeof value.gpuBoost === "boolean" &&
-    validatePowerLimit(value.pl1) === null &&
-    validatePowerLimit(value.pl2) === null &&
+    validatePowerLimits(value.pl1, value.pl2) === null &&
     [
       value.isCpuTuningAvailable,
       value.isFanControlAvailable,

@@ -1,3 +1,8 @@
+import {
+  MAX_EMERGENCY_FAN_TEMP,
+  MAX_FAN_TABLE_ENTRIES,
+  MIN_EMERGENCY_FAN_SPEED,
+} from "../../../common/validation";
 import { toast, type ToastContent } from "react-toastify/unstyled";
 import { theme } from "./consts";
 
@@ -41,6 +46,13 @@ export function parseIntegerInRange(
     return null;
   }
 
+  // Accept the decimal forms a number input can produce ("1e2", "+50",
+  // "50.0") when they evaluate to an integer, but reject hex, binary and
+  // octal ("0x10", "0b101", "0o17") that Number() would silently convert.
+  if (!/^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(trimmed)) {
+    return null;
+  }
+
   const parsed = Number(trimmed);
   if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
     return null;
@@ -55,11 +67,14 @@ export function getFanTableRowError(
   if (table.length === 0)
     return { row: 0, reason: "table must contain at least one row" };
   let previousTemperature = Number.NEGATIVE_INFINITY;
+  let previousSpeed = Number.NEGATIVE_INFINITY;
 
   for (let row = 0; row < table.length; row++) {
     const entry = table[row];
+    // A sparse row (a hole in the array) is a missing row, not an empty
+    // one: skipping it would let a malformed table pass validation.
     if (!entry) {
-      continue;
+      return { row, reason: "row is missing" };
     }
 
     const [temperatureRaw, speedRaw] = entry;
@@ -96,7 +111,39 @@ export function getFanTableRowError(
       };
     }
 
+    // A curve that spins the fans down as the machine gets hotter is a
+    // misconfiguration the controller would faithfully obey.
+    if (speed < previousSpeed) {
+      return {
+        row,
+        reason: "fan speed must not decrease as temperature rises",
+      };
+    }
+
     previousTemperature = temperature;
+    previousSpeed = speed;
+  }
+
+  // Whole-table rules, checked here because this validator only runs on
+  // submit — it never fires while the user is still building the curve.
+  if (table.length > MAX_FAN_TABLE_ENTRIES) {
+    return {
+      row: MAX_FAN_TABLE_ENTRIES,
+      reason: `table must contain at most ${MAX_FAN_TABLE_ENTRIES} rows`,
+    };
+  }
+
+  // The last entry is the fastest the curve can ever command. A curve
+  // that never reaches a high speed while the machine is hot cannot cool
+  // the hardware at all.
+  if (
+    previousTemperature > MAX_EMERGENCY_FAN_TEMP ||
+    previousSpeed < MIN_EMERGENCY_FAN_SPEED
+  ) {
+    return {
+      row: table.length - 1,
+      reason: `the last entry must reach at least ${MIN_EMERGENCY_FAN_SPEED}% fan speed by ${MAX_EMERGENCY_FAN_TEMP}°C`,
+    };
   }
 
   return null;

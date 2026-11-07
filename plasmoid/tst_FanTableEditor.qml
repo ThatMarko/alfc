@@ -103,7 +103,7 @@ Item {
         function test_externalStatePreservesDraftUntilReload() {
             const model = fixture.editor.activeModel()
             fixture.editor.updateValue(model, 0, "speed", "45.5")
-            backend.latestState = { cpuFanTable: [[50, 60], [100, 100]], gpuFanTable: [[50, 60], [100, 100]] }
+            backend.latestState = { cpuFanTable: [[50, 60], [90, 100]], gpuFanTable: [[50, 60], [90, 100]] }
             compare(fixture.editor.modelToArray(model)[0][1], 45.5)
             fixture.editor.syncFromBackend(true)
             compare(fixture.editor.modelToArray(model)[0][1], 60)
@@ -115,7 +115,7 @@ Item {
             const model = fixture.editor.activeModel()
             fixture.editor.updateValue(model, 0, "speed", "45.5")
             backend.url = "ws://second.example/ws"
-            backend.latestState = { cpuFanTable: [[50, 60], [100, 100]], gpuFanTable: [[50, 60], [100, 100]] }
+            backend.latestState = { cpuFanTable: [[50, 60], [90, 100]], gpuFanTable: [[50, 60], [90, 100]] }
             compare(fixture.editor.modelToArray(model)[0][1], 60)
             verify(!fixture.editor.dirty)
         }
@@ -132,13 +132,68 @@ Item {
         }
 
         function test_addPointAtMaximumTemperatureKeepsCurveValid() {
-            backend.latestState = { cpuFanTable: [[40, 30], [110, 100]], gpuFanTable: [[40, 30], [110, 100]] }
+            // Start from the valid [[40, 30], [90, 100]] curve, then push
+            // the last point to the 110°C ceiling: the editor can still
+            // gap-insert a point, but the result no longer reaches
+            // emergency speed by 90°C, so saving must flag it instead of
+            // the table reading as valid.
+            const model = fixture.editor.activeModel()
+            fixture.editor.updateValue(model, 1, "temp", "110")
             fixture.editor.addRow()
-            const table = fixture.editor.modelToArray(fixture.editor.activeModel())
+            const table = fixture.editor.modelToArray(model)
             compare(table.length, 3)
             compare(table[1][0], 75)
             compare(table[1][1], 30)
-            compare(fixture.editor.validateTable(table, "CPU"), "")
+            fixture.editor.validateAndSave()
+            compare(backend.saved, null)
+            compare(fixture.editor.statusTone, "error")
+        }
+
+        function test_addPointOnShippedDefaultCurveProducesSaveableCurve() {
+            // The shipped default [[40, 15], [83, 50], [88, 100]] ends
+            // below 90°C: appending must clamp to 90°C at emergency speed
+            // instead of appending 93°C and failing the save.
+            const model = fixture.editor.activeModel()
+            model.clear()
+            model.append({temp: "40", speed: "15"})
+            model.append({temp: "83", speed: "50"})
+            model.append({temp: "88", speed: "100"})
+            verify(findChild(fixture.editor, "addPointButton").enabled)
+            fixture.editor.addRow()
+            const table = fixture.editor.modelToArray(model)
+            compare(table.length, 4)
+            compare(table[3][0], 90)
+            compare(table[3][1], 100)
+            fixture.editor.validateAndSave()
+            verify(backend.saved !== null)
+            compare(backend.saved.cpu.length, 4)
+        }
+
+        function test_addPointOnNinetyDegreeCurveGapInsertsAndSaves() {
+            // The default [[40, 30], [90, 100]] curve already ends at the
+            // 90°C ceiling: Add Point must gap-insert below 90°C instead
+            // of appending 95°C and failing the save.
+            const model = fixture.editor.activeModel()
+            fixture.editor.addRow()
+            const table = fixture.editor.modelToArray(model)
+            compare(table.length, 3)
+            compare(table[1][0], 65)
+            compare(table[1][1], 30)
+            compare(table[2][0], 90)
+            fixture.editor.validateAndSave()
+            verify(backend.saved !== null)
+        }
+
+        function test_addPointRefusesSeventeenthPoint() {
+            const model = fixture.editor.activeModel()
+            model.clear()
+            for (let index = 0; index < 16; index += 1)
+                model.append({temp: String(index * 6), speed: String(Math.min(100, index * 7))})
+            fixture.editor.addRow()
+            compare(model.count, 16)
+            compare(fixture.editor.statusTone, "error")
+            verify(fixture.editor.statusMessage.indexOf("16") >= 0)
+            verify(!findChild(fixture.editor, "addPointButton").enabled)
         }
 
         function test_editorCommandsFitNarrowCard() {

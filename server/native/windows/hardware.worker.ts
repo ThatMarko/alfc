@@ -48,21 +48,28 @@ let queue: Promise<void> = Promise.resolve();
 
 self.onmessage = (event: MessageEvent<HardwareRequest>) => {
   const { id, operation } = event.data;
-  queue = queue.then(async () => {
-    let response: HardwareResponse;
-    try {
-      response = { id, ok: true, result: await execute(operation) };
-    } catch (error) {
-      response = {
-        id,
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-        restartRequired:
-          error instanceof Error &&
-          "restartRequired" in error &&
-          error.restartRequired === true,
-      };
-    }
-    self.postMessage(response);
-  });
+  queue = queue
+    .then(async () => {
+      let response: HardwareResponse;
+      try {
+        response = { id, ok: true, result: await execute(operation) };
+      } catch (error) {
+        response = {
+          id,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          restartRequired:
+            error instanceof Error &&
+            "restartRequired" in error &&
+            error.restartRequired === true,
+        };
+      }
+      self.postMessage(response);
+    })
+    .catch((error: unknown) => {
+      // postMessage itself can throw (a closed channel). That must not
+      // poison the queue: later operations still run, and the parent's
+      // per-call deadline is what reports the lost reply.
+      console.warn("[Hardware worker] Failed to post response:", error);
+    });
 };

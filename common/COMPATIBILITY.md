@@ -69,15 +69,18 @@ and push new state. Configuration files cannot override capabilities or inject a
 restart warning; those fields are never persisted.
 
 Production atomic saves preserve existing POSIX permission bits and create
-missing settings privately. Unexpected staging directories, symlinks, or regular
-files with additional hard links reject the save before changing those entries
-or their targets. The active configuration is still broadcast with a
+missing settings privately. A leftover staging entry is removed by name and
+recreated exclusively, so a symlink or hard link at the staging path never
+redirects the save or changes its target. A directory at the staging path
+still rejects the save. The active configuration is still broadcast with a
 `PERSISTENCE_ERROR`; fixing the staging path permits a later save to recover.
 
-`fixedPercentage` is an integer `0..100`; CPU limits are integer watts `0..200`.
+`fixedPercentage` is an integer `0..100`; CPU limits are integer watts PL1
+`15..115`, PL2 `15..150`, with PL1 no higher than PL2.
 CPU/GPU curves accept non-empty, strictly ascending temperatures `0..110` and
-percentages `0..100`, including fractions. These constraints are shared by the
-server, web UI, and widget. Curves may have non-monotonic speeds. Errors use
+percentages `0..100`, including fractions, with non-decreasing speeds, at most
+16 entries, and a last entry reaching at least 85% by 90°C. These constraints are shared by the
+server, web UI, and widget. Errors use
 `INVALID_RANGE` or `INVALID_PAYLOAD`; `INVALID_DATA` and `INVALID_FAN_TABLE` are
 not emitted wire codes.
 
@@ -123,7 +126,7 @@ raw diagnostics catalog.
 | `State.protocolVersion`            | Required string; current server value `"1.1"`. Current clients require major 1, minor at least 1.                                                                                                 |
 | State capability booleans          | Optional in the wire type for older snapshots; current servers populate them from initialization/runtime status.                                                                                  |
 | `State.restartRequired`            | Optional runtime warning introduced in the current 1.1 implementation; never a saved preference.                                                                                                  |
-| `FanControlActivity.sensorFailure` | Optional in the type; current control cycles emit a boolean. When true, temperatures are last-known. Fixed mode retains its chosen target; automatic mode commands its highest configured target. |
+| `FanControlActivity.sensorFailure` | Optional in the type; current control cycles emit a boolean. When true, temperatures are last-known. Fixed mode retains its chosen target (except 0%, which fails hot); automatic mode commands its highest configured target. At or above 95°C either mode commands full speed. |
 | `FanControlActivity.appliedSpeed`  | Number `0..100` or `null` when paired writes are unconfirmed.                                                                                                                                     |
 | Request/response `requestId`       | Optional for server acceptance, required by current clients for safe command correlation. Server pushes do not contain it.                                                                        |
 

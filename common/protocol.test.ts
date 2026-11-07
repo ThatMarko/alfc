@@ -3,8 +3,16 @@ import { isFanControlActivity, isState } from "./protocol";
 function snapshot() {
   return {
     protocolVersion: "1.1",
-    cpuFanTable: [[40, 15]],
-    gpuFanTable: [[50, 20]],
+    cpuFanTable: [
+      [40, 15],
+      [83, 50],
+      [88, 100],
+    ],
+    gpuFanTable: [
+      [40, 15],
+      [78, 50],
+      [83, 100],
+    ],
     doFixedSpeed: false,
     fixedPercentage: 50,
     gpuBoost: true,
@@ -41,6 +49,7 @@ describe("protocol boundary decoding", () => {
     { ...snapshot(), protocolVersion: "2.0" },
     { ...snapshot(), protocolVersion: "1.0" },
     { ...snapshot(), protocolVersion: "1.00" },
+    { ...snapshot(), protocolVersion: "1.01" },
     { ...snapshot(), protocolVersion: "1.1junk" },
     { ...snapshot(), protocolVersion: "1.1\n" },
     { ...snapshot(), protocolVersion: "1.1\r\n" },
@@ -52,6 +61,31 @@ describe("protocol boundary decoding", () => {
     { ...snapshot(), fixedPercentage: -1 },
     { ...snapshot(), cpuFanTable: [] },
     { ...snapshot(), gpuFanTable: [[111, 50]] },
+    { ...snapshot(), cpuFanTable: [[0, 0]] },
+    { ...snapshot(), cpuFanTable: [[30, 10]] },
+    {
+      ...snapshot(),
+      cpuFanTable: [
+        [40, 100],
+        [83, 50],
+        [88, 100],
+      ],
+    },
+    {
+      ...snapshot(),
+      pl1: 0,
+      pl2: 106,
+    },
+    {
+      ...snapshot(),
+      pl1: 50,
+      pl2: 40,
+    },
+    {
+      ...snapshot(),
+      pl1: 37,
+      pl2: 200,
+    },
     {
       ...snapshot(),
       gpuFanTable: [
@@ -64,7 +98,15 @@ describe("protocol boundary decoding", () => {
   });
 
   it("shares fractional fan curve rules with the backend", () => {
-    expect(isState({ ...snapshot(), cpuFanTable: [[40.5, 15.5]] })).toBe(true);
+    expect(
+      isState({
+        ...snapshot(),
+        cpuFanTable: [
+          [40.5, 15.5],
+          [83.5, 100],
+        ],
+      }),
+    ).toBe(true);
   });
 
   const activity = {
