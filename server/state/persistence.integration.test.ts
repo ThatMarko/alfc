@@ -89,37 +89,45 @@ try {
   const foreignFile = path.join(foreignDirectory, 'keep.txt');
   await writeFile(foreignFile, 'unrelated contents', { mode: 0o640 });
   const foreignMode = (await stat(foreignFile)).mode & 0o777;
-  // Windows junctions need no file-symlink privilege and still exercise the
-  // nonregular lstat boundary. POSIX also verifies a symlink to a real file.
+  // A symlink at the staging path is removed, never followed: unlinking
+  // the link itself cannot touch its target, and the save proceeds on a
+  // freshly created file. Windows junctions behave the same way.
   await symlink(process.platform === 'win32' ? foreignDirectory : foreignFile,
     staging, process.platform === 'win32' ? 'junction' : 'file');
   state.fixedPercentage = 75;
-  await assert.rejects(persistState());
-  assert.equal((await lstat(staging)).isSymbolicLink(), true);
+  await persistState();
+  assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 75);
   assert.equal((await stat(foreignDirectory)).mode, foreignDirectoryMode);
   assert.equal(await readFile(foreignFile, 'utf8'), 'unrelated contents');
   if (process.platform !== 'win32') assert.equal((await stat(foreignFile)).mode & 0o777, foreignMode,
-    'Refusing a symlink must not chmod its target');
-  assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 73);
-  await rm(staging);
+    'Removing a staging symlink must not chmod its target');
+  await assert.rejects(stat(staging), error => error.code === 'ENOENT');
 
-  // A hard link is a regular file, but truncating it also changes its other
-  // pathname before atomic replacement. Refuse both links to the current
-  // config and unrelated files, preserving bytes and permissions at each name.
-  for (const target of [config, foreignFile]) {
-    const originalContents = await readFile(target, 'utf8');
-    const originalMode = (await stat(target)).mode;
-    await link(target, staging);
-    assert.equal((await lstat(staging)).nlink, 2);
-    state.fixedPercentage = 76;
-    await assert.rejects(persistState(), /hard link/);
-    assert.equal(await readFile(target, 'utf8'), originalContents);
-    assert.equal((await stat(target)).mode, originalMode,
-      'Refusing a hard link must not chmod its other pathname');
-    assert.equal(await readFile(staging, 'utf8'), originalContents);
-    assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 73);
-    await rm(staging);
-  }
+  // A hard link at the staging path is removed by name, never truncated:
+  // the other pathname keeps its bytes and permissions, and the save
+  // proceeds on a freshly created file.
+  const originalConfigMode = (await stat(config)).mode;
+  await link(config, staging);
+  assert.equal((await lstat(staging)).nlink, 2);
+  state.fixedPercentage = 76;
+  await persistState();
+  assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 76);
+  assert.equal((await stat(config)).mode, originalConfigMode,
+    'Replacing a hard-linked staging file must not change the config mode');
+  await assert.rejects(stat(staging), error => error.code === 'ENOENT');
+
+  const originalForeignContents = await readFile(foreignFile, 'utf8');
+  const originalForeignMode = (await stat(foreignFile)).mode;
+  await link(foreignFile, staging);
+  assert.equal((await lstat(staging)).nlink, 2);
+  state.fixedPercentage = 77;
+  await persistState();
+  assert.equal(await readFile(foreignFile, 'utf8'), originalForeignContents);
+  assert.equal((await stat(foreignFile)).mode, originalForeignMode,
+    'Replacing a hard-linked staging file must not change its other pathname');
+  assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 77);
+  await assert.rejects(stat(staging), error => error.code === 'ENOENT');
+
   state.fixedPercentage = 73;
   await persistState();
   assert.equal(JSON.parse(await readFile(config, 'utf8')).fixedPercentage, 73);

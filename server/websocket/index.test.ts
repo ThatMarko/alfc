@@ -81,6 +81,7 @@ type MockSocket = {
   subscribe: ReturnType<typeof vi.fn>;
   getBufferedAmount: ReturnType<typeof vi.fn>;
   terminate: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
   readyState: number;
 };
 
@@ -115,6 +116,7 @@ function createSocket(): MockSocket {
     subscribe: vi.fn(),
     getBufferedAmount: vi.fn().mockReturnValue(0),
     terminate: vi.fn(),
+    close: vi.fn(),
     readyState: WebSocket.OPEN,
   };
   createdSockets.push(ws);
@@ -213,6 +215,26 @@ describe("websocket contract", () => {
     expect(slow.terminate).toHaveBeenCalledOnce();
     for (const listener of [server, ipv6])
       expect(listener.publish).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a 17th connection without sending state", () => {
+    const sockets = Array.from({ length: 16 }, () => {
+      const ws = createSocket();
+      openSocket(ws);
+      return ws;
+    });
+    for (const ws of sockets) {
+      expect(ws.send).toHaveBeenCalled();
+      expect(ws.close).not.toHaveBeenCalled();
+    }
+    const extra = createSocket();
+    openSocket(extra);
+    expect(extra.close).toHaveBeenCalledExactlyOnceWith(
+      1013,
+      "Too many connections",
+    );
+    expect(extra.send).not.toHaveBeenCalled();
+    expect(extra.subscribe).not.toHaveBeenCalled();
   });
 
   it("does not retry a backpressured direct send and terminates its slow peer", async () => {
@@ -768,6 +790,70 @@ describe("websocket contract", () => {
     expect(getLastSentJson(second).kind).toBe(MessageToClientKind.Success);
   });
 
+  it.each([
+    { pl1: 0, pl2: 106 },
+    { pl1: 14, pl2: 106 },
+    { pl1: 50, pl2: 40 },
+    { pl1: 37, pl2: 200 },
+    { pl1: 37.5, pl2: 106 },
+  ])(
+    "rejects unsafe power limits without touching hardware: $pl1/$pl2",
+    async ({ pl1, pl2 }) => {
+      const ws = createSocket();
+      await dispatchMessage(ws, {
+        kind: MessageToServerKind.Tune,
+        data: { pl1, pl2 },
+      });
+      expect(mockedTune).not.toHaveBeenCalled();
+      expect(getLastSentJson(ws).data).toMatch(/INVALID_RANGE/);
+      expect(state.pl1).toBe(37);
+      expect(state.pl2).toBe(106);
+    },
+  );
+
+  it("limits queued messages per socket so one client cannot starve the rest", async () => {
+    const first = createSocket();
+    const second = createSocket();
+    let rejectFirst: ((reason: Error) => void) | undefined;
+    mockedTune.mockImplementationOnce(
+      () =>
+        new Promise<void>((_, reject) => {
+          rejectFirst = reject;
+        }),
+    );
+    const tunePayload = (pl1: number, pl2: number) => ({
+      kind: MessageToServerKind.Tune,
+      data: { pl1, pl2 },
+    });
+    dispatchMessage(first, tunePayload(45, 95));
+    dispatchMessage(first, tunePayload(46, 96));
+    dispatchMessage(first, tunePayload(47, 97));
+    dispatchMessage(first, tunePayload(48, 98));
+    await vi.waitFor(() => expect(mockedTune).toHaveBeenCalledTimes(1));
+    // A second client is unaffected by the first client's queue.
+    dispatchMessage(second, tunePayload(50, 100));
+    // The fifth message from the first client is refused, not queued.
+    dispatchMessage(first, tunePayload(49, 99));
+    await vi.waitFor(() =>
+      expect(
+        first.send.mock.calls.some(
+          ([raw]) =>
+            typeof raw === "string" &&
+            raw.includes("Too many pending requests from this client"),
+        ),
+      ).toBe(true),
+    );
+    expect(mockedTune).toHaveBeenCalledTimes(1);
+    rejectFirst?.(new Error("hardware rejected limits"));
+    await vi.waitFor(() => expect(mockedTune).toHaveBeenCalledTimes(5));
+    expect(mockedTune).toHaveBeenNthCalledWith(2, 46, 96);
+    expect(mockedTune).toHaveBeenNthCalledWith(3, 47, 97);
+    expect(mockedTune).toHaveBeenNthCalledWith(4, 48, 98);
+    expect(mockedTune).toHaveBeenNthCalledWith(5, 50, 100);
+    expect(state.pl1).toBe(50);
+    expect(state.pl2).toBe(100);
+  });
+
   it("acknowledges configuration only after it is saved", async () => {
     const ws = createSocket();
     let resolveSave: (() => void) | undefined;
@@ -901,7 +987,6 @@ describe("websocket contract", () => {
   });
 
   it("bounds pending work while still answering keepalive pings", async () => {
-    const ws = createSocket();
     let release: (() => void) | undefined;
     mockedTune.mockImplementationOnce(
       () =>
@@ -909,27 +994,28 @@ describe("websocket contract", () => {
           release = resolve;
         }),
     );
-    const requests = [
-      dispatchMessage(ws, {
-        kind: MessageToServerKind.Tune,
-        data: { pl1: 45, pl2: 95 },
-      }),
-    ];
-    await vi.waitFor(() => expect(mockedTune).toHaveBeenCalledTimes(1));
-    for (let index = 0; index < 63; index++) {
-      requests.push(
-        dispatchMessage(ws, {
-          kind: MessageToServerKind.FixedPercentage,
-          data: index,
-        }),
-      );
+    const requests: Promise<unknown>[] = [];
+    // One client may queue at most 4 messages, so the 64-message global
+    // bound is reached only across clients: 16 sockets × 4 each.
+    for (let socketIndex = 0; socketIndex < 16; socketIndex++) {
+      const ws = createSocket();
+      for (let index = 0; index < 4; index++) {
+        requests.push(
+          dispatchMessage(ws, {
+            kind: MessageToServerKind.Tune,
+            data: { pl1: 45, pl2: 95 },
+          }),
+        );
+      }
     }
-    await dispatchMessage(ws, {
+    await vi.waitFor(() => expect(mockedTune).toHaveBeenCalledTimes(1));
+    const busySocket = createSocket();
+    await dispatchMessage(busySocket, {
       kind: MessageToServerKind.FixedPercentage,
       requestId: "busy",
       data: 90,
     });
-    expect(getLastSentJson(ws)).toEqual({
+    expect(getLastSentJson(busySocket)).toEqual({
       kind: MessageToClientKind.Error,
       requestId: "busy",
       data: "BUSY: Too many pending requests",
@@ -940,11 +1026,12 @@ describe("websocket contract", () => {
     });
     expect(subscriber.subscribe).toHaveBeenCalledWith("activity");
     expect(subscriber.send).not.toHaveBeenCalled();
-    await dispatchMessage(ws, "ping");
-    expect(ws.send).toHaveBeenLastCalledWith("pong");
+    await dispatchMessage(busySocket, "ping");
+    expect(busySocket.send).toHaveBeenLastCalledWith("pong");
     release?.();
     await Promise.all(requests);
-    expect(state.fixedPercentage).toBe(62);
+    expect(state.pl1).toBe(45);
+    expect(state.pl2).toBe(95);
   });
 
   it("echoes a client-supplied requestId in success responses", async () => {
@@ -1099,7 +1186,7 @@ describe("websocket contract", () => {
       kind: MessageToClientKind.Error,
       methodId: "fan-table-invalid",
       methodName: "SetFanTable",
-      data: "INVALID_PAYLOAD: fantable requires ascending CPU and GPU tables with percentages from 0 to 100",
+      data: "INVALID_PAYLOAD: fantable requires ascending CPU and GPU tables with speeds from 0 to 100 that do not decrease and reach at least 85% by 90°C",
     });
   });
 

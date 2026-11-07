@@ -225,6 +225,7 @@ ColumnLayout {
         }
 
         let previousTemp = -1
+        let previousSpeed = -1
 
         for (let index = 0; index < table.length; index += 1) {
             const temp = table[index][0]
@@ -246,7 +247,30 @@ ColumnLayout {
                 return i18n("%1 temperatures must be strictly ascending.", label)
             }
 
+            // A curve that spins the fans down as the machine gets hotter
+            // is a misconfiguration the controller would faithfully obey.
+            if (speed < previousSpeed) {
+                return i18n("%1 speeds must not decrease as temperature rises.", label)
+            }
+
             previousTemp = temp
+            previousSpeed = speed
+        }
+
+        return ""
+    }
+
+    // Whole-table rules, checked only on save — never while the user is
+    // still building the curve, and never from validateTable, which addRow
+    // also calls. Keep in sync with common/validation.ts.
+    function validateWholeTable(table, label) {
+        if (table.length > 16) {
+            return i18n("%1 fan curve must contain at most 16 points.", label)
+        }
+
+        const last = table[table.length - 1]
+        if (last[0] > 90 || last[1] < 85) {
+            return i18n("%1 fan curve must reach at least 85% fan speed by 90\u00B0C.", label)
         }
 
         return ""
@@ -268,6 +292,18 @@ ColumnLayout {
         const gpuError = validateTable(gpuTable, i18n("GPU"))
         if (gpuError.length > 0) {
             setStatus(gpuError, "error")
+            return
+        }
+
+        const cpuWholeError = validateWholeTable(cpuTable, i18n("CPU"))
+        if (cpuWholeError.length > 0) {
+            setStatus(cpuWholeError, "error")
+            return
+        }
+
+        const gpuWholeError = validateWholeTable(gpuTable, i18n("GPU"))
+        if (gpuWholeError.length > 0) {
+            setStatus(gpuWholeError, "error")
             return
         }
 

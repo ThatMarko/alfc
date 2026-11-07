@@ -7,8 +7,8 @@ TestCase {
 
     function state() {
         return {
-            protocolVersion: "1.1", cpuFanTable: [[0, 0], [65.5, 80.25]],
-            gpuFanTable: [[20, 0], [110, 100]], doFixedSpeed: false,
+            protocolVersion: "1.1", cpuFanTable: [[0, 0], [65.5, 85.25]],
+            gpuFanTable: [[20, 0], [88.5, 100]], doFixedSpeed: false,
             fixedPercentage: 50, gpuBoost: false, pl1: 37, pl2: 106
         }
     }
@@ -17,6 +17,7 @@ TestCase {
         return [
             { tag: "legacy", version: "1.0", accepted: false },
             { tag: "legacy-zeroes", version: "1.00", accepted: false },
+            { tag: "leading-zero", version: "1.01", accepted: false },
             { tag: "current", version: "1.1", accepted: true },
             { tag: "future-minor", version: "1.99", accepted: true },
             { tag: "major", version: "2.0", accepted: false },

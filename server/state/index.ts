@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { chmod, lstat, open, rename, stat } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { open, rename, stat, unlink } from "node:fs/promises";
 import stringifyCompact from "json-stringify-pretty-compact";
 import path from "node:path";
 import { isCompiledBinary, isDev } from "../utils/consts";
@@ -7,7 +8,7 @@ import type { State } from "../../common/types";
 import {
   validateFanTable,
   validateFixedPercentage,
-  validatePowerLimit,
+  validatePowerLimits,
 } from "../../common/validation";
 
 type PersistedState = Omit<
@@ -60,8 +61,7 @@ function isPersistedState(value: unknown): value is PersistedState {
     isPersistedFanTable(object.cpuFanTable) &&
     isPersistedFanTable(object.gpuFanTable) &&
     typeof object.gpuBoost === "boolean" &&
-    validatePowerLimit(object.pl1) === null &&
-    validatePowerLimit(object.pl2) === null &&
+    validatePowerLimits(object.pl1, object.pl2) === null &&
     typeof object.doFixedSpeed === "boolean" &&
     validateFixedPercentage(object.fixedPercentage) === null
   );
@@ -92,7 +92,10 @@ function loadPersistedState(): PersistedState {
     console.warn("[State] Failed to load config, using defaults: " + error);
   }
 
-  return DEFAULT_PERSISTED_STATE;
+  // Never hand out the shared defaults object: callers mutate the loaded
+  // state in place, and a mutation must not rewrite the fallback for the
+  // next load.
+  return structuredClone(DEFAULT_PERSISTED_STATE);
 }
 
 const persistedState: PersistedState = loadPersistedState();
@@ -136,28 +139,23 @@ export function persistState() {
       // failure must not silently replace a file with broader permissions.
       if (!isMissingFile(error)) throw error;
     }
+    // Remove any leftover staging file, then create it exclusively: a
+    // symlink or hard link planted at the staging path cannot redirect
+    // the privileged write to an arbitrary file, and a failed save never
+    // leaves a stale file for the next save to truncate through.
     try {
-      const staged = await lstat(TMP_CONFIG_FILE);
-      if (!staged.isFile()) {
-        throw new Error(
-          `Configuration staging path must be a regular file: ${TMP_CONFIG_FILE}`,
-        );
-      }
-      if (staged.nlink !== 1) {
-        // chmod/truncate would also affect every other name for this inode,
-        // potentially changing the current config before its atomic rename.
-        throw new Error(
-          `Configuration staging file must not have other hard links: ${TMP_CONFIG_FILE}`,
-        );
-      }
-      // A failed save can leave a read-only staging file. Restore private,
-      // writable staging permissions before opening/truncating it; doing
-      // this only through the opened descriptor cannot recover that state.
-      await chmod(TMP_CONFIG_FILE, 0o600);
+      await unlink(TMP_CONFIG_FILE);
     } catch (error) {
       if (!isMissingFile(error)) throw error;
     }
-    const file = await open(TMP_CONFIG_FILE, "w", 0o600);
+    const file = await open(
+      TMP_CONFIG_FILE,
+      fsConstants.O_WRONLY |
+        fsConstants.O_CREAT |
+        fsConstants.O_EXCL |
+        (fsConstants.O_NOFOLLOW ?? 0),
+      0o600,
+    );
     try {
       // A previous failed save may have left a temp file with another mode.
       // Set it before writing so restricted settings are never staged as 0644

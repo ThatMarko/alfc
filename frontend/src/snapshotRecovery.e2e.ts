@@ -3,8 +3,14 @@ import type { MessageToServer, State } from "../../common/types";
 
 const state: State = {
   protocolVersion: "1.1",
-  cpuFanTable: [[40, 15]],
-  gpuFanTable: [[40, 15]],
+  cpuFanTable: [
+    [40, 15],
+    [83, 100],
+  ],
+  gpuFanTable: [
+    [40, 15],
+    [83, 100],
+  ],
   doFixedSpeed: false,
   fixedPercentage: 50,
   gpuBoost: true,

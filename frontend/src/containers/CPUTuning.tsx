@@ -1,5 +1,10 @@
 import React from "react";
 import { MessageToServerKind } from "../../../common/types";
+import {
+  MAX_PL1_WATTS,
+  MAX_PL2_WATTS,
+  MIN_POWER_LIMIT_WATTS,
+} from "../../../common/validation";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { StyledApplyButton } from "../components/StyledApplyButton";
 import { parseIntegerInRange, validationToast } from "../utils/misc";
@@ -20,10 +25,20 @@ export function CPUTuning() {
   const onSubmit: React.FormEventHandler = (event) => {
     event.preventDefault();
     if (!isConnected || !isCpuTuningAvailable || isApplying) return;
-    const nextPl1 = parseIntegerInRange(pl1, 0, 200);
-    const nextPl2 = parseIntegerInRange(pl2, 0, 200);
-    if (nextPl1 === null || nextPl2 === null) {
-      validationToast("Power limits must be whole numbers from 0 to 200.");
+    const nextPl1 = parseIntegerInRange(
+      pl1,
+      MIN_POWER_LIMIT_WATTS,
+      MAX_PL1_WATTS,
+    );
+    const nextPl2 = parseIntegerInRange(
+      pl2,
+      MIN_POWER_LIMIT_WATTS,
+      MAX_PL2_WATTS,
+    );
+    if (nextPl1 === null || nextPl2 === null || nextPl1 > nextPl2) {
+      validationToast(
+        `PL1 must be a whole number from ${MIN_POWER_LIMIT_WATTS} to ${MAX_PL1_WATTS} watts and PL2 from ${MIN_POWER_LIMIT_WATTS} to ${MAX_PL2_WATTS} watts, with PL1 no higher than PL2.`,
+      );
       return;
     }
     void runCommand({
@@ -39,9 +54,10 @@ export function CPUTuning() {
           CPU power limits{" "}
           <InfoTooltip label="About CPU tuning">
             PL1 is the sustained power limit; PL2 is the short-term limit. The
-            backend accepts whole numbers from 0 to 200 watts. That range is
-            input validation, not a hardware rating. Choose limits appropriate
-            for your CPU.
+            backend accepts PL1 from {MIN_POWER_LIMIT_WATTS} to {MAX_PL1_WATTS}{" "}
+            watts and PL2 from {MIN_POWER_LIMIT_WATTS} to {MAX_PL2_WATTS} watts,
+            with PL1 no higher than PL2. Those bounds are conservative policy,
+            not a hardware rating. Choose limits appropriate for your CPU.
           </InfoTooltip>
         </h2>
       </div>
@@ -62,8 +78,8 @@ export function CPUTuning() {
                   PL1 (W)
                   <input
                     type="number"
-                    min={0}
-                    max={200}
+                    min={MIN_POWER_LIMIT_WATTS}
+                    max={MAX_PL1_WATTS}
                     aria-label="PL1 power limit in watts"
                     required
                     step={1}
@@ -76,8 +92,8 @@ export function CPUTuning() {
                   PL2 (W)
                   <input
                     type="number"
-                    min={0}
-                    max={200}
+                    min={MIN_POWER_LIMIT_WATTS}
+                    max={MAX_PL2_WATTS}
                     aria-label="PL2 power limit in watts"
                     required
                     step={1}

@@ -1,14 +1,25 @@
 import path from "node:path";
-import { isAllowedWebSocketOrigin, resolveFrontendPath } from "./http";
+import {
+  createHttpHandler,
+  isAllowedHost,
+  isAllowedWebSocketOrigin,
+  resolveFrontendPath,
+} from "./http";
 
 describe("WebSocket origins", () => {
   it.each([
     null,
-    "http://localhost:3000",
+    "http://localhost:5522",
     "https://127.0.0.1:5522",
     "http://[::1]:5522",
   ])("allows loopback browser and native origins: %s", (origin) => {
     expect(isAllowedWebSocketOrigin(origin)).toBe(true);
+  });
+
+  it("allows the dev UI origin only in dev mode", () => {
+    expect(isAllowedWebSocketOrigin("http://localhost:3000")).toBe(false);
+    expect(isAllowedWebSocketOrigin("http://localhost:3000", true)).toBe(true);
+    expect(isAllowedWebSocketOrigin("http://localhost:5522", true)).toBe(true);
   });
 
   it.each([
@@ -20,8 +31,53 @@ describe("WebSocket origins", () => {
     "http://localhost/path",
     "http://localhost/?query=true",
     "http://localhost/#fragment",
+    "http://localhost:8080",
+    "http://localhost",
+    "http://localhost:3000",
   ])("rejects non-loopback or malformed origins: %s", (origin) => {
     expect(isAllowedWebSocketOrigin(origin)).toBe(false);
+  });
+});
+
+describe("Host header", () => {
+  it.each([
+    null,
+    "localhost:5522",
+    "127.0.0.1:5522",
+    "[::1]:5522",
+    "localhost:3000",
+    "localhost",
+  ])("allows loopback hosts: %s", (host) => {
+    expect(isAllowedHost(host)).toBe(true);
+  });
+
+  it.each([
+    "example.com:5522",
+    "evil.com",
+    "localhost:5522:5522",
+    "user@localhost:5522",
+    "user:pass@localhost:5522",
+  ])("rejects other hosts: %s", (host) => {
+    expect(isAllowedHost(host)).toBe(false);
+  });
+});
+
+describe("HTTP handler", () => {
+  it("rejects a non-loopback Host header with 403 before serving", async () => {
+    const handler = createHttpHandler({
+      frontendDir: path.resolve("frontend", "dist"),
+      isDev: false,
+      isShuttingDown: () => false,
+    });
+    // Bun's Request does not set Host from the URL at construction time,
+    // so the header under test is set explicitly, as a real client sends it.
+    const response = await handler(
+      new Request("http://localhost:5522/", {
+        headers: { host: "evil.com" },
+      }),
+      undefined as unknown as Bun.Server<undefined>,
+    );
+    expect(response?.status).toBe(403);
   });
 });
 

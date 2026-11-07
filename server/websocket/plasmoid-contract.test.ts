@@ -80,7 +80,7 @@ describe("KDE Plasma 6 widget QML contract", () => {
       cpuFanTable: [
         [0, 0],
         [65.5, 80.25],
-        [110, 100],
+        [90, 100],
       ],
       gpuFanTable: [
         [40, 30],

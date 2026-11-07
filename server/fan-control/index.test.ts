@@ -307,6 +307,58 @@ describe("fan-control", () => {
     await waitUntilFanPercent(state.fixedPercentage);
   });
 
+  it("keeps failing hot while a sensor read is stalled, and recovers when it settles", async () => {
+    fanControl();
+    // One healthy cycle first, so the failed cycles have last-known
+    // measurements to publish with their sensor-failure flag.
+    await vi.advanceTimersByTimeAsync(2 * CYCLE_DURATION);
+    expect(mockedPublishActivity).toHaveBeenCalled();
+    const readsBeforeStall = mockedGetCall.mock.calls.length;
+
+    mockedGetCall.mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          releaseStalledRead = () => resolve(30);
+        }),
+    );
+
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION); // cycle starts, stalls
+
+    // The consumer deadline ends the first collection, but the physical
+    // read is still held. Later cycles must keep failing hot instead of
+    // wedging: the loop stays alive without issuing reads behind the stall.
+    await vi.advanceTimersByTimeAsync(SENSOR_READ_TIMEOUT + CYCLE_DURATION);
+    expect(mockedGetCall.mock.calls.length).toBe(readsBeforeStall + 1);
+    // Fail-hot target is the fastest entry in either table (100% GPU).
+    expect(mockedSetCall).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.any(String),
+      { Data: fanPercentToSpeed(lastSpeed(state.gpuFanTable)) },
+    );
+    // Exactly one fail-hot write: later cycles reuse the already-applied
+    // target instead of spamming firmware while sensors are down.
+    const failHotWrites = () =>
+      mockedSetCall.mock.calls.filter(
+        (call) =>
+          call[2]?.Data === fanPercentToSpeed(lastSpeed(state.gpuFanTable)),
+      ).length;
+    const writesAfterFirstTimeout = failHotWrites();
+    expect(writesAfterFirstTimeout).toBeGreaterThan(0);
+    await vi.advanceTimersByTimeAsync(2 * CYCLE_DURATION);
+    expect(failHotWrites()).toBe(writesAfterFirstTimeout);
+    // The loop stays alive through the stall: every cycle still publishes
+    // telemetry with the sensor-failure flag instead of going silent.
+    const failurePublications = mockedPublishActivity.mock.calls.filter(
+      ([activity]) => activity.sensorFailure === true,
+    );
+    expect(failurePublications.length).toBeGreaterThanOrEqual(2);
+
+    // Once the native call really completes, normal reads resume.
+    mockTemperatures(30, 30);
+    releaseStalledRead?.();
+    await waitUntilFanPercent(firstSpeed(state.cpuFanTable));
+  });
+
   it("serializes collections across restarts and aborts the stale run", async () => {
     let resolveStalledRead: ((value: number) => void) | undefined;
     mockedGetCall.mockImplementation((methodId: string) => {
@@ -508,6 +560,37 @@ describe("fan-control", () => {
     ]);
   });
 
+  it("a manual write supersedes a cycle write in flight", async () => {
+    await fanControl();
+    await vi.advanceTimersByTimeAsync(2 * CYCLE_DURATION); // healthy cycle
+    // Startup applies the highest target once; clear it so the assertions
+    // below only cover the stalled cycle and the manual write.
+    mockedSetCall.mockClear();
+    // Hold the next collection's read: the cycle is in flight.
+    let releaseRead: (() => void) | undefined;
+    mockedGetCall.mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          releaseRead = () => resolve(90);
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION);
+    // A manual write lands while the cycle is in flight...
+    await applyFixedFan(80);
+    // ...and the cycle's own write must not follow once its reads complete.
+    mockTemperatures(90, 90);
+    releaseRead?.();
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION);
+    expect(mockedSetCall).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      { Data: fanPercentToSpeed(100) },
+    );
+    expect(mockedSetCall).toHaveBeenLastCalledWith("0x47", "SetGPUFanDuty", {
+      Data: fanPercentToSpeed(80),
+    });
+  });
+
   it("restores an unconfirmed fixed target even while temperature sensors fail", async () => {
     const warning = vi
       .spyOn(console, "warn")
@@ -535,6 +618,51 @@ describe("fan-control", () => {
       }),
     );
     warning.mockRestore();
+  });
+
+  it("commands full speed at critical temperatures even in fixed mode", async () => {
+    state.doFixedSpeed = true;
+    state.fixedPercentage = 0;
+    await fanControl();
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION);
+    // Fixed 0% is applied at startup while temperatures are unknown.
+    mockTemperatures(96, 30);
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION);
+    expect(mockedSetCall).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.any(String),
+      { Data: fanPercentToSpeed(100) },
+    );
+    // The override holds while the machine stays hot: no return to 0%.
+    await vi.advanceTimersByTimeAsync(2 * CYCLE_DURATION);
+    expect(mockedSetCall).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.any(String),
+      { Data: fanPercentToSpeed(100) },
+    );
+  });
+
+  it("commands full speed at critical temperatures in automatic mode", async () => {
+    await fanControl();
+    await vi.advanceTimersByTimeAsync(2 * CYCLE_DURATION);
+    mockTemperatures(96, 30);
+    await waitUntilFanPercent(100);
+  });
+
+  it("fails hot instead of holding fixed 0% while sensors fail", async () => {
+    state.doFixedSpeed = true;
+    state.fixedPercentage = 0;
+    mockedGetCall.mockRejectedValue(new Error("sensor unavailable"));
+    await fanControl();
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION);
+    // Startup applied 0% before the first sample; the failed collection
+    // must not leave the fans stopped with unknown temperatures.
+    await vi.advanceTimersByTimeAsync(CYCLE_DURATION);
+    expect(mockedSetCall).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.any(String),
+      { Data: fanPercentToSpeed(100) },
+    );
   });
 
   it("restarts the cooling delay after fixed mode even when its sensors failed", async () => {
@@ -570,6 +698,33 @@ describe("fan-control", () => {
     expect(mockedSetCall).toHaveBeenLastCalledWith("0x71", "SetAutoFanStatus", {
       Data: 1,
     });
+  });
+
+  it("restores BIOS fan control even when the fan-write queue is wedged", async () => {
+    // Wedge the queue behind a write that never settles on its own.
+    let releaseStuckWrite: (() => void) | undefined;
+    mockedSetCall.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseStuckWrite = () => resolve(undefined);
+        }),
+    );
+    const stuck = applyFixedFan(80);
+    await vi.advanceTimersByTimeAsync(0);
+    // restoreAutoFanControl must not wait forever: after 2 s it attempts
+    // the BIOS handoff anyway.
+    const restore = restoreAutoFanControl();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await restore;
+    expect(mockedSetCall).toHaveBeenCalledWith("0x6a", "SetFixedFanStatus", {
+      Data: 0,
+    });
+    expect(mockedSetCall).toHaveBeenCalledWith("0x71", "SetAutoFanStatus", {
+      Data: 1,
+    });
+    // Drain the wedge so later tests get a working fan-write queue.
+    releaseStuckWrite?.();
+    await stuck;
   });
 
   it("should use highest fan speed when readings are invalid", async () => {

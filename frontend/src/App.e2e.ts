@@ -659,6 +659,7 @@ test("fan row controls cannot insert duplicate floating-point temperatures", asy
     cpuFanTable: [
       [0, 15],
       [Number.MIN_VALUE, 50],
+      [90, 100],
     ],
   });
   await expect(
@@ -667,16 +668,16 @@ test("fan row controls cannot insert duplicate floating-point temperatures", asy
   await page
     .getByRole("button", { name: "Append CPU fan curve row", exact: true })
     .click();
-  await expect(page.getByLabel("CPU temperature for row 3")).toHaveValue("1");
+  await expect(page.getByLabel("CPU temperature for row 4")).toHaveValue("91");
   await page
-    .getByRole("button", { name: "Add CPU row before row 3", exact: true })
+    .getByRole("button", { name: "Add CPU row before row 4", exact: true })
     .focus();
   await page.keyboard.press("Enter");
   await expect(
-    page.getByRole("button", { name: "Add CPU row before row 4", exact: true }),
+    page.getByRole("button", { name: "Add CPU row before row 5", exact: true }),
   ).toBeFocused();
-  const originalRow = page.getByLabel("CPU temperature for row 4");
-  await expect(originalRow).toHaveValue("1");
+  const originalRow = page.getByLabel("CPU temperature for row 5");
+  await expect(originalRow).toHaveValue("91");
   await originalRow.fill("2");
   await expect(originalRow).toBeFocused();
   await expect(originalRow).toHaveValue("2");

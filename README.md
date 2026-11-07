@@ -112,7 +112,8 @@ looks like, how to read the dashboard, and troubleshooting.
 - **Review the configuration first.** Startup applies the saved fan mode, GPU
   boost setting and CPU power limits automatically. The shipped 37 W / 106 W
   limits are historical defaults, not recommendations for every CPU, and the
-  accepted 0–200 W range is input validation, not a hardware safety rating.
+  accepted 15–115 W (PL1) / 15–150 W (PL2) range is conservative input
+  validation, not a hardware safety rating.
 - **Saved, commanded and measured are different.** A confirmed change means
   ALFC validated it, sent any immediate hardware call (fan curves and an
   inactive fixed percentage wait until their mode uses them), and saved it in

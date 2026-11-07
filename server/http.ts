@@ -21,7 +21,14 @@ export function createHttpHandler({
     if (!isReady() || isShuttingDown()) {
       return new Response("Service Unavailable", { status: 503 });
     }
-    const webSocketResponse = handleWebSocketRequest(request, server);
+    // A request addressed to another host (DNS rebinding: a hostile name
+    // resolving to 127.0.0.1) must not receive the dashboard or a WebSocket
+    // upgrade. Browsers always send Host; a missing header is a non-browser
+    // client such as the Plasma widget.
+    if (!isAllowedHost(request.headers.get("host"))) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const webSocketResponse = handleWebSocketRequest(request, server, isDev);
     if (webSocketResponse !== null) return webSocketResponse;
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method Not Allowed", {
@@ -40,6 +47,7 @@ export function createHttpHandler({
 export function handleWebSocketRequest(
   request: Request,
   server: Pick<Bun.Server<undefined>, "upgrade">,
+  isDev = false,
 ): Response | null | undefined {
   const pathname = new URL(request.url).pathname;
   if (pathname !== "/ws" && pathname !== "/ws/") return null;
@@ -50,7 +58,7 @@ export function handleWebSocketRequest(
     });
   }
   const origin = request.headers.get("origin");
-  if (!isAllowedWebSocketOrigin(origin)) {
+  if (!isAllowedWebSocketOrigin(origin, isDev)) {
     console.warn(`[WebSocket] Origin rejected: ${origin}`);
     return new Response("Forbidden", { status: 403 });
   }
@@ -58,7 +66,34 @@ export function handleWebSocketRequest(
   return new Response("WebSocket upgrade failed", { status: 400 });
 }
 
-export function isAllowedWebSocketOrigin(origin: string | null): boolean {
+export function isAllowedHost(host: string | null): boolean {
+  // Browsers always send Host; a missing header means a non-browser client.
+  if (host === null) return true;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(`http://${host}`);
+  } catch (_) {
+    return false;
+  }
+
+  // Only the hostname matters here: a request addressed to another host
+  // (DNS rebinding: a hostile name resolving to 127.0.0.1) must not
+  // receive the dashboard or a WebSocket upgrade. The port is the
+  // listener's own port, which tests may override. Userinfo in Host is
+  // never legitimate (browsers strip it), so reject it like the Origin
+  // check does.
+  return (
+    parsed.username === "" &&
+    parsed.password === "" &&
+    LOCALHOST_HOSTNAMES.has(parsed.hostname)
+  );
+}
+
+export function isAllowedWebSocketOrigin(
+  origin: string | null,
+  isDev = false,
+): boolean {
   // Native clients (including the Plasma widget) do not send an Origin header.
   if (origin === null) return true;
 
@@ -69,6 +104,11 @@ export function isAllowedWebSocketOrigin(origin: string | null): boolean {
     return false;
   }
 
+  // The backend listens on 5522; the dev UI runs on 3000. Any other
+  // localhost port is another local service, not this dashboard, so it
+  // must not drive hardware. An empty port is the scheme default (80/443),
+  // which is never the dashboard either.
+  const allowedPorts = isDev ? new Set(["5522", "3000"]) : new Set(["5522"]);
   return (
     (parsed.protocol === "http:" || parsed.protocol === "https:") &&
     parsed.username === "" &&
@@ -76,6 +116,7 @@ export function isAllowedWebSocketOrigin(origin: string | null): boolean {
     parsed.pathname === "/" &&
     parsed.search === "" &&
     parsed.hash === "" &&
+    allowedPorts.has(parsed.port) &&
     LOCALHOST_HOSTNAMES.has(parsed.hostname)
   );
 }
@@ -127,13 +168,26 @@ export async function serveFrontendAsset(
       realpath(resolved.filePath),
     ]);
   } catch (error) {
-    if (
+    const code =
       error !== null &&
       typeof error === "object" &&
       "code" in error &&
-      (error.code === "ENOENT" || error.code === "ENOTDIR")
+      typeof error.code === "string"
+        ? error.code
+        : undefined;
+    // A missing asset and an unresolvable path are both "not found" to the
+    // client; a permission failure is forbidden. Anything else (a failing
+    // disk, a broken filesystem) is a server error, not a 404.
+    if (
+      code === "ENOENT" ||
+      code === "ENOTDIR" ||
+      code === "ENAMETOOLONG" ||
+      code === "ELOOP"
     ) {
       return new Response("Not Found", { status: 404 });
+    }
+    if (code === "EACCES") {
+      return new Response("Forbidden", { status: 403 });
     }
     throw error;
   }

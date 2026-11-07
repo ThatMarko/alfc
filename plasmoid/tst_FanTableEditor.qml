@@ -103,7 +103,7 @@ Item {
         function test_externalStatePreservesDraftUntilReload() {
             const model = fixture.editor.activeModel()
             fixture.editor.updateValue(model, 0, "speed", "45.5")
-            backend.latestState = { cpuFanTable: [[50, 60], [100, 100]], gpuFanTable: [[50, 60], [100, 100]] }
+            backend.latestState = { cpuFanTable: [[50, 60], [90, 100]], gpuFanTable: [[50, 60], [90, 100]] }
             compare(fixture.editor.modelToArray(model)[0][1], 45.5)
             fixture.editor.syncFromBackend(true)
             compare(fixture.editor.modelToArray(model)[0][1], 60)
@@ -115,7 +115,7 @@ Item {
             const model = fixture.editor.activeModel()
             fixture.editor.updateValue(model, 0, "speed", "45.5")
             backend.url = "ws://second.example/ws"
-            backend.latestState = { cpuFanTable: [[50, 60], [100, 100]], gpuFanTable: [[50, 60], [100, 100]] }
+            backend.latestState = { cpuFanTable: [[50, 60], [90, 100]], gpuFanTable: [[50, 60], [90, 100]] }
             compare(fixture.editor.modelToArray(model)[0][1], 60)
             verify(!fixture.editor.dirty)
         }
@@ -132,13 +132,21 @@ Item {
         }
 
         function test_addPointAtMaximumTemperatureKeepsCurveValid() {
-            backend.latestState = { cpuFanTable: [[40, 30], [110, 100]], gpuFanTable: [[40, 30], [110, 100]] }
+            // Start from the valid [[40, 30], [90, 100]] curve, then push
+            // the last point to the 110°C ceiling: the editor can still
+            // gap-insert a point, but the result no longer reaches
+            // emergency speed by 90°C, so saving must flag it instead of
+            // the table reading as valid.
+            const model = fixture.editor.activeModel()
+            fixture.editor.updateValue(model, 1, "temp", "110")
             fixture.editor.addRow()
-            const table = fixture.editor.modelToArray(fixture.editor.activeModel())
+            const table = fixture.editor.modelToArray(model)
             compare(table.length, 3)
             compare(table[1][0], 75)
             compare(table[1][1], 30)
-            compare(fixture.editor.validateTable(table, "CPU"), "")
+            fixture.editor.validateAndSave()
+            compare(backend.saved, null)
+            compare(fixture.editor.statusTone, "error")
         }
 
         function test_editorCommandsFitNarrowCard() {

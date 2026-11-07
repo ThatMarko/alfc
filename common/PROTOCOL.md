@@ -60,7 +60,9 @@ backpressure limit remains enabled. A direct reply dropped on an open connection
 also terminates that connection so its client reconnects for a fresh snapshot.
 Backpressured replies are already queued and are never resent. At most **64**
 queued or executing JSON hardware/config
-requests are admitted across all connections. An excess request receives `BUSY`;
+requests are admitted across all connections, at most **4** pending per
+connection, and at most **16** connections at once (a 17th connection is closed
+with code 1013). An excess request receives `BUSY`;
 subscription and heartbeat traffic remain available.
 
 Requests may use text frames or UTF-8 binary frames. Invalid UTF-8 binary input
@@ -121,7 +123,7 @@ not settle a pending request. Omitted optional method metadata remains valid.
 | `fixedpercentage`        | Integer `0..100`                       | Store the fixed percentage. In fixed mode, apply both fan writes before committing the value. In automatic mode, store it for the next fixed-mode activation. |
 | `dofixedspeed`           | Boolean                                | `true` applies the stored fixed percentage before committing the mode. `false` resumes the existing curve loop from the confirmed current speed.              |
 | `fantable`               | `{ "cpu": FanTable, "gpu": FanTable }` | Store both validated curves. The next automatic cycle uses their target at the measured temperature.                                                          |
-| `tune`                   | `{ "pl1": number, "pl2": number }`     | Apply integer watt limits `0..200` through the native backend, then commit both settings on success.                                                          |
+| `tune`                   | `{ "pl1": number, "pl2": number }`     | Apply integer watt limits PL1 `15..115` and PL2 `15..150`, with PL1 no higher than PL2, through the native backend, then commit both settings on success.                                                          |
 | `get`                    | Optional `Args`                        | Read a validated catalog method. Methods with inputs require their complete argument map.                                                                     |
 | `set`                    | `Args`                                 | Write a validated catalog method. GPU boost additionally updates `state.gpuBoost`; other diagnostic setters have no corresponding persisted State field.      |
 
@@ -138,8 +140,10 @@ See [PORTING_REVIEW.md](../PORTING_REVIEW.md) for the Windows gate and limitatio
 
 A `FanTable` is a non-empty array of `[temperature, percentage]` pairs. Both
 numbers must be finite; temperatures are `0..110` degrees Celsius and strictly
-ascending, and percentages are `0..100`. Fractions are valid. Percentages need not
-ascend. Selection is stepwise: choose the highest temperature threshold at or
+ascending, and percentages are `0..100` and must not decrease as temperature
+rises. Fractions are valid. A table holds at most 16 entries, and its last
+entry must reach at least 85% fan speed by 90°C, so the curve can always cool
+a hot machine. Selection is stepwise: choose the highest temperature threshold at or
 below the measured temperature, or the first row below the first threshold. The
 higher CPU/GPU target commands both fans because the heat pipes are shared.
 
@@ -283,7 +287,11 @@ or proof that either fan is rotating at the requested duty. Raw `getRpm1` and
 a failed/partial write; this is an unconfirmed command, not zero RPM.
 A sensor failure in automatic mode commands the highest percentage anywhere in
 either configured curve. Fixed mode retains its selected target and retries
-unconfirmed writes even while sensors fail.
+unconfirmed writes even while sensors fail — except a fixed target of 0%,
+which fails hot to the highest configured target (at least 80%) instead of
+holding the fans stopped with unknown temperatures. At or above 95°C on either
+sensor, the controller commands full speed immediately in both modes, whatever
+the active curve or fixed target is.
 
 On a failed collection, `sensorFailure: true` marks the temperatures as the last
 successful averages, not fresh measurements. Until the first successful

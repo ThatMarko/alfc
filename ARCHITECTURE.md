@@ -189,13 +189,16 @@ Step by step:
    JSON, rejects requests during shutdown, and handles the telemetry
    subscription before the queue.
 3. **Ordering.** Every other message enters one queue shared across both
-   listeners and all clients (up to 64 queued or running), so two clients
-   cannot interleave hardware writes.
+   listeners and all clients (up to 64 queued or running, at most 4 per
+   client, at most 16 clients), so two clients cannot interleave hardware
+   writes.
 4. **Validation, capability and range checks.** Inside the queue,
    `handleMessage` checks the message kind, payload shape, capability flag
    and value ranges before touching hardware. Fan tables use
-   `common/validation.ts`; the whole-number ranges for fixed percentage
-   (0–100) and power limits (0–200) are checked in the handler itself.
+   `common/validation.ts`; the whole-number range for fixed percentage
+   (0–100) is checked in the handler itself, and power limits (PL1 15–115 W,
+   PL2 15–150 W, PL1 ≤ PL2) are checked by `validatePowerLimits` in
+   `common/validation.ts`.
    `common/validation.ts` also checks the saved file at startup and, through
    `common/protocol.ts` and the widget's `Protocol.js` copy, every incoming
    snapshot in the clients. The editors check input before sending.
